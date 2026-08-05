@@ -26,6 +26,85 @@ export interface PromptSpec {
   keywords: string[];
 }
 
+/* --------------------------------- task 1 ----------------------------------- */
+
+/** What an IELTS Academic Task 1 visual actually is. */
+export type Task1VisualKind = 'line' | 'bar' | 'pie' | 'table' | 'process';
+
+/**
+ * One named data series. `values` is index-aligned with `Task1Chart.categories`;
+ * a `null` entry means "no data for this category" and is rendered as a gap,
+ * never as zero.
+ */
+export interface Task1Series {
+  name: string;
+  values: Array<number | null>;
+}
+
+/**
+ * The chart as DATA, not as an image — this is what makes deterministic Task 1
+ * analysis possible. Because the app owns the numbers, the rules can check
+ * whether a learner cited a figure that exists, named the real maximum, and
+ * covered the actual trend.
+ *
+ * `process` charts carry no numbers: they use `steps` and leave `series` empty.
+ */
+export interface Task1Chart {
+  kind: Task1VisualKind;
+  /** Chart title as it would be printed above the visual in the exam. */
+  title: string;
+  /** Unit of the values, e.g. "%", "million tonnes", "students". Used in feedback copy. */
+  unit: string;
+  /** x-axis / row labels, e.g. ["1990", "2000", "2010"] or ["Cycling", "Bus"]. */
+  categories: string[];
+  /** Empty for `process` charts. */
+  series: Task1Series[];
+  /** Ordered step labels — `process` charts only; empty otherwise. */
+  steps: string[];
+  /** Optional axis captions. */
+  xLabel?: string;
+  yLabel?: string;
+}
+
+/**
+ * A Task 1 prompt. Deliberately a SIBLING of PromptSpec rather than an
+ * extension: Task 1 has no QuestionType, and every Task 2 rule that takes a
+ * `PromptSpec` would otherwise have to defend against a shape it cannot use.
+ */
+export interface Task1PromptSpec {
+  id: string;
+  /** Always the literal 'task1' — lets a union of the two prompt kinds discriminate. */
+  task: 'task1';
+  /** Full task text shown to the learner, ending with the standard Task 1 instruction. */
+  text: string;
+  /** Short topic tag, e.g. "energy", "transport". */
+  topic: string;
+  chart: Task1Chart;
+  /** The parts a complete answer must address, phrased as a checklist. */
+  parts: string[];
+  /** Content words from the prompt and chart labels, lowercase — for prompt-echo and relevance. */
+  keywords: string[];
+}
+
+/**
+ * Facts derived from a Task1Chart, computed once and reused by the analysis
+ * rules. See `analysis/chartFacts.ts`.
+ */
+export interface Task1ChartFacts {
+  /** Every distinct numeric value present in the chart, deduplicated and ascending. */
+  values: number[];
+  /** Highest value with the series and category it belongs to; null when the chart has no numbers. */
+  peak: { series: string; category: string; value: number } | null;
+  /** Lowest value, same shape. */
+  trough: { series: string; category: string; value: number } | null;
+  /** Largest single step-to-step increase across all series. `delta` is a positive magnitude. */
+  biggestRise: { series: string; from: string; to: string; delta: number } | null;
+  /** Largest single step-to-step decrease. `delta` is a POSITIVE magnitude — the field name carries the direction. */
+  biggestFall: { series: string; from: string; to: string; delta: number } | null;
+  /** True when at least two series exist — a comparison is then expected of the learner. */
+  comparative: boolean;
+}
+
 /* ------------------------------ band criteria ------------------------------- */
 
 export type Criterion = 'TR' | 'CC' | 'LR' | 'GRA';
@@ -305,4 +384,10 @@ export interface PromptPickerProps {
   prompts: PromptSpec[];
   current: PromptSpec | null;
   onPick: (p: PromptSpec) => void;
+}
+
+export interface ChartProps {
+  chart: Task1Chart;
+  /** Accessible caption; falls back to `chart.title` when omitted. */
+  caption?: string;
 }

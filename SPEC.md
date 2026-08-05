@@ -197,7 +197,7 @@ trend sparklines for focusCategories; export/import buttons.
 
 ## Cut from v1 (deliberate)
 Handwriting-pace mode · UK/US consistency · cohesion X-ray overlay · warm-up drills · dictionary
-spell-check (browser spellcheck covers Coach) · per-finding dismissal · plan-phase timer · Task 1.
+spell-check (browser spellcheck covers Coach) · per-finding dismissal · plan-phase timer · Task 1 (see "Task 1 (v2)" below).
 
 ## Patch v2 (calibrated against a real Band-6 essay, 2026-08-04)
 
@@ -277,3 +277,40 @@ New IssueCategory ids exist in types.ts; CATEGORY_META has entries for all of th
 ### Cheatsheet
 `components/CheatSheet.tsx` renders the learner's one-page Task 2 guide (adapted from the user's
 ielts-cheatsheet.html) as a right-panel tab in Coach Mode only; Exam Mode never renders it.
+
+## Task 1 (v2)
+
+IELTS Academic Writing Task 1: describe a visual in ≥ 150 words in 20 minutes.
+
+**The chart is DATA, not an image.** `Task1PromptSpec.chart` carries the numbers (`kind`, `title`,
+`unit`, `categories`, `series[]`, `steps[]`). The app renders the visual itself from that data
+(`components/Chart.tsx`), which is what makes deterministic factual checking possible: because the
+engine owns the numbers it can verify that a cited figure exists, that the stated maximum is the real
+maximum, and that an overview was given at all.
+
+- `Task1PromptSpec` is a SIBLING of `PromptSpec`, not an extension — Task 1 has no `QuestionType`,
+  and `RuleFn` keeps its `PromptSpec | null` signature.
+- `analysis/chartFacts.ts` → `deriveChartFacts(chart): Task1ChartFacts` (`values` deduped ascending,
+  `peak`, `trough`, `biggestRise`, `biggestFall`, `comparative`). Pure; TOTAL on degenerate input
+  (empty series, all-null values, single point, values running past `categories`) — never throws,
+  never divides by zero. Consecutive-step scans compare only NON-NULL neighbours, so a gap never
+  invents a step. Ties in `peak`/`trough` resolve to the first occurrence in series-then-category
+  order. `biggestFall.delta` is a POSITIVE magnitude; the field name carries the direction.
+- `prompts/task1Bank.ts` → 12 prompts (`t1-01`…`t1-12`): 4 line, 3 bar, 2 pie, 2 table, 1 process.
+  Standard instruction ends every prompt text: "Summarise the information by selecting and reporting
+  the main features, and make comparisons where relevant. Write at least 150 words."
+- **Bank integrity is a contract.** Pie series and percentage table rows sum to 100; every series is
+  index-aligned with `categories`; authored numbers are the source of truth for the factual-accuracy
+  rules, so a typo becomes a false accusation shown to a correct learner.
+  `tests/task1-chart.test.ts` pins all of it.
+- `components/Chart.tsx` — hand-written SVG, no charting library (the app has no runtime dependency
+  beyond React). Line and bar and pie render as SVG; `table` renders a real `<table>` and `process`
+  a real `<ol>`, because those carry the semantics screen readers need for free. `null` values are
+  GAPS: a line breaks across them, a bar is absent — never drawn as zero. Series colours are four
+  cool-end tokens declared in `Chart.css`; `--marking-red` and `--marking-amber` are semantically
+  reserved and never used decoratively.
+- Canonical Task 1 constants: word count minimum **150** (error below), target 170–200, exam duration
+  **20:00**. Paragraph shape: paraphrase · overview · 1–2 detail paragraphs · NO conclusion (a
+  conclusion is not required and merely repeats the overview).
+- Maps are deliberately NOT supported: a map cannot be expressed as `categories × series` and would
+  need a different renderer and different rules.

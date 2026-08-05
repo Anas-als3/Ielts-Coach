@@ -1,0 +1,234 @@
+/**
+ * Task 1 chart styles.
+ *
+ * Series colours are declared here rather than in index.css because they are
+ * not yet part of the documented palette in DESIGN.md — promote them once they
+ * have been seen on screen and approved.
+ *
+ * All six sit at the cool end of the palette so they read with the paper
+ * surface. NONE of them may be --marking-red or --marking-amber: DESIGN.md
+ * reserves examiner red exclusively for errors and amber for warnings, and a
+ * decorative use would break that semantic.
+ *
+ * SIX, not four: a pie uses one colour per CATEGORY and the bank's pies have
+ * five slices, so a four-colour ramp wrapped the fifth back onto the first and
+ * put two identical slices side by side.
+ *
+ * Every one is dark enough to carry white slice labels (contrast >= 4.5:1),
+ * which is why the ramp separates by hue rather than by lightness.
+ */
+.chart {
+  --chart-series-1: var(--exam-navy); /* #24344D — navy */
+  --chart-series-2: #3e7c74; /* muted teal */
+  --chart-series-3: #5b7a9e; /* slate blue */
+  --chart-series-4: #6b5b95; /* desaturated indigo */
+  --chart-series-5: #2f6470; /* deep cyan */
+  --chart-series-6: #57608a; /* periwinkle navy */
+
+  margin: 0;
+  padding: 14px 16px 16px;
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(28, 37, 54, 0.08);
+}
+
+.chart-title {
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.chart-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-empty {
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  margin: 12px 0;
+}
+
+/* ------------------------------ axes and grid ------------------------------ */
+
+.chart-grid {
+  stroke: var(--rule-line);
+  stroke-width: 1;
+}
+
+.chart-axis {
+  stroke: var(--ink-soft);
+  stroke-width: 1;
+}
+
+/* Instrument readouts, per DESIGN.md: tabular monospace, never decorative. */
+.chart-tick {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  fill: var(--ink-soft);
+}
+
+.chart-axis-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  fill: var(--ink-soft);
+}
+
+/* --------------------------------- marks ---------------------------------- */
+
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-dot {
+  stroke: var(--sheet);
+  stroke-width: 1.5;
+}
+
+.chart-bar {
+  rx: 1;
+}
+
+.chart-slice {
+  stroke: var(--sheet);
+  stroke-width: 1.5;
+}
+
+.chart-slice-label {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  fill: #fdfdfb;
+}
+
+/* --------------------------------- legend --------------------------------- */
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+
+.chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* --------------------------------- table ---------------------------------- */
+
+/* Wide tables scroll inside their own box; the page never scrolls sideways. */
+.chart-table-scroll {
+  overflow-x: auto;
+}
+
+.chart-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.chart-table caption {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--ink);
+  padding-bottom: 10px;
+}
+
+.chart-table th,
+.chart-table td {
+  border: 1px solid var(--rule-line);
+  padding: 6px 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chart-table thead th,
+.chart-table tbody th {
+  background: var(--paper);
+  font-weight: 600;
+  text-align: left;
+}
+
+.chart-table td.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------- process --------------------------------- */
+
+.chart-process {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.chart-process li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+}
+
+.chart-step-n {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--exam-navy);
+  color: var(--sheet);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-step-text {
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .chart {
+    padding: 12px;
+  }
+
+  .chart-tick {
+    font-size: 12px;
+  }
+}
