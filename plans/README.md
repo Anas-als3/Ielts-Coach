@@ -11,17 +11,22 @@ row when done.
 54 tests, all passing (169ms). TypeScript strict. Zero runtime dependencies
 beyond React.
 
-**⚠ This repository is not under version control.** `git rev-parse` fails, so no
-plan could stamp a commit SHA and no executor can run a normal drift check.
-Every plan's drift check is therefore "confirm the quoted excerpts still match
-the live files". **Run `git init` and commit the current tree before starting
-plan 001** — plan 001's Git workflow section has the exact commands.
+**Version control** — the repo was initialised on 2026-08-05 after the plans were
+written, so the plans themselves carry no commit SHA and their drift checks read
+"confirm the quoted excerpts still match the live files". Use these instead:
+
+- Baseline (state the plans were written against): `9c42f74`
+- Remote: `https://github.com/Anas-als3/Ielts-Coach` (private)
+
+**Parallel sessions: one branch each, off `main`.** Branch names are given in
+each plan's Git workflow section (`advisor/NNN-<slug>`). Do not work on `main`
+directly, and do not have two sessions on the same plan.
 
 ## Execution order & status
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Make a schemaVersion bump non-destructive; add `task` to SessionRecord | P1 | S | — | TODO |
+| 001 | Make a schemaVersion bump non-destructive; add `task` to SessionRecord | P1 | S | — | DONE |
 | 002 | Collapse three copies of the complexity-marker lists; stop matching hyphenated compounds | P2 | S | — | TODO |
 | 003 | Task 1 prompt data model, 12-prompt bank with real chart data, SVG chart renderer | P1 | M | 001 | TODO |
 | 004 | Task 1 analysis pipeline — achievement rules, structure checks, band estimate, engine routing | P1 | L | 003 | TODO |
