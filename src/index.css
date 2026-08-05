@@ -1,0 +1,174 @@
+/* ------------------------------------------------------------------ tokens */
+:root {
+  --paper: #f4f6f3;
+  --sheet: #fdfdfb;
+  --ink: #1c2536;
+  --ink-soft: #5a6478;
+  --rule-line: #e2e6df;
+  --marking-red: #b5372a;
+  --marking-amber: #96690d;
+  --ok-green: #2f6b45;
+  --exam-navy: #24344d;
+  --wash-red: rgba(181, 55, 42, 0.14);
+  --wash-amber: rgba(150, 105, 13, 0.16);
+  --wash-blue: rgba(36, 52, 77, 0.1);
+
+  --font-serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius: 6px;
+  --shadow: 0 1px 3px rgba(28, 37, 54, 0.08);
+  --shadow-lift: 0 4px 14px rgba(28, 37, 54, 0.1);
+}
+
+/* ------------------------------------------------------------------- reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+textarea:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--exam-navy);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(36, 52, 77, 0.16);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-line) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--rule-line);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --------------------------------------------------------- shared elements */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--rule-line);
+  background: var(--sheet);
+  color: var(--ink);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.btn:hover {
+  border-color: var(--ink-soft);
+}
+
+.btn:active {
+  transform: translateY(0.5px);
+}
+
+.btn-primary {
+  background: var(--exam-navy);
+  border-color: var(--exam-navy);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #1b2940;
+  border-color: #1b2940;
+}
+
+.btn-danger-quiet {
+  color: var(--marking-red);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* severity color helpers — semantic, use everywhere severities appear */
+.sev-error {
+  color: var(--marking-red);
+}
+.sev-warning {
+  color: var(--marking-amber);
+}
+.sev-info {
+  color: var(--exam-navy);
+}
+
+.card {
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}

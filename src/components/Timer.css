@@ -1,0 +1,63 @@
+/* Timer — exam countdown in the navy topbar. Prefix: .tm- */
+
+.tm-timer {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 64px;
+}
+
+.tm-digits {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  color: #fff;
+}
+
+.tm-track {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25); /* sits on the navy exam topbar */
+  overflow: hidden;
+}
+
+.tm-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #fff;
+  opacity: 0.7;
+}
+
+/* final five minutes: amber-on-navy */
+.tm-low .tm-digits {
+  color: #f0c987;
+}
+
+.tm-low .tm-fill {
+  background: #f0c987;
+  opacity: 1;
+}
+
+.tm-pulse {
+  animation: tm-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-pulse {
+    animation: none;
+  }
+}

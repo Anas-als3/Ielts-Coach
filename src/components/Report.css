@@ -1,0 +1,764 @@
+/* Report — the examiner's report on institutional paper. All classes prefixed rp- */
+
+.rp {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.rp-muted {
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+/* visually hidden, kept for screen readers */
+.rp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------ 1 · header */
+.rp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rp-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rp-actions .btn:active {
+  background: var(--paper);
+}
+
+/* --------------------------------------------------------- 2 · band hero */
+.rp-hero {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.rp-hero-band {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 176px;
+  padding: 8px 0;
+}
+
+.rp-band-range {
+  font-size: 46px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.rp-band-caption {
+  font-size: 12px;
+  color: var(--ink-soft);
+  max-width: 22ch;
+}
+
+/* confidence note directly under the caption — same quiet voice */
+.rp-band-note {
+  font-size: 12px;
+  color: var(--ink-soft);
+  max-width: 22ch;
+}
+
+/* 4-to-9 band scale under the range numerals */
+.rp-band-scale {
+  width: 100%;
+  margin-top: 4px; /* + 8px flex gap = 12px */
+}
+
+.rp-scale-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+}
+
+.rp-scale-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--exam-navy);
+  opacity: 0.8;
+  animation: rp-range-grow 500ms ease-out both;
+}
+
+@keyframes rp-range-grow {
+  from {
+    width: 0;
+  }
+}
+
+.rp-scale-marker {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: var(--ink);
+  opacity: 0.6;
+}
+
+.rp-scale-ticks {
+  position: relative;
+  height: 14px;
+  margin-top: 4px;
+}
+
+.rp-scale-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--ink-soft);
+}
+
+.rp-tiles {
+  flex: 1 1 460px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rp-tile {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rp-tile-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.rp-tile-band {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* mini scale bar, same reading as the feedback panel's */
+.rp-tile-scale {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  overflow: hidden;
+}
+
+.rp-tile-scale-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--exam-navy);
+}
+
+.rp-tile-rationale {
+  margin: 0;
+  padding-left: 15px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.rp-tile-rationale li + li {
+  margin-top: 3px;
+}
+
+/* ------------------------------------------------------- clean-essay note */
+.rp-clean {
+  padding: 14px 18px;
+  border-left: 3px solid var(--ok-green);
+}
+
+.rp-clean-head {
+  font-weight: 600;
+  color: var(--ok-green);
+}
+
+.rp-clean-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* --------------------------------------------------- 3 · versus last essay */
+.rp-versus {
+  padding: 14px 18px;
+}
+
+.rp-versus-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.rp-delta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  animation: rp-rise 360ms ease backwards;
+}
+
+.rp-delta:nth-child(2) {
+  animation-delay: 40ms;
+}
+
+.rp-delta:nth-child(3) {
+  animation-delay: 80ms;
+}
+
+.rp-delta:nth-child(4) {
+  animation-delay: 120ms;
+}
+
+@keyframes rp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.rp-delta-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* ledger alignment: right-aligned "last", fixed arrow column, "this" after */
+.rp-delta-values {
+  font-size: 15px;
+  color: var(--ink);
+  display: grid;
+  grid-template-columns: minmax(8ch, max-content) max-content max-content;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.rp-delta-from {
+  text-align: right;
+}
+
+.rp-delta-arrow {
+  color: var(--ink-soft);
+}
+
+.rp-delta-badge {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rp-delta-better {
+  color: var(--ok-green);
+}
+
+.rp-delta-worse {
+  color: var(--marking-red);
+}
+
+.rp-delta-same {
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------- 4 · structure checklist */
+.rp-checklist {
+  padding: 14px 18px;
+}
+
+.rp-checklist-grid {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 24px;
+}
+
+.rp-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.rp-check-icon {
+  flex: none;
+  margin-top: 3px;
+}
+
+/* satisfied checks pop in once on mount */
+.rp-check-icon-done {
+  transform-origin: center;
+  animation: rp-check-pop 200ms ease-out backwards;
+}
+
+@keyframes rp-check-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.rp-check-label {
+  color: var(--ink);
+}
+
+.rp-check-detail {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------- 4b · position check */
+.rp-position {
+  padding: 14px 18px;
+}
+
+.rp-position-quotes {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rp-position-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.rp-position-para {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+/* the learner's own sentences, quoted back in set text */
+.rp-position-quote {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  overflow-wrap: break-word;
+}
+
+.rp-position-flag {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--marking-amber);
+}
+
+.rp-position-confirm {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.rp-position-confirm input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--exam-navy);
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------- 5 · annotated essay */
+.rp-essay {
+  padding: 20px 28px 26px;
+}
+
+.rp-essay-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.rp-essay-body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rp-para-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rp-para {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 29px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  /* faint ruled baseline, one hairline per 29px text line */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 28px,
+    var(--rule-line) 28px,
+    var(--rule-line) 29px
+  );
+}
+
+.rp-mark {
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: background-color 140ms ease;
+}
+
+.rp-mark-error {
+  background: var(--wash-red);
+  box-shadow: inset 0 -2px 0 var(--marking-red);
+}
+
+.rp-mark-warning {
+  background: var(--wash-amber);
+  box-shadow: inset 0 -2px 0 var(--marking-amber);
+}
+
+.rp-mark-info {
+  background: var(--wash-blue);
+  box-shadow: inset 0 -2px 0 var(--exam-navy);
+}
+
+/* hover deepens the wash ~35% (same hue, alpha only); active a touch further */
+.rp-mark-error:hover {
+  background: color-mix(in srgb, var(--marking-red) 19%, transparent);
+}
+
+.rp-mark-error:active {
+  background: color-mix(in srgb, var(--marking-red) 22%, transparent);
+}
+
+.rp-mark-warning:hover {
+  background: color-mix(in srgb, var(--marking-amber) 22%, transparent);
+}
+
+.rp-mark-warning:active {
+  background: color-mix(in srgb, var(--marking-amber) 26%, transparent);
+}
+
+.rp-mark-info:hover {
+  background: color-mix(in srgb, var(--exam-navy) 14%, transparent);
+}
+
+.rp-mark-info:active {
+  background: color-mix(in srgb, var(--exam-navy) 16%, transparent);
+}
+
+.rp-note {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  animation: rp-note-open 180ms ease;
+}
+
+@keyframes rp-note-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.rp-note-error {
+  border-left-color: var(--marking-red);
+}
+
+.rp-note-warning {
+  border-left-color: var(--marking-amber);
+}
+
+.rp-note-info {
+  border-left-color: var(--exam-navy);
+}
+
+.rp-note-label {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.rp-note-msg {
+  color: var(--ink);
+}
+
+/* --------------------------------------------------- whole-essay notes */
+.rp-notes {
+  padding: 14px 18px;
+}
+
+.rp-notes-group {
+  margin-top: 12px;
+}
+
+.rp-notes-crit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.rp-notes-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rp-notes-list li {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------- 6 · exam pacing */
+.rp-pacing {
+  padding: 16px 18px;
+}
+
+.rp-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 10px;
+}
+
+.rp-grid-line {
+  stroke: var(--rule-line);
+  stroke-width: 1;
+}
+
+.rp-grid-line-em {
+  stroke: var(--ink-soft);
+  opacity: 0.65;
+}
+
+.rp-axis-line {
+  stroke: var(--ink-soft);
+  stroke-width: 1;
+  opacity: 0.8;
+}
+
+.rp-tick {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  fill: var(--ink-soft);
+}
+
+.rp-axis-caption {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  fill: var(--ink-soft);
+}
+
+.rp-line-you {
+  fill: none;
+  stroke: var(--exam-navy);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.rp-line-target {
+  fill: none;
+  stroke: var(--ink-soft);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  stroke-linejoin: round;
+}
+
+.rp-series-label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--exam-navy);
+}
+
+.rp-series-label-target {
+  fill: var(--ink-soft);
+  font-weight: 500;
+}
+
+/* hover layer: invisible hit circles carry the tooltips; dot appears on hover */
+.rp-pt-hit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.rp-pt-dot {
+  fill: var(--exam-navy);
+  opacity: 0;
+  transition: opacity 140ms ease;
+  pointer-events: none;
+}
+
+.rp-pt:hover .rp-pt-dot {
+  opacity: 1;
+}
+
+.rp-pacing-meta {
+  margin-top: 10px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.rp-pacing-meta p {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* ------------------------------------------------ 7 · profile confrontation */
+.rp-confront {
+  padding: 14px 18px;
+  border-left: 3px solid var(--marking-amber);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rp-confront-line {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.rp-trend-improving {
+  color: var(--ok-green);
+  font-weight: 600;
+}
+
+.rp-trend-worsening {
+  color: var(--marking-red);
+  font-weight: 600;
+}
+
+.rp-trend-flat {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------- responsive */
+@media (max-width: 900px) {
+  .rp-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rp-versus-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .rp-checklist-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rp-position-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .rp-essay {
+    padding: 16px 18px 20px;
+  }
+}
+
+/* ------------------------------------------------------------------- print */
+@media print {
+  .rp-actions,
+  .rp-essay-hint {
+    display: none;
+  }
+
+  .rp .card,
+  .rp-note {
+    background: none;
+    box-shadow: none;
+  }
+
+  /* ruled baselines and washes may drop on paper; the mark keeps its underline */
+  .rp-para {
+    background-image: none;
+  }
+
+  .rp-mark {
+    background: none;
+    box-shadow: none;
+  }
+
+  .rp-mark-error {
+    border-bottom: 2px solid var(--marking-red);
+  }
+
+  .rp-mark-warning {
+    border-bottom: 2px solid var(--marking-amber);
+  }
+
+  .rp-mark-info {
+    border-bottom: 2px solid var(--exam-navy);
+  }
+
+  /* scale fills are meaningful data — ask the printer to keep them */
+  .rp-scale-range,
+  .rp-scale-marker,
+  .rp-tile-scale-fill {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

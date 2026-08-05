@@ -1,0 +1,275 @@
+/* -------------------------------------------------------- structure rail
+   The essay-anatomy spine: one continuous 2px vertical line running behind
+   every node from the first check to the last. Each node draws its own
+   spine segments (up toward the previous check, down toward the next), so
+   the stretch between two satisfied neighbours deepens toward green and
+   completion visibly climbs the line. Hollow ring = not yet; solid green
+   disc + check = satisfied. Green/amber here are semantic (ok / outside
+   norm) — never decorative red.
+
+   Geometry contract (all offsets depend on these):
+   node padding-left 26 · dot 14px at (0,2) → dot centre (7,9)
+   spine x = 6..8 · node gap 12 · label margin-bottom 12 · group gap 16 */
+
+.rail-root {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 2px 16px;
+  font-family: var(--font-sans);
+}
+
+/* quiet thin scrollbar on the rail's scroll container */
+.rail-zone {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-line) transparent;
+}
+
+.rail-zone::-webkit-scrollbar {
+  width: 8px;
+}
+
+.rail-zone::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rail-zone::-webkit-scrollbar-thumb {
+  background: var(--rule-line);
+  border-radius: 4px;
+}
+
+/* --------------------------------------------------- "this question needs" */
+.rail-needs {
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 12px 12px;
+}
+
+.rail-needs-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rail-needs-list li {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  padding: 2px 8px;
+  border: 1px solid var(--rule-line);
+  border-radius: 3px;
+  background: var(--paper);
+}
+
+/* ------------------------------------------------------------- the spine */
+.rail-anatomy {
+  display: flex;
+  flex-direction: column;
+}
+
+/* more air above group eyebrows (spine crosses this margin via segments) */
+.rail-anatomy .rail-group + .rail-group {
+  margin-top: 16px;
+}
+
+.rail-group-label {
+  position: relative;
+  margin: 0 0 12px;
+}
+
+/* the eyebrow sits ON the spine: paper plate + padding = small paper gap */
+.rail-group-label-text {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  background: var(--paper);
+  padding: 4px 8px 4px 0;
+}
+
+.rail-nodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rail-node {
+  position: relative;
+  padding-left: 26px;
+}
+
+/* spine segments — drawn per node so each stretch can colour independently */
+.rail-seg-up::before,
+.rail-seg-down::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  width: 2px;
+  background: var(--rule-line);
+  transition: background-color 300ms ease;
+}
+
+/* up: from the gap above (12px) down to this dot's centre (y = 9) */
+.rail-seg-up::before {
+  top: -12px;
+  height: 21px;
+}
+
+/* down: from this dot's centre across the gap below — reaches the next
+   group's eyebrow exactly (16px group margin); the 4px overshoot within a
+   group hides behind the next node's identically-coloured up segment */
+.rail-seg-down::after {
+  top: 9px;
+  bottom: -16px;
+}
+
+/* completion climbs the spine: both neighbours satisfied → segment deepens
+   (--ok-green at 45%) */
+.rail-seg-up-done::before,
+.rail-seg-down-done::after {
+  background: rgba(47, 107, 69, 0.45);
+}
+
+/* nodes: 14px circles centred on the spine */
+.rail-dot {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid color-mix(in srgb, var(--ink-soft) 45%, transparent);
+  background: var(--paper);
+  color: #fff;
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+/* "you are here": the first unsatisfied check gets a firmer ring */
+.rail-current .rail-dot {
+  border-width: 2px;
+  border-color: var(--ink-soft);
+}
+
+.rail-done .rail-dot {
+  border-color: var(--ok-green);
+  background: var(--ok-green);
+  animation: rail-pop 200ms ease;
+}
+
+.rail-node-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.rail-node-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+/* screen-reader-only status text */
+.rail-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- motion */
+/* one entrance moment: labels + nodes rise in, 30ms steps (capped in TSX) */
+.rail-enter {
+  animation: rail-rise 360ms ease both;
+  animation-delay: calc(var(--rail-i, 0) * 30ms);
+}
+
+@keyframes rail-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* a check filling: the disc pops from 60% */
+@keyframes rail-pop {
+  from {
+    transform: scale(0.6);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+/* ------------------------------------------------------------ empty state */
+.rail-empty {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+/* ------------------------------------------------- paragraph balance strip */
+.rail-balance-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rail-balance-label {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+/* 1px hairline border + 5px inner bar = 7px border-box track */
+.rail-balance-track {
+  display: block;
+  height: 7px;
+  border: 1px solid var(--rule-line);
+  border-radius: 3px;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.rail-balance-bar {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--marking-amber); /* outside its norm range */
+  opacity: 0.8;
+  transition: width 200ms ease;
+}
+
+.rail-balance-bar.rail-in-range {
+  background: var(--ok-green); /* within its norm range */
+  opacity: 0.7;
+}

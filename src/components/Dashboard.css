@@ -1,0 +1,445 @@
+/* Dashboard — the progress view. Every class is prefixed .db- */
+
+.db-root {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  /* Single orchestrated entrance for the whole page — no per-card stagger. */
+  animation: db-page-in 350ms ease both;
+}
+
+@keyframes db-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --------------------------------------------------------------- header */
+.db-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.db-header h2 {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+
+.db-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.db-actions .btn:active {
+  transform: translateY(1px);
+}
+
+.db-file-input {
+  display: none;
+}
+
+/* ---------------------------------------------------------- empty state */
+.db-empty {
+  max-width: 440px;
+  margin: 56px auto 0;
+  padding: 44px 36px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.db-empty h2 {
+  font-family: var(--font-serif);
+  font-size: 24px;
+}
+
+.db-empty-mark {
+  display: block;
+  overflow: visible;
+}
+
+.db-empty-rail {
+  stroke: var(--rule-line);
+  stroke-width: 1.5;
+}
+
+.db-empty-node {
+  fill: var(--sheet);
+  stroke: var(--rule-line);
+  stroke-width: 1.5;
+}
+
+.db-empty-node-done {
+  fill: var(--ok-green);
+  stroke: var(--ok-green);
+}
+
+.db-empty-line {
+  color: var(--ink-soft);
+  max-width: 34ch;
+}
+
+.db-empty .btn {
+  margin-top: 6px;
+}
+
+.db-empty .btn:active {
+  transform: translateY(1px);
+}
+
+/* ------------------------------------------------------------- sections */
+.db-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ------------------------------------------------------ band trend chart */
+.db-chart-card {
+  padding: 16px 18px 14px;
+}
+
+.db-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.db-grid-line {
+  stroke: var(--rule-line);
+  stroke-width: 1;
+}
+
+.db-wash {
+  fill: var(--wash-blue);
+}
+
+.db-band-line {
+  fill: none;
+  stroke: var(--exam-navy);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.db-dot-exam {
+  fill: var(--exam-navy);
+}
+
+.db-dot-coach {
+  fill: var(--sheet);
+  stroke: var(--exam-navy);
+  stroke-width: 1.5;
+}
+
+/* hover layer: enlarged invisible hit target carrying the <title> tooltip */
+.db-pt-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
+.db-pt-ring {
+  fill: none;
+  stroke: var(--exam-navy);
+  stroke-width: 1.5;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.db-pt:hover .db-pt-ring {
+  opacity: 1;
+}
+
+.db-tick,
+.db-axis-date {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  fill: var(--ink-soft);
+}
+
+.db-last-label {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.db-chart-caption {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------- focus areas */
+.db-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.db-focus-card {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: box-shadow 140ms ease;
+}
+
+.db-focus-card:hover {
+  box-shadow: var(--shadow-lift);
+}
+
+.db-focus-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.db-focus-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.db-trend {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.db-trend-improving {
+  color: var(--ok-green);
+}
+
+.db-trend-worsening {
+  color: var(--marking-red);
+}
+
+.db-trend-flat {
+  color: var(--ink-soft);
+}
+
+.db-focus-hint {
+  font-size: 13px;
+  color: var(--ink-soft);
+  flex: 1;
+}
+
+.db-focus-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.db-focus-rate {
+  font-size: 13px;
+}
+
+.db-spark {
+  flex: none;
+  overflow: visible;
+}
+
+.db-spark-line {
+  fill: none;
+  stroke: var(--exam-navy);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.db-spark-dot {
+  fill: var(--exam-navy);
+}
+
+.db-spark-val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  fill: var(--ink-soft);
+}
+
+.db-quiet {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* -------------------------------------------------------- session table */
+.db-table-card {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-line) transparent;
+}
+
+.db-table-card::-webkit-scrollbar {
+  height: 8px;
+}
+
+.db-table-card::-webkit-scrollbar-thumb {
+  background: var(--rule-line);
+  border-radius: 4px;
+}
+
+.db-table-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.db-table th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--rule-line);
+  white-space: nowrap;
+}
+
+.db-table td {
+  padding: 9px 14px;
+  border-top: 1px solid var(--rule-line);
+  vertical-align: middle;
+  transition: background 120ms ease;
+}
+
+.db-table tbody tr:first-child td {
+  border-top: none;
+}
+
+.db-table tbody tr:hover td {
+  background: var(--paper);
+}
+
+.db-th-num,
+.db-td-num {
+  text-align: right;
+}
+
+.db-td-date {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.db-chip-exam {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--exam-navy);
+  border-radius: 3px;
+  background: var(--exam-navy);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.db-mode-coach {
+  color: var(--ink-soft);
+}
+
+.db-chip-q {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-line);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.db-issue {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.db-issue-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.db-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.db-open-btn {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.db-open-btn:active {
+  transform: translateY(1px);
+}
+
+.db-delete {
+  color: var(--marking-red);
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  transition: background 120ms ease;
+}
+
+.db-delete:hover {
+  background: var(--wash-red);
+}
+
+.db-delete:active {
+  background: var(--wash-red);
+  transform: translateY(1px);
+}
+
+.db-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------- responsive */
+@media (max-width: 900px) {
+  .db-focus-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .db-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

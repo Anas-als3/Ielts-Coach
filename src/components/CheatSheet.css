@@ -1,0 +1,479 @@
+/* CheatSheet — coach-mode right-panel tab. Prefix: .cs- */
+
+.cs-sheet {
+  max-height: 100%;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  animation: cs-in 380ms ease both;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-line) transparent;
+}
+
+@keyframes cs-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.cs-sheet::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cs-sheet::-webkit-scrollbar-thumb {
+  background: var(--rule-line);
+  border-radius: 4px;
+}
+
+.cs-sheet::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* -------------------------------------------------------- sticky mini-nav */
+.cs-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--sheet);
+  border-bottom: 1px solid var(--rule-line);
+}
+
+.cs-chip {
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--rule-line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  background: var(--sheet);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.cs-chip:hover {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------------ header */
+.cs-head {
+  padding: 12px 12px 0;
+}
+
+.cs-title {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.cs-sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------------------------- sections */
+.cs-section {
+  padding: 14px 12px;
+  /* keep jumped-to headings clear of the sticky nav (worst case: two chip rows) */
+  scroll-margin-top: 64px;
+}
+
+.cs-section + .cs-section {
+  border-top: 1px solid var(--rule-line);
+}
+
+.cs-section:last-child {
+  padding-bottom: 20px;
+}
+
+.cs-h {
+  margin-bottom: 8px;
+}
+
+/* ------------------------------------------------------ 1 · format blocks */
+.cs-fmt {
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.cs-fmt + .cs-fmt {
+  margin-top: 8px;
+}
+
+.cs-fmt-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-line);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cs-fmt-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.cs-fmt-b {
+  padding: 7px 10px 9px;
+}
+
+.cs-fmt-b ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.cs-fmt-b li {
+  margin: 2px 0;
+}
+
+/* -------------------------------------------------------- 2 · word cards */
+.cs-card {
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  padding: 8px 10px 5px;
+}
+
+.cs-card + .cs-card {
+  margin-top: 8px;
+}
+
+.cs-card-t {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 3px;
+}
+
+.cs-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cs-card li {
+  padding: 4px 0;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule-line);
+}
+
+.cs-card li:last-child {
+  border-bottom: none;
+}
+
+.cs-note {
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  margin-left: 5px;
+}
+
+/* -------------------------------------------------------- 3 · comma rules */
+.cs-rule {
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  padding: 8px 10px 9px;
+  font-size: 12.5px;
+}
+
+.cs-rule + .cs-rule {
+  margin-top: 8px;
+}
+
+.cs-rule-t {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--exam-navy);
+  margin-bottom: 2px;
+}
+
+.cs-rule-note {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+}
+
+/* ----------------------------------------------- ✓ / ✗ example semantics */
+/* faint wash of --ok-green (same recipe as the --wash-* tokens) */
+.cs-ok {
+  border-left: 3px solid var(--ok-green);
+  background: rgba(47, 107, 69, 0.08);
+}
+
+.cs-no {
+  border-left: 3px solid var(--marking-red);
+  background: var(--wash-red);
+}
+
+.cs-ex {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 5px 9px 6px;
+  margin-top: 6px;
+  border-radius: 0 4px 4px 0;
+  font-family: var(--font-serif);
+  font-size: 13px;
+}
+
+.cs-mark {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  flex: none;
+}
+
+.cs-ok .cs-mark {
+  color: var(--ok-green);
+}
+
+.cs-no .cs-mark {
+  color: var(--marking-red);
+}
+
+/* visually hidden (screen readers only) */
+.cs-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------ 4 · the conclusion */
+.cs-concl {
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  padding: 9px 10px 10px;
+}
+
+.cs-lbl {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--marking-amber);
+}
+
+.cs-tmpl {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.65;
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 6px 0 10px;
+}
+
+.cs-concl-note {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: -2px;
+}
+
+/* -------------------------------------------------- 5 · complex sentences */
+.cs-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cs-step {
+  border: 1px solid var(--rule-line);
+  border-left: 3px solid var(--rule-line);
+  border-radius: 0 4px 4px 0;
+  background: var(--sheet);
+  padding: 6px 10px 7px;
+  font-family: var(--font-serif);
+  font-size: 13px;
+}
+
+.cs-step-t {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+
+.cs-step-hit {
+  border-left-color: var(--ok-green);
+  background: rgba(47, 107, 69, 0.08);
+}
+
+.cs-step-hit .cs-step-t {
+  color: var(--ok-green);
+}
+
+.cs-ladder-note {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.cs-target {
+  font-size: 12.5px;
+  margin-bottom: 10px;
+}
+
+.cs-pat {
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  padding: 8px 10px 9px;
+}
+
+.cs-pat + .cs-pat {
+  margin-top: 8px;
+}
+
+.cs-pat-t {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--exam-navy);
+  margin-bottom: 4px;
+}
+
+.cs-pat-ex {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cs-clause {
+  text-decoration: none;
+  background: var(--wash-blue);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-weight: 600;
+}
+
+/* before / after rewrite */
+.cs-ba {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.cs-ba-row {
+  padding: 6px 10px 7px;
+  border-radius: 0 4px 4px 0;
+}
+
+.cs-ba-t {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+
+.cs-ba-t .cs-mark {
+  font-size: 10px;
+}
+
+.cs-no .cs-ba-t {
+  color: var(--marking-red);
+}
+
+.cs-ok .cs-ba-t {
+  color: var(--ok-green);
+}
+
+.cs-ba-text {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* chain warning */
+.cs-warn {
+  border-left: 3px solid var(--marking-amber);
+  background: var(--wash-amber);
+  border-radius: 0 4px 4px 0;
+  padding: 6px 10px 7px;
+  font-size: 12.5px;
+}
+
+/* ------------------------------------------------------- 6 · checklists */
+.cs-check-group + .cs-check-group {
+  margin-top: 14px;
+}
+
+.cs-check-t {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 2px;
+}
+
+.cs-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--rule-line);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cs-check-group .cs-check-row:last-child {
+  border-bottom: none;
+}
+
+.cs-check-row input {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 2.5px 0 0;
+  accent-color: var(--ok-green);
+  cursor: pointer;
+}
+
+.cs-check-row.cs-done .cs-check-text {
+  color: var(--ink-soft);
+}
+
+.cs-check-text {
+  min-width: 0;
+}

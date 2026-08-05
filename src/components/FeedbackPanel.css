@@ -1,0 +1,323 @@
+/* FeedbackPanel — coach-mode right panel. Prefix: .fb- */
+
+.fb-panel {
+  max-height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* one mount entrance for the whole panel; rows themselves never animate */
+  animation: fb-panel-in 380ms ease both;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-line) transparent;
+}
+
+@keyframes fb-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fb-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.fb-panel::-webkit-scrollbar-thumb {
+  background: var(--rule-line);
+  border-radius: 4px;
+}
+
+.fb-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------- band estimate */
+.fb-band {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--rule-line);
+}
+
+.fb-band-value {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.15;
+  margin-top: 4px;
+}
+
+.fb-band-short {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.fb-band-hint {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.fb-band-caption {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.fb-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.fb-crit {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fb-crit-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.fb-crit-bar {
+  height: 5px;
+  border-radius: 2px;
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  overflow: hidden;
+}
+
+.fb-crit-fill {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--exam-navy);
+  /* live typing nudges the criterion bands — let the bars glide */
+  transition: width 300ms ease;
+}
+
+.fb-crit-value {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* -------------------------------------------------------------- stats grid */
+.fb-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule-line);
+}
+
+.fb-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fb-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.fb-stat-label {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------ issue groups */
+.fb-issues {
+  padding: 4px 0 12px;
+}
+
+.fb-group {
+  padding-top: 8px;
+}
+
+.fb-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+}
+
+.fb-group-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--rule-line);
+}
+
+.fb-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fb-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 16px 8px 14px;
+  border-left: 2px solid transparent;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.fb-issue-recurring {
+  border-left-color: var(--marking-amber);
+}
+
+.fb-issue-clickable {
+  cursor: pointer;
+}
+
+.fb-issue-clickable:hover {
+  background: var(--paper);
+}
+
+.fb-issue-clickable:hover .fb-issue-label {
+  color: var(--exam-navy);
+}
+
+.fb-issue-clickable:active {
+  background: var(--wash-blue);
+}
+
+.fb-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: currentColor; /* colored by .sev-error / .sev-warning / .sev-info */
+}
+
+.fb-issue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fb-issue-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  transition: color 140ms ease;
+}
+
+.fb-issue-msg {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.fb-recurring {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--marking-amber);
+  border: 1px solid var(--marking-amber);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------- info-notes disclosure */
+.fb-notes-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.fb-notes-toggle::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--rule-line);
+}
+
+.fb-notes-toggle:hover {
+  background: var(--paper);
+}
+
+.fb-notes-toggle:hover .eyebrow {
+  color: var(--ink);
+}
+
+.fb-notes-toggle:active {
+  background: var(--wash-blue);
+}
+
+.fb-caret {
+  font-size: 10px;
+  color: var(--ink-soft);
+  transition: transform 120ms ease;
+}
+
+.fb-caret-open {
+  transform: rotate(90deg);
+}
+
+/* ------------------------------------------------------------ empty states */
+.fb-empty,
+.fb-quiet {
+  padding: 16px;
+}
+
+.fb-empty-text {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.fb-clear {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--ok-green);
+}
+
+.fb-clear-mark {
+  color: var(--ok-green);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.fb-clear-text {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.fb-more {
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 4px 16px;
+  font-style: italic;
+}

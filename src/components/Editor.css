@@ -1,0 +1,206 @@
+/* ------------------------------------------------------------- answer sheet
+   A transparent textarea stacked over an aria-hidden mirror div that paints
+   the highlights and the ruled baseline. BOTH layers share .ed-layer — any
+   drift in font, size, line-height, padding or wrapping misaligns the marks
+   under the text. Change metrics in .ed-layer only, never per layer. */
+
+.ed-sheet {
+  position: relative;
+  flex: 1;
+  min-height: 55vh;
+  /* Answer-booklet left margin: a faint navy vertical rule 44px in,
+     painted on the paper itself so it sits behind both layers. */
+  background-color: var(--sheet);
+  background-image: linear-gradient(
+    to right,
+    transparent 44px,
+    rgba(36, 52, 77, 0.12) 44px,
+    rgba(36, 52, 77, 0.12) 45px,
+    transparent 45px
+  );
+  background-repeat: no-repeat;
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ed-sheet:hover {
+  border-color: var(--ink-soft);
+}
+
+/* Focus lives on the sheet so the whole paper reads as focused: the frame
+   inks to navy and the paper lifts — no outline on the textarea itself. */
+.ed-sheet:focus-within {
+  border-color: var(--exam-navy);
+  box-shadow: var(--shadow-lift);
+}
+
+/* -------------------------------------------- shared metrics (critical) */
+.ed-layer {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border: 0;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 29px;
+  letter-spacing: normal;
+  padding: 28px 32px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+  text-align: left;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Quiet scrollbars — identical on both layers, so metrics stay equal. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-line) transparent;
+}
+
+.ed-layer::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.ed-layer::-webkit-scrollbar-thumb {
+  background: var(--rule-line);
+  border-radius: 4px;
+}
+
+.ed-layer::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ------------------------------------------------------------- the mirror */
+.ed-mirror {
+  z-index: 0;
+  color: transparent;
+  pointer-events: none;
+  user-select: none;
+  /* Extremely faint ruled baseline every 29px. The pattern puts each rule at
+     the END of its period, then the whole image is shifted down by the top
+     padding (28px) so the first rule lands at 28 + 29 − 1 = 56px — under the
+     first line of text, never above it. no-repeat keeps the shifted pattern
+     from wrapping a stray rule into the top padding;
+     background-attachment: local makes the rules scroll with the text. */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 28px,
+    color-mix(in srgb, var(--rule-line) 55%, transparent) 28px,
+    color-mix(in srgb, var(--rule-line) 55%, transparent) 29px
+  );
+  background-repeat: no-repeat;
+  background-position: 0 28px;
+  background-attachment: local;
+}
+
+/* ----------------------------------------------------------- the textarea */
+.ed-input {
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--ink);
+  resize: none;
+  border-radius: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/* The ring is on .ed-sheet:focus-within instead (index.css targets
+   textarea:focus-visible, so this must override it). */
+.ed-input:focus,
+.ed-input:focus-visible {
+  outline: none;
+}
+
+.ed-input::selection {
+  background-color: rgba(36, 52, 77, 0.18);
+}
+
+.ed-input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------- highlights
+   Inline borders and shadows never affect line layout, so marks cannot
+   cause metric drift. Severity colors are semantic: red = error only.
+   The --ed-flash-* pairs feed the flash pulse below. */
+.ed-mark {
+  color: transparent;
+  background: transparent;
+  border-radius: 2px;
+  border-bottom: 2px solid transparent;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.ed-mark-error {
+  background-color: var(--wash-red);
+  border-bottom-color: var(--marking-red);
+  --ed-flash-wash: var(--wash-red);
+  --ed-flash-ink: var(--marking-red);
+}
+
+.ed-mark-warning {
+  background-color: var(--wash-amber);
+  border-bottom-color: var(--marking-amber);
+  --ed-flash-wash: var(--wash-amber);
+  --ed-flash-ink: var(--marking-amber);
+}
+
+.ed-mark-info {
+  background-color: var(--wash-blue);
+  border-bottom-color: var(--exam-navy);
+  --ed-flash-wash: var(--wash-blue);
+  --ed-flash-ink: var(--exam-navy);
+}
+
+/* Two quick pulses when the learner clicks the issue in the panel: the wash
+   deepens (its own wash stacked on top) inside a 1px ring of the severity
+   color. Shadows only — no layout impact on the mirror.
+   index.css collapses animation-duration under prefers-reduced-motion. */
+.ed-flash {
+  animation: ed-flash-pulse 320ms ease-in-out 2;
+}
+
+@keyframes ed-flash-pulse {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 99px var(--ed-flash-wash, var(--wash-blue)),
+      0 0 0 1px var(--ed-flash-ink, var(--exam-navy));
+  }
+}
+
+/* -------------------------------------------------------- progress to 250
+   A quiet fill along the sheet's bottom edge: width tracks words/250 (set
+   inline by the component), turning green once the minimum is met. Only
+   rendered in coach mode — exam mode gives no feedback. */
+.ed-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background-color: var(--ink-soft);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 2;
+  transition: width 300ms ease, background-color 300ms ease, opacity 300ms ease;
+}
+
+.ed-progress-met {
+  background-color: var(--ok-green);
+  opacity: 0.6;
+}

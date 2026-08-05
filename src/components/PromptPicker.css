@@ -1,0 +1,228 @@
+/* PromptPicker — quiet task card above the essay sheet. The sheet is the hero;
+   this card stays compact, chrome in system sans, task text in the essay serif. */
+
+.pp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  animation: pp-enter 360ms ease both;
+}
+
+/* One entrance moment, mount only. Reduced motion is collapsed globally. */
+@keyframes pp-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+}
+
+.pp-eyebrow {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* Question-type chip — bordered, matches the dashboard chip scale. */
+.pp-type-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--rule-line);
+  border-radius: 999px;
+  background: var(--sheet);
+  color: var(--exam-navy);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.pp-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Styled shell around each native select: the select keeps all keyboard and
+   platform behaviour; the shell only hosts the custom chevron. */
+.pp-select-shell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.pp-select {
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  padding: 4px 26px 4px 10px;
+  max-width: 180px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.pp-select:hover {
+  border-color: var(--ink-soft);
+}
+
+.pp-select:active {
+  background: var(--paper);
+}
+
+.pp-select-chevron {
+  position: absolute;
+  right: 10px;
+  color: var(--ink-soft);
+  pointer-events: none;
+}
+
+.pp-select-prompt {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pp-shuffle {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.pp-shuffle:active:not(:disabled) {
+  background: var(--paper);
+}
+
+.pp-shuffle:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.pp-shuffle-icon {
+  flex-shrink: 0;
+}
+
+.pp-text {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  max-width: 72ch;
+}
+
+.pp-empty {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.pp-parts {
+  align-self: flex-start;
+}
+
+.pp-parts-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius);
+  list-style: none;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.pp-parts-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pp-parts-summary:hover {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.pp-parts-summary:active {
+  background: var(--rule-line);
+}
+
+/* index.css covers buttons/inputs/selects — keep summary focus visible too. */
+.pp-parts-summary:focus-visible {
+  outline: 2px solid var(--exam-navy);
+  outline-offset: 2px;
+}
+
+.pp-parts-caret {
+  flex-shrink: 0;
+  color: var(--ink-soft);
+  transition: transform 160ms ease;
+}
+
+.pp-parts[open] .pp-parts-caret {
+  transform: rotate(90deg);
+}
+
+.pp-parts-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  max-width: 68ch;
+}
+
+.pp-parts-list li {
+  padding-left: 4px;
+  border-left: 3px solid var(--rule-line);
+}
+
+.pp-parts[open] .pp-parts-list {
+  animation: pp-parts-reveal 180ms ease;
+}
+
+@keyframes pp-parts-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+@media (max-width: 640px) {
+  .pp-controls {
+    width: 100%;
+  }
+
+  .pp-select-shell {
+    flex: 1 1 140px;
+    max-width: 100%;
+  }
+
+  .pp-select,
+  .pp-select-prompt {
+    width: 100%;
+    max-width: 100%;
+  }
+}
