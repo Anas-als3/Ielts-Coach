@@ -149,6 +149,7 @@ export default function App() {
       id: makeId(),
       dateISO: new Date().toISOString(),
       mode,
+      task: 'task2',
       promptId: prompt?.id ?? null,
       promptText: prompt?.text ?? '',
       questionType: prompt?.type ?? null,

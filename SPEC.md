@@ -163,7 +163,11 @@ criterion (`info` is advisory per the severity model and never blocks a reward).
 - UI presents overall as a RANGE (±0.5) and always labels it "rule-based estimate — not an examiner".
 
 ### `profile/` (store.ts + profile.ts)
-localStorage key `ielts-coach.v1` → `{ schemaVersion: 1, sessions: SessionRecord[] }`. Cap 200 sessions
+localStorage key `ielts-coach.v1` (opaque; the version lives in the payload) →
+`{ schemaVersion: 2, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
+discarded: v1 → v2 stamps `task: 'task2'` on every record. Anything this build cannot migrate (corrupt,
+or a newer version) is copied to `ielts-coach.backup.<ISO timestamp>` before the live key is replaced —
+a schemaVersion bump must never destroy a learner's history. Cap 200 sessions
 (drop oldest). `computeProfile`: per category, per-100-words rate per session; EWMA α = 0.35; trend from
 least-squares slope over last 6 sessions (improving < −0.05, worsening > 0.05); focusCategories = top 3 by
 EWMA × severity weight (error 3, warning 2, info 1), only when ≥ 2 sessions. `computeTrends`: per-session

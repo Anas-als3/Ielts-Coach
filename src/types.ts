@@ -190,12 +190,20 @@ export type RuleFn = (doc: TokenizedDoc, prompt: PromptSpec | null) => Issue[];
 
 /* ----------------------------- sessions & profile --------------------------- */
 
+/**
+ * Which IELTS task a session belongs to. `task2` is the only value produced by
+ * the current app; sessions saved before schemaVersion 2 are migrated to it.
+ */
+export type TaskKind = 'task1' | 'task2';
+
 export type WritingMode = 'coach' | 'exam';
 
 export interface SessionRecord {
   id: string;
   dateISO: string;
   mode: WritingMode;
+  /** Which IELTS task this session answered. Migrated to 'task2' for pre-v2 data. */
+  task: TaskKind;
   promptId: string | null;
   promptText: string;
   questionType: QuestionType | null;

@@ -1,8 +1,13 @@
 /**
  * localStorage persistence for IELTS Coach sessions.
  *
- * Store shape (key 'ielts-coach.v1'):
- *   { schemaVersion: 1, sessions: SessionRecord[] }
+ * Store shape (key 'ielts-coach.v1' — the key is opaque, the version is in the
+ * payload):
+ *   { schemaVersion: 2, sessions: SessionRecord[] }
+ *
+ * Versions are migrated forward on read, never discarded (see migrateSessions).
+ * v1 -> v2 added SessionRecord.task. Anything this build cannot migrate is
+ * copied to a timestamped 'ielts-coach.backup.<iso>' key before being replaced.
  *
  * All reads tolerate missing/corrupt data (return empty rather than throw).
  * All writes are wrapped in try/catch so a full or unavailable localStorage
@@ -12,7 +17,15 @@
 import type { SessionRecord } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
+/** Lowest stored version this build knows how to migrate forward from. */
+const MIN_MIGRATABLE_VERSION = 1
+/**
+ * Data this build cannot understand is copied here before anything overwrites
+ * the live key, so an unrecognised (e.g. newer) store is always recoverable by
+ * hand from devtools rather than silently destroyed.
+ */
+const BACKUP_KEY_PREFIX = 'ielts-coach.backup.'
 const MAX_SESSIONS = 200
 const EXPORT_FILENAME = 'ielts-coach-data.json'
 
@@ -34,6 +47,9 @@ function looksLikeSession(value: unknown): value is SessionRecord {
   if (!isRecordObject(value)) return false
   if (typeof value.id !== 'string' || typeof value.dateISO !== 'string') return false
   if (typeof value.essayText !== 'string') return false
+  // `task` is optional on the wire: v1 records predate the field and the
+  // migration stamps it. Present-but-wrong is still a reject.
+  if (value.task !== undefined && value.task !== 'task1' && value.task !== 'task2') return false
   const a = value.analysis
   if (!isRecordObject(a)) return false
   if (!Array.isArray(a.issues) || !a.issues.every(isRecordObject)) return false
@@ -55,6 +71,57 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
   return sessions.length > MAX_SESSIONS ? sessions.slice(sessions.length - MAX_SESSIONS) : sessions
 }
 
+/**
+ * Upgrade a parsed session list from `fromVersion` to SCHEMA_VERSION, in
+ * ascending single-version steps.
+ *
+ * A user can arrive from ANY older version, so the steps are cumulative and
+ * must never be reordered or collapsed.
+ */
+function migrateSessions(sessions: SessionRecord[], fromVersion: number): SessionRecord[] {
+  let out = sessions
+  let version = fromVersion
+
+  // v1 -> v2: the `task` discriminator was added. Everything written before v2
+  // was IELTS Academic Writing Task 2, because that was the only task the app
+  // supported.
+  if (version === 1) {
+    out = out.map((s) => (s.task === undefined ? { ...s, task: 'task2' as const } : s))
+    version = 2
+  }
+
+  return out
+}
+
+/**
+ * Copy the raw stored string to a timestamped backup key. Used before this
+ * build overwrites data it could not parse or could not migrate, so nothing is
+ * ever destroyed without a recoverable copy. Best-effort: a failure here is
+ * warned about and never blocks the write that follows.
+ */
+function backupRaw(raw: string): void {
+  try {
+    const key = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
+    window.localStorage.setItem(key, raw)
+    console.warn(
+      'IELTS Coach: saved data could not be read by this version. ' +
+        `A copy was kept at localStorage key "${key}" before it was replaced.`,
+    )
+  } catch (err) {
+    console.warn('IELTS Coach: could not back up unreadable saved data before replacing it.', err)
+  }
+}
+
+/**
+ * Read and, where necessary, migrate the stored payload.
+ *
+ * - Missing key → null (a first run, nothing to back up).
+ * - Corrupt JSON, wrong shape, or a version this build cannot migrate → the raw
+ *   string is backed up to a timestamped key, then null is returned.
+ * - A known older version → migrated forward and returned.
+ *
+ * Never throws.
+ */
 function readStore(): StoreShape | null {
   let raw: string | null = null
   try {
@@ -69,16 +136,25 @@ function readStore(): StoreShape | null {
   try {
     parsed = JSON.parse(raw)
   } catch {
-    // Corrupt JSON — treat as an empty store rather than crashing.
+    backupRaw(raw)
     return null
   }
-  if (!isRecordObject(parsed)) return null
-  if (parsed.schemaVersion !== SCHEMA_VERSION) return null
-  if (!Array.isArray(parsed.sessions)) return null
+  if (!isRecordObject(parsed) || !Array.isArray(parsed.sessions)) {
+    backupRaw(raw)
+    return null
+  }
 
+  const version = parsed.schemaVersion
+  if (typeof version !== 'number' || version < MIN_MIGRATABLE_VERSION || version > SCHEMA_VERSION) {
+    // Older than we can migrate, or newer than we understand — do not guess.
+    backupRaw(raw)
+    return null
+  }
+
+  const valid = parsed.sessions.filter(looksLikeSession)
   return {
     schemaVersion: SCHEMA_VERSION,
-    sessions: parsed.sessions.filter(looksLikeSession),
+    sessions: migrateSessions(valid, version),
   }
 }
 
@@ -153,10 +229,17 @@ export function importData(json: string): void {
       'That file does not look like IELTS Coach data. Choose a file exported from this app.',
     )
   }
-  if (parsed.schemaVersion !== SCHEMA_VERSION) {
+  const version = parsed.schemaVersion
+  if (typeof version !== 'number' || version < MIN_MIGRATABLE_VERSION) {
     throw new Error(
-      'This file uses a different data version than this app understands. ' +
+      'This file is too old for this app to read. ' +
         'Export a fresh copy from the app that created it, then try importing again.',
+    )
+  }
+  if (version > SCHEMA_VERSION) {
+    throw new Error(
+      'This file was exported by a newer version of IELTS Coach. ' +
+        'Update this app, then import again.',
     )
   }
   if (!Array.isArray(parsed.sessions)) {
@@ -174,6 +257,8 @@ export function importData(json: string): void {
     }
   }
 
-  const sessions = (incoming as SessionRecord[]).slice().sort(byDateAscending)
+  const sessions = migrateSessions((incoming as SessionRecord[]).slice(), version).sort(
+    byDateAscending,
+  )
   writeStore(capSessions(sessions))
 }
