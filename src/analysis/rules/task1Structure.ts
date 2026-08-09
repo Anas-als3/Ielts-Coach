@@ -89,9 +89,17 @@ function citedFigureCount(doc: TokenizedDoc, facts: Task1ChartFacts): number {
   return cited.size
 }
 
-/** A body paragraph counts as a detail paragraph when it is developed AND quantified. */
-function isDetailParagraph(p: ParagraphSpan): boolean {
-  return p.wordCount >= DETAIL_MIN_WORDS && writtenNumbers(p.text).length > 0
+/**
+ * A body paragraph counts as a detail paragraph when it is developed and, where
+ * the chart HAS figures, quantified.
+ *
+ * The figure requirement is dropped for a chart with no numbers — a process
+ * diagram has none to quote, and demanding one would leave the check
+ * permanently unsatisfiable however well the learner described the stages.
+ */
+function isDetailParagraph(p: ParagraphSpan, chartHasFigures: boolean): boolean {
+  if (p.wordCount < DETAIL_MIN_WORDS) return false
+  return !chartHasFigures || writtenNumbers(p.text).length > 0
 }
 
 /* ------------------------------ paragraph roles ------------------------------ */
@@ -164,14 +172,17 @@ function buildChecks(
   })
 
   /* t1-detail-1 and t1-detail-2 */
-  const details = bodies.filter(isDetailParagraph)
+  const chartHasFigures = facts.values.length > 0
+  const details = bodies.filter((b) => isDetailParagraph(b, chartHasFigures))
   for (let k = 1; k <= 2; k++) {
     const found = details.length >= k
     let detail: string
     if (found) {
       detail = `Detail paragraph ${k}: ${details[k - 1].wordCount} words with figures from the chart.`
     } else if (bodies.length >= k) {
-      detail = `Paragraph ${k + 1} is not yet a developed detail paragraph — grow it past ${DETAIL_MIN_WORDS} words and quote a figure.`
+      detail = chartHasFigures
+        ? `Paragraph ${k + 1} is not yet a developed detail paragraph — grow it past ${DETAIL_MIN_WORDS} words and quote a figure.`
+        : `Paragraph ${k + 1} is not yet a developed detail paragraph — grow it past ${DETAIL_MIN_WORDS} words.`
     } else {
       detail = `Detail paragraph ${k}: not written yet.`
     }

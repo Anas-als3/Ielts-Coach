@@ -8,7 +8,7 @@
  * "despite this" vs "despite") are never double-counted.
  */
 
-import type { Issue, PromptSpec, RuleFn, TokenizedDoc } from '../../types'
+import type { Issue, PromptSpec, RuleFn, TaskKind, TokenizedDoc } from '../../types'
 
 type LinkFunction =
   | 'addition'
@@ -242,9 +242,16 @@ function issue(
   return base
 }
 
+/**
+ * `RuleFn` plus an optional task. Task 1 shares this module wholesale, but two
+ * of the `linking-underuse` conditions encode a Task 2 instruction — extra
+ * parameters are compatible with the `RuleFn` signature, so the Task 2 call
+ * sites are untouched.
+ */
 export const cohesionRules: RuleFn = (
   doc: TokenizedDoc,
   prompt: PromptSpec | null,
+  task: TaskKind = 'task2',
 ): Issue[] => {
   const issues: Issue[] = []
   const matches = findLinkMatches(doc)
@@ -312,7 +319,11 @@ export const cohesionRules: RuleFn = (
         "no contrast linkers ('however', 'on the other hand') — a discussion essay needs them to move between the two views",
       )
     }
-    if (!hasExample) {
+    // Task 2 is told to "include any relevant examples", so an answer with no
+    // example linker is under-signposted. Task 1 is told to "make comparisons
+    // where relevant" instead — a chart description supports its claims with
+    // figures, and demanding "for example" of it asks for the wrong thing.
+    if (!hasExample && task === 'task2') {
       missing.push(
         "no example linkers ('for example', 'for instance', 'such as') to introduce your supporting evidence",
       )

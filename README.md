@@ -50,6 +50,12 @@ the introduction and conclusion; the report pairs that heuristic with a manual s
 POSITION CHECK, because rules read form, not meaning — which is also why every band figure is
 labeled "form-only estimate — your real band is likely this or lower."
 
+A **Model answer** tab shows a worked example of the question on screen, together with the
+band this app's own engine gives it and the structure checks it satisfies — so the target is
+verifiable rather than asserted. Task 1 examples are generated from the chart's own numbers, so
+every figure quoted is real; Task 2 examples are hand-written, one per question type. The tab
+never appears in Exam Mode.
+
 A one-page **cheat sheet** (format, sentence starters, comma rules, conclusion template,
 complex-sentence patterns, pre-submit checklist) lives in a Feedback ⇄ Cheat sheet tab beside
 the editor — Coach Mode only; it disappears with everything else under exam conditions.

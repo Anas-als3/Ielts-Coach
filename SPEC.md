@@ -374,6 +374,31 @@ Achievement" (Task 1) — one slot, two names. `meta.ts` exports `criterionLabel
 `CRITERION_META` remains the Task 2 default. A fifth member would force `Partial<Record<Criterion, …>>`
 through the estimator and every view that renders it, to express a key always absent for one task.
 
+## Worked answers (`answers/`)
+
+A "Model answer" tab in the coach panel, for both tasks. **Never rendered in exam mode** — handing a
+learner a finished answer mid-exam defeats the exercise.
+
+- `answers/task1Model.ts` → `buildTask1ModelAnswer(prompt)` GENERATES the answer from the chart's own
+  numbers. The same data ownership that makes factual checking possible lets the app write a correct
+  answer to its own question, so an example can never cite a figure the chart lacks. Four constraints
+  shape it, each a rule the app enforces on the learner: no invented figures (counts are spelled out
+  as words, so "four points" cannot read as a quoted figure), a complex clause in every paragraph, a
+  comparison marker whenever the chart is comparative, and no causal or predictive language.
+  Single-series charts with no `periodLabel` are RANKINGS, not trends — narrating "a climb from
+  Housing to Clothing" would describe a movement the data does not contain.
+- `answers/task2Models.ts` → five HAND-WRITTEN answers, one per question type, plus
+  `task2ModelFor(prompt)`. Task 2 cannot be generated: an argument is not derivable from a prompt, and
+  a template would produce exactly the rehearsed prose `memorised-phrase` penalises. When the
+  learner's prompt has no exact answer, the representative answer for the same question type is
+  offered with `exact: false`, and the UI states plainly that the content will not fit.
+- **The app grades its own examples.** `tests/model-answers.test.ts` runs all seventeen back through
+  the real analyser: each must raise no error or warning, satisfy every structure check, and score
+  ≥ 8.0. A model answer the engine would mark down is worse than none — the learner follows it and is
+  then penalised for what it did. The panel shows that band and check count on screen, so the target
+  is verifiable rather than asserted.
+- The panel also warns against reusing the wording, since examiners discount memorised phrasing.
+
 ### UI
 Task switcher in the topbar beside the mode toggle, same markup and styling. Switching task CLEARS the
 answer sheet (a Task 2 essay scored by Task 1 rules produces confidently wrong feedback) and refuses to

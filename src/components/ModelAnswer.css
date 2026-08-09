@@ -1,0 +1,108 @@
+/* Worked-answer panel. Sits in the same right-hand column as the feedback
+   panel and the cheat sheet, so it inherits their width and rhythm. */
+.ma-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+}
+
+.ma-empty {
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+/* Not an error, so not examiner red — this is a caveat, not a fault. */
+.ma-notice {
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  background: var(--wash-blue);
+  border-left: 2px solid var(--exam-navy);
+  padding: 8px 10px;
+  border-radius: 0 4px 4px 0;
+}
+
+.ma-scorecard {
+  border: 1px solid var(--rule-line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--sheet);
+}
+
+.ma-scorecard-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.ma-band {
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ok-green);
+  line-height: 1;
+}
+
+.ma-scorecard-note {
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.ma-criteria {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.ma-criteria li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ma-crit-label {
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.ma-crit-value {
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* The answer itself is set as reading matter, in the essay serif. */
+.ma-text {
+  font-family: var(--font-serif);
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.ma-text p {
+  margin: 0 0 0.85em;
+}
+
+.ma-text p:last-child {
+  margin-bottom: 0;
+}
+
+.ma-warning {
+  font-family: var(--font-sans);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--marking-amber);
+  border-top: 1px solid var(--rule-line);
+  padding-top: 10px;
+}

@@ -212,6 +212,10 @@ const COUNTABLE = new Set([
 const DETERMINERS = new Set([
   'a', 'an', 'the', 'this', 'that', 'these', 'those', 'my', 'his', 'her', 'its', 'their', 'our',
   'your', 'every', 'each', 'one', 'no', 'any', 'some', 'another',
+  // Quantifiers license a bare noun just as a determiner does: "less contact
+  // time", "more effort", "much debate" are all correct, and flagging them told
+  // learners to write "a less contact time".
+  'less', 'more', 'fewer', 'much', 'many', 'several', 'most', 'such', 'enough', 'little', 'few',
 ])
 
 /** Small preposition stop-set for the leftward walk. */
@@ -253,6 +257,11 @@ const ZERO_ARTICLE_PAIRS = new Set([
   'back home', 'way home',
   'in time', 'on time', 'over time', 'with time', 'through time',
   'at school', 'to school', 'in school', 'from school', 'after school', 'before school',
+  // Educational stages are used without an article in the same way.
+  'primary school', 'secondary school', 'high school', 'grammar school', 'boarding school',
+  'start school', 'starts school', 'started school', 'starting school',
+  'leave school', 'leaves school', 'left school', 'leaving school',
+  'finish school', 'finishes school', 'finished school', 'finishing school',
 ])
 
 /** Words the walk crossed that cannot join the suggested noun phrase (pronouns, likely plurals). */

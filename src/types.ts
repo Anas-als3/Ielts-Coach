@@ -61,6 +61,15 @@ export interface Task1Chart {
   series: Task1Series[];
   /** Ordered step labels — `process` charts only; empty otherwise. */
   steps: string[];
+  /**
+   * The chart's topic as a plain noun phrase, in DIFFERENT words from `title`.
+   * The model-answer generator opens with it, which is exactly the paraphrase
+   * Task 1 asks the learner for — reusing `title` would make the app's own
+   * example fail its own `t1-prompt-echo` rule.
+   */
+  subject: string;
+  /** e.g. "between 2005 and 2020". Omitted for charts with no time axis. */
+  periodLabel?: string;
   /** Optional axis captions. */
   xLabel?: string;
   yLabel?: string;
@@ -275,8 +284,14 @@ export interface Analysis {
   band: BandEstimate;
 }
 
-/** Signature every rule module implements. */
-export type RuleFn = (doc: TokenizedDoc, prompt: PromptSpec | null) => Issue[];
+/**
+ * Signature every rule module implements.
+ *
+ * A module may declare extra trailing parameters (see `cohesionRules`, which
+ * takes an optional `TaskKind`) — TypeScript accepts a longer signature here,
+ * and callers that do not pass them get the documented default.
+ */
+export type RuleFn = (doc: TokenizedDoc, prompt: PromptSpec | null, task?: TaskKind) => Issue[];
 
 /* ----------------------------- sessions & profile --------------------------- */
 
@@ -399,6 +414,14 @@ export interface PromptPickerProps {
   prompts: PromptSpec[];
   current: PromptSpec | null;
   onPick: (p: PromptSpec) => void;
+}
+
+export interface ModelAnswerProps {
+  task: TaskKind;
+  /** The active Task 2 prompt, when task is 'task2'. */
+  prompt: PromptSpec | null;
+  /** The active Task 1 prompt, when task is 'task1'. */
+  task1Prompt: Task1PromptSpec | null;
 }
 
 export interface ChartProps {

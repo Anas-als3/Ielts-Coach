@@ -199,10 +199,14 @@ function normalisedWords(text: string): string[] {
  */
 function derivedValues(values: number[]): Set<number> {
   const out = new Set<number>()
+  // Rounded to 2dp before storing: 17.2 - 14.2 is 3.0000000000000018 in
+  // binary floating point, so an exact-membership test would reject a learner
+  // who correctly wrote "a difference of 3 tonnes".
+  const round = (v: number): number => Math.round(v * 100) / 100
   for (let i = 0; i < values.length; i++) {
     for (let j = i + 1; j < values.length; j++) {
-      out.add(values[i] + values[j])
-      out.add(Math.abs(values[i] - values[j]))
+      out.add(round(values[i] + values[j]))
+      out.add(round(Math.abs(values[i] - values[j])))
     }
   }
   return out
@@ -227,7 +231,7 @@ function isDefensible(
   categoryNumbers: Set<number>,
 ): boolean {
   if (categoryNumbers.has(written)) return true
-  if (derived.has(written)) return true
+  if (derived.has(Math.round(written * 100) / 100)) return true
 
   for (const v of values) {
     if (Math.abs(written - v) <= 0.5) return true
@@ -287,9 +291,11 @@ function inventedFigures(doc: TokenizedDoc, prompt: Task1PromptSpec, facts: Task
   if (facts.values.length === 0) return
 
   const derived = derivedValues(facts.values)
+  // Labels, not values: a category can be a year and a series can be named
+  // "1990". Quoting a label is not a claim about the data.
   const categoryNumbers = new Set<number>()
-  for (const c of prompt.chart.categories) {
-    for (const n of writtenNumbers(c)) categoryNumbers.add(n.value)
+  for (const label of [...prompt.chart.categories, ...prompt.chart.series.map((s) => s.name)]) {
+    for (const n of writtenNumbers(label)) categoryNumbers.add(n.value)
   }
 
   for (const n of writtenNumbers(doc.text)) {

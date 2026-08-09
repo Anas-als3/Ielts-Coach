@@ -155,7 +155,7 @@ export function analyzeTask1(text: string, prompt: Task1PromptSpec): Analysis {
   const issues: Issue[] = [
     ...structureIssues,
     ...achievementIssues,
-    ...cohesionRules(doc, context),
+    ...cohesionRules(doc, context, 'task1'),
     ...lexicalRules(doc, context),
     ...grammarRangeRules(doc, context),
     ...accuracyRules(doc, context),

@@ -24,9 +24,11 @@ import Report from './components/Report'
 import Dashboard from './components/Dashboard'
 import PromptPicker from './components/PromptPicker'
 import CheatSheet from './components/CheatSheet'
+import ModelAnswer from './components/ModelAnswer'
 
 type View = 'write' | 'report' | 'dashboard'
 type ExamState = 'idle' | 'running'
+type PanelTab = 'feedback' | 'cheatsheet' | 'model'
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value)
@@ -56,7 +58,7 @@ export default function App() {
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null)
   const [examState, setExamState] = useState<ExamState>('idle')
   const [examSecondsLeft, setExamSecondsLeft] = useState(TASK_CONSTANTS.task2.examDurationSec)
-  const [panelTab, setPanelTab] = useState<'feedback' | 'cheatsheet'>('feedback')
+  const [panelTab, setPanelTab] = useState<PanelTab>('feedback')
   const submittingRef = useRef(false)
   const pacingRef = useRef<Array<{ t: number; words: number }>>([])
   const pasteAttemptsRef = useRef(0)
@@ -243,6 +245,8 @@ export default function App() {
     setExamState('idle')
     setExamSecondsLeft(TASK_CONSTANTS[next].examDurationSec)
     setFocusIssueId(null)
+    // The cheat sheet is Task 2 only, so that tab cannot survive the switch.
+    if (next === 'task1' && panelTab === 'cheatsheet') setPanelTab('feedback')
   }
 
   function switchMode(next: WritingMode) {
@@ -483,16 +487,17 @@ export default function App() {
               {/* The cheat sheet is Task 2 content. Rather than show a tab that
                   teaches the wrong task, Task 1 gets the feedback panel alone
                   until a Task 1 sheet is written. */}
-              {task === 'task2' && (
-                <div className="panel-tabs" role="tablist" aria-label="Coach panel">
-                  <button
-                    role="tab"
-                    aria-selected={panelTab === 'feedback'}
-                    className={panelTab === 'feedback' ? 'panel-tab active' : 'panel-tab'}
-                    onClick={() => setPanelTab('feedback')}
-                  >
-                    Feedback
-                  </button>
+              <div className="panel-tabs" role="tablist" aria-label="Coach panel">
+                <button
+                  role="tab"
+                  aria-selected={panelTab === 'feedback'}
+                  className={panelTab === 'feedback' ? 'panel-tab active' : 'panel-tab'}
+                  onClick={() => setPanelTab('feedback')}
+                >
+                  Feedback
+                </button>
+                {/* The cheat sheet teaches Task 2 specifically. */}
+                {task === 'task2' && (
                   <button
                     role="tab"
                     aria-selected={panelTab === 'cheatsheet'}
@@ -501,10 +506,24 @@ export default function App() {
                   >
                     Cheat sheet
                   </button>
-                </div>
-              )}
-              {task === 'task2' && panelTab === 'cheatsheet' ? (
+                )}
+                <button
+                  role="tab"
+                  aria-selected={panelTab === 'model'}
+                  className={panelTab === 'model' ? 'panel-tab active' : 'panel-tab'}
+                  onClick={() => setPanelTab('model')}
+                >
+                  Model answer
+                </button>
+              </div>
+              {panelTab === 'cheatsheet' && task === 'task2' ? (
                 <CheatSheet />
+              ) : panelTab === 'model' ? (
+                <ModelAnswer
+                  task={task}
+                  prompt={prompt}
+                  task1Prompt={task === 'task1' ? task1Prompt : null}
+                />
               ) : (
                 <FeedbackPanel
                   analysis={analysis}
