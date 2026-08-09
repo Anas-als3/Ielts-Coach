@@ -59,8 +59,15 @@ the editor — Coach Mode only; it disappears with everything else under exam co
 ```bash
 npm install
 npm run dev
-npm test        # regression suite from the calibration essay
+npm test            # everything
+npm run test:engine # analysis + storage, Node, no DOM
+npm run test:ui     # components, jsdom + Testing Library
 ```
+
+The suite is split in two vitest projects. `engine` runs the pure analysis and
+storage code in Node — keeping it there means nothing in the engine can quietly
+start depending on a browser global. `ui` renders the real `<App />` in jsdom
+and drives it the way a learner would.
 
 ## Architecture
 
