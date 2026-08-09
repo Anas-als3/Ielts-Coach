@@ -72,6 +72,55 @@ export const CATEGORY_META: Record<IssueCategory, { label: string; criterion: Cr
   't1-shape': { label: 'Answer shape', criterion: 'CC', hint: 'Task 1 shape: paraphrase, overview, one or two detail paragraphs. No conclusion is needed.' },
 }
 
+/**
+ * Categories that can only fire for ONE task, because only that task's pipeline
+ * emits them. Everything not listed here is emitted by a rule module both
+ * pipelines run, so it applies to both.
+ *
+ * This drives the error profile's rate maths. A category's per-100-words rate
+ * must only average over sessions where it COULD have fired: counting a Task 1
+ * session as a clean run for `no-position` — a rule Task 1 never even
+ * evaluates — reads as improvement when the learner has simply stopped writing
+ * Task 2. `tests/profile-scoping.test.ts` pins these sets against what the two
+ * pipelines actually emit, so they cannot drift.
+ */
+export const TASK1_ONLY_CATEGORIES: ReadonlySet<IssueCategory> = new Set<IssueCategory>([
+  't1-word-count',
+  't1-overview-missing',
+  't1-invented-figure',
+  't1-no-data-cited',
+  't1-no-comparison',
+  't1-explains-causes',
+  't1-opinion',
+  't1-prompt-echo',
+  't1-shape',
+])
+
+export const TASK2_ONLY_CATEGORIES: ReadonlySet<IssueCategory> = new Set<IssueCategory>([
+  // taskResponse.ts — never called by analyzeTask1
+  'word-count',
+  'question-coverage',
+  'prompt-echo',
+  'no-position',
+  'position-consistency',
+  'off-topic',
+  'overgeneralisation',
+  'personal-anecdote',
+  // rules/structure.ts — Task 1 has its own structure module
+  'paragraphing',
+  'no-conclusion',
+  'topic-sentence',
+  'intro-shape',
+  'conclusion-shape',
+])
+
+/** Could `category` have fired in a session answering `task`? */
+export function categoryAppliesTo(category: IssueCategory, task: TaskKind): boolean {
+  if (TASK1_ONLY_CATEGORIES.has(category)) return task === 'task1'
+  if (TASK2_ONLY_CATEGORIES.has(category)) return task === 'task2'
+  return true
+}
+
 export const QUESTION_TYPE_META: Record<QuestionType, { label: string; mustAddress: string[] }> = {
   opinion: {
     label: 'Opinion (agree/disagree)',

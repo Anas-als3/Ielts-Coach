@@ -10,6 +10,12 @@
  *           (improving < -0.05, worsening > 0.05, else flat).
  *   focusCategories = top 3 by EWMA x severity weight (error 3, warning 2, info 1),
  *           EWMA > 0 only, and only once 2+ sessions exist.
+ *
+ * TASK SCOPING: every rate is averaged only over sessions where the category
+ * COULD have fired (see meta.ts -> categoryAppliesTo). A Task 1 session is not
+ * evidence that a learner has stopped losing marks for `no-position` — Task 1
+ * never evaluates that rule. Counting it as a clean run reads as improvement
+ * the learner did not earn, and drags a real weakness out of their focus list.
  */
 
 import type {
@@ -21,6 +27,7 @@ import type {
   SessionRecord,
   Severity,
 } from '../types'
+import { categoryAppliesTo } from '../meta'
 
 const EWMA_ALPHA = 0.35
 const TREND_WINDOW = 6
@@ -127,8 +134,15 @@ export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
   const scored: Array<{ category: IssueCategory; score: number }> = []
 
   for (const category of fired) {
-    // Per-session per-100-words rates, chronological (0 for sessions where it did not fire).
-    const rates = ordered.map((s, i) => per100Words(counts[i][category] ?? 0, sessionWordCount(s)))
+    // Only sessions whose task could have produced this category. Everything
+    // below — rates, trend, recentRate, EWMA — runs over this subset.
+    const applicable: number[] = []
+    for (let i = 0; i < ordered.length; i++) {
+      if (categoryAppliesTo(category, ordered[i].task)) applicable.push(i)
+    }
+
+    // Per-session per-100-words rates, chronological (0 where it did not fire).
+    const rates = applicable.map((i) => per100Words(counts[i][category] ?? 0, sessionWordCount(ordered[i])))
 
     // Trend: least-squares slope over the last 6 sessions' rates.
     const slope = leastSquaresSlope(rates.slice(-TREND_WINDOW))
@@ -138,7 +152,7 @@ export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
     // Totals and last sighting.
     let total = 0
     let lastSeenISO: string | null = null
-    for (let i = 0; i < ordered.length; i++) {
+    for (const i of applicable) {
       const count = counts[i][category] ?? 0
       total += count
       if (count > 0) lastSeenISO = ordered[i].dateISO
@@ -147,8 +161,7 @@ export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
     // recentRate: issues per 100 words aggregated over the last 5 sessions (per CategoryStat contract).
     let recentIssues = 0
     let recentWords = 0
-    const from = Math.max(0, ordered.length - RECENT_WINDOW)
-    for (let i = from; i < ordered.length; i++) {
+    for (const i of applicable.slice(-RECENT_WINDOW)) {
       recentIssues += counts[i][category] ?? 0
       recentWords += sessionWordCount(ordered[i])
     }
@@ -187,15 +200,20 @@ export function computeTrends(sessions: SessionRecord[]): CategoryTrend[] {
 
   return orderedCategories.map((category) => ({
     category,
-    // Full series — 0-count sessions included so trend lines stay continuous.
-    perSession: ordered.map((s, i) => {
+    // 0-count sessions are included so trend lines stay continuous, but only
+    // for sessions whose task could have produced this category — a sparkline
+    // must never plot a zero the learner could not have avoided.
+    perSession: ordered.flatMap((s, i) => {
+      if (!categoryAppliesTo(category, s.task)) return []
       const count = counts[i][category] ?? 0
-      return {
-        sessionId: s.id,
-        dateISO: s.dateISO,
-        count,
-        per100Words: per100Words(count, sessionWordCount(s)),
-      }
+      return [
+        {
+          sessionId: s.id,
+          dateISO: s.dateISO,
+          count,
+          per100Words: per100Words(count, sessionWordCount(s)),
+        },
+      ]
     }),
   }))
 }
