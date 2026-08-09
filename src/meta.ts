@@ -95,6 +95,19 @@ export const QUESTION_TYPE_META: Record<QuestionType, { label: string; mustAddre
   },
 }
 
-export const EXAM_DURATION_SEC = 40 * 60
-export const MIN_WORDS = 250
-export const TARGET_WORDS = 280
+/**
+ * Per-task exam constants. Task 2 keeps its original values so existing
+ * behaviour is unchanged; Task 1 is 20 minutes and 150 words.
+ */
+export const TASK_CONSTANTS: Record<
+  TaskKind,
+  { examDurationSec: number; minWords: number; targetWords: number; label: string }
+> = {
+  task2: { examDurationSec: 40 * 60, minWords: 250, targetWords: 280, label: 'Task 2' },
+  task1: { examDurationSec: 20 * 60, minWords: 150, targetWords: 190, label: 'Task 1' },
+}
+
+/** Task 2 defaults, kept as named exports so existing call sites stay valid. */
+export const EXAM_DURATION_SEC = TASK_CONSTANTS.task2.examDurationSec
+export const MIN_WORDS = TASK_CONSTANTS.task2.minWords
+export const TARGET_WORDS = TASK_CONSTANTS.task2.targetWords

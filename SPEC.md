@@ -374,6 +374,29 @@ Achievement" (Task 1) — one slot, two names. `meta.ts` exports `criterionLabel
 `CRITERION_META` remains the Task 2 default. A fifth member would force `Partial<Record<Criterion, …>>`
 through the estimator and every view that renders it, to express a key always absent for one task.
 
+### UI
+Task switcher in the topbar beside the mode toggle, same markup and styling. Switching task CLEARS the
+answer sheet (a Task 2 essay scored by Task 1 rules produces confidently wrong feedback) and refuses to
+switch silently while an exam clock runs — same `confirm()` as `switchMode`. Two prompt slots are kept,
+one per task, so switching away and back returns the learner to the question they were looking at.
+Per-task constants live in `meta.ts` as `TASK_CONSTANTS`: Task 1 = 20:00 and 150 words, Task 2 = 40:00
+and 250 words (unchanged). `EXAM_DURATION_SEC` / `MIN_WORDS` / `TARGET_WORDS` remain exported as the
+Task 2 values so existing call sites stay valid.
+The chart renders in BOTH modes — it is the question, so exam mode must show it. Task 1 uses a plain
+`<select>` of the twelve prompts rather than the Task 2 `PromptPicker`, which filters by question type.
+The Task 2 cheat sheet is hidden in Task 1 (it teaches the wrong task); a Task 1 sheet is separate work.
+Structure Rail: `t1-paraphrase` and `t1-overview` group under Introduction; details, figures, comparison
+and complex-count under Body. There is NO Conclusion group in Task 1 — the rail already drops empty
+groups. Paragraph norms and short labels are task-keyed (Task 1: paraphrase 20–40, overview/detail
+20–70; labels Para · Over · D1 · D2).
+Report: criterion labels come from `criterionLabel(criterion, session.task)`, so the first slot reads
+"Task Achievement" in Task 1, and the header names the actual task. The POSITION CHECK card does not
+render for Task 1 — Task 1 has no position.
+FeedbackPanel takes `task` so the "estimates unlock at N words" hint matches the estimator's floor
+(100 for Task 1, 150 for Task 2). The editor placeholder is task-specific.
+Dashboard: a Task column, and the Question column shows the chart kind for Task 1 rows. The band trend
+chart still mixes both tasks and says so in its caption.
+
 ### Engine
 `analyzeTask1(text, prompt)` in `analysis/engine.ts`, beside an UNCHANGED `analyzeEssay`. Achievement
 runs BEFORE structure, because the structure checks read its prompt-echo spans. The sort-and-assign-ids

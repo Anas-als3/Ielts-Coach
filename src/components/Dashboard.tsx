@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react'
 import type { ChangeEvent } from 'react'
 import type { DashboardProps, IssueCategory, SessionRecord, Severity } from '../types'
 import { CATEGORY_META, QUESTION_TYPE_META } from '../meta'
+import { TASK1_PROMPTS } from '../prompts/task1Bank'
 import './Dashboard.css'
 
 /* --------------------------------- helpers --------------------------------- */
@@ -47,6 +48,11 @@ function topIssue(session: SessionRecord): { label: string; severity: Severity }
     }
   }
   return top ? { label: CATEGORY_META[top]?.label ?? top, severity: bestSev } : null
+}
+
+/** The chart kind a Task 1 session answered, resolved from the bank by prompt id. */
+function task1KindOf(s: SessionRecord): string {
+  return TASK1_PROMPTS.find((p) => p.id === s.promptId)?.chart.kind ?? 'chart'
 }
 
 /* ----------------------------- band trend chart ----------------------------- */
@@ -322,7 +328,8 @@ export default function Dashboard({
             <BandTrendChart sessions={chrono} />
             <p className="db-chart-caption">
               Form-only band estimate per session — your real band is likely at or below the line.
-              The shaded area is the ±0.5 estimate range. Filled dots = exam conditions.
+              The shaded area is the ±0.5 estimate range. Filled dots = exam conditions. Task 1 and
+              Task 2 sessions share one line.
             </p>
           </div>
         </section>
@@ -373,6 +380,7 @@ export default function Dashboard({
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Task</th>
                 <th>Mode</th>
                 <th>Question</th>
                 <th className="db-th-num">Words</th>
@@ -391,6 +399,9 @@ export default function Dashboard({
                   <tr key={s.id}>
                     <td className="mono db-td-date">{fmtDate(s.dateISO, true)}</td>
                     <td>
+                      <span className="db-chip-q">{s.task === 'task1' ? 'Task 1' : 'Task 2'}</span>
+                    </td>
+                    <td>
                       {s.mode === 'exam' ? (
                         <span className="db-chip-exam">Exam</span>
                       ) : (
@@ -402,6 +413,8 @@ export default function Dashboard({
                         <span className="db-chip-q">
                           {QUESTION_TYPE_META[s.questionType]?.label ?? s.questionType}
                         </span>
+                      ) : s.task === 'task1' ? (
+                        <span className="db-chip-q">{task1KindOf(s)}</span>
                       ) : (
                         '—'
                       )}

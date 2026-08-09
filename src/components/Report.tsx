@@ -7,7 +7,7 @@ import type {
   ReportProps,
   SessionRecord,
 } from '../types'
-import { CATEGORY_META, CRITERION_META } from '../meta'
+import { CATEGORY_META, criterionLabel } from '../meta'
 import './Report.css'
 
 /* --------------------------------- helpers -------------------------------- */
@@ -437,7 +437,8 @@ export default function Report({
       {/* 1 — header row */}
       <header className="rp-header">
         <p className="eyebrow">
-          Writing Task 2 · {session.mode === 'exam' ? 'Exam' : 'Coach'} ·{' '}
+          Writing {session.task === 'task1' ? 'Task 1' : 'Task 2'} ·{' '}
+          {session.mode === 'exam' ? 'Exam' : 'Coach'} ·{' '}
           {formatDate(session.dateISO)}
         </p>
         <div className="rp-actions">
@@ -472,7 +473,7 @@ export default function Report({
             aria-label={`Band scale 4 to 9: estimated range ${formatBand(lo)} to ${formatBand(
               hi,
             )}. ${CRITERIA.map(
-              (c) => `${CRITERION_META[c].short} ${formatBand(analysis.band.byCriterion[c])}`,
+              (c) => `${criterionLabel(c, session.task).short} ${formatBand(analysis.band.byCriterion[c])}`,
             ).join(', ')}.`}
           >
             <div className="rp-scale-track">
@@ -485,7 +486,7 @@ export default function Report({
                   key={c}
                   className="rp-scale-marker"
                   style={{ left: `${bandPct(analysis.band.byCriterion[c])}%` }}
-                  title={`${CRITERION_META[c].label}: ${formatBand(
+                  title={`${criterionLabel(c, session.task).label}: ${formatBand(
                     analysis.band.byCriterion[c],
                   )}`}
                 />
@@ -505,7 +506,7 @@ export default function Report({
             const bullets = analysis.band.rationale[c] ?? []
             return (
               <div key={c} className="rp-tile card">
-                <p className="rp-tile-label">{CRITERION_META[c].label}</p>
+                <p className="rp-tile-label">{criterionLabel(c, session.task).label}</p>
                 <p className="rp-tile-band mono">{formatBand(analysis.band.byCriterion[c])}</p>
                 <div className="rp-tile-scale" aria-hidden="true">
                   <div
@@ -579,7 +580,7 @@ export default function Report({
       </section>
 
       {/* 4b — position check: manual meaning read, both stance sentences found */}
-      {positionCheck && (
+      {session.task === 'task2' && positionCheck && (
         <section className="rp-position card" aria-label="Position check">
           <h2 className="eyebrow">Position check — do these say the same thing?</h2>
           <div className="rp-position-quotes">
@@ -668,7 +669,7 @@ export default function Report({
           <h2 className="eyebrow">Whole-essay notes</h2>
           {essayLevelGroups.map((g) => (
             <div key={g.criterion} className="rp-notes-group">
-              <p className="rp-notes-crit">{CRITERION_META[g.criterion].label}</p>
+              <p className="rp-notes-crit">{criterionLabel(g.criterion, session.task).label}</p>
               <ul className="rp-notes-list">
                 {g.items.map((issue) => (
                   <li key={issue.id}>

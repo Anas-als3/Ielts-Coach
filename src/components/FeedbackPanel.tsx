@@ -75,7 +75,15 @@ function IssueRow({
   return <div className={rowClass}>{body}</div>
 }
 
-export default function FeedbackPanel({ analysis, profile, onSelectIssue }: FeedbackPanelProps) {
+export default function FeedbackPanel({
+  analysis,
+  profile,
+  onSelectIssue,
+  task = 'task2',
+}: FeedbackPanelProps) {
+  /* The band estimator refuses to score below this, and the two tasks differ
+     (task1BandEstimate.ts uses 100, bandEstimate.ts uses 150). */
+  const minWordsForEstimate = task === 'task1' ? 100 : 150
   const [notesOpen, setNotesOpen] = useState(false)
 
   if (!analysis) {
@@ -111,7 +119,7 @@ export default function FeedbackPanel({ analysis, profile, onSelectIssue }: Feed
         {tooShort ? (
           <>
             <p className="fb-band-short">Too short to estimate</p>
-            <p className="fb-band-hint">(estimates unlock at 150 words)</p>
+            <p className="fb-band-hint">(estimates unlock at {minWordsForEstimate} words)</p>
           </>
         ) : (
           <>

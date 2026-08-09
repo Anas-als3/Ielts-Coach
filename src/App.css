@@ -272,3 +272,38 @@
     order: 3;
   }
 }
+
+/* Task switcher — same shell as the mode toggle, sat beside it. */
+.task-toggle {
+  margin-right: 4px;
+}
+
+/* Task 1 question picker: twelve prompts need a plain select, not a filter UI. */
+.t1-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+
+.t1-picker .eyebrow {
+  margin: 0;
+  flex: none;
+}
+
+.t1-select {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.t1-select:focus-visible {
+  outline: 2px solid var(--exam-navy);
+  outline-offset: 1px;
+}

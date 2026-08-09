@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { ParagraphRole, StructureCheck, StructureRailProps } from '../types'
+import type { ParagraphRole, StructureCheck, StructureRailProps, TaskKind } from '../types'
 import { QUESTION_TYPE_META } from '../meta'
 import './StructureRail.css'
 
@@ -13,25 +13,38 @@ const GROUP_LABELS: Record<GroupKey, string> = {
   conclusion: 'Conclusion',
 }
 
-/* Same word-count norms the paragraph rules use (SPEC canonical constants). */
-const NORMS: Record<ParagraphRole, readonly [number, number]> = {
-  introduction: [30, 60],
-  body: [60, 120],
-  conclusion: [25, 60],
+/* Same word-count norms the paragraph rules use (SPEC canonical constants).
+   Task 1 is a different shape entirely: a short paraphrase, a one-sentence
+   overview, then one or two detail paragraphs — and no conclusion. */
+const NORMS: Record<TaskKind, Record<ParagraphRole, readonly [number, number]>> = {
+  task2: {
+    introduction: [30, 60],
+    body: [60, 120],
+    conclusion: [25, 60],
+  },
+  task1: {
+    introduction: [20, 40],
+    body: [20, 70],
+    conclusion: [20, 40], // never assigned in Task 1; present to satisfy the record
+  },
 }
 
 /* Entrance stagger: 30ms steps, capped so late elements join the same moment. */
 const STAGGER_CAP = 12
 
 function groupOf(check: StructureCheck): GroupKey {
+  // Task 1 ids first — 't1-paraphrase' would otherwise fall through to 'body'.
+  if (check.id === 't1-paraphrase' || check.id === 't1-overview') return 'intro'
   if (check.id.startsWith('intro') || check.id === 'position-stated') return 'intro'
   if (check.id.startsWith('conclusion')) return 'conclusion'
   return 'body'
 }
 
-function shortLabel(role: ParagraphRole, bodyOrdinal: number): string {
-  if (role === 'introduction') return 'Intro'
+function shortLabel(role: ParagraphRole, bodyOrdinal: number, task: TaskKind): string {
+  if (role === 'introduction') return task === 'task1' ? 'Para' : 'Intro'
   if (role === 'conclusion') return 'Concl'
+  // Task 1: the first body paragraph is the overview, the rest are details.
+  if (task === 'task1') return bodyOrdinal === 1 ? 'Over' : `D${bodyOrdinal - 1}`
   return `B${bodyOrdinal}`
 }
 
@@ -74,7 +87,12 @@ function nodeClass(
  * as structure checks are satisfied; a paragraph-balance strip below shows
  * each paragraph's weight against its norm range.
  */
-export default function StructureRail({ checks, paragraphs, questionType }: StructureRailProps) {
+export default function StructureRail({
+  checks,
+  paragraphs,
+  questionType,
+  task = 'task2',
+}: StructureRailProps) {
   const isEmpty = paragraphs.length === 0
 
   const groups = GROUP_ORDER.map((key) => ({
@@ -89,10 +107,10 @@ export default function StructureRail({ checks, paragraphs, questionType }: Stru
   let bodyOrdinal = 0
   const bars = paragraphs.map((p) => {
     if (p.role === 'body') bodyOrdinal += 1
-    const [lo, hi] = NORMS[p.role]
+    const [lo, hi] = NORMS[task][p.role]
     return {
       key: p.index,
-      label: shortLabel(p.role, bodyOrdinal),
+      label: shortLabel(p.role, bodyOrdinal, task),
       words: p.wordCount,
       inRange: p.wordCount >= lo && p.wordCount <= hi,
       widthPct: barWidthPct(p.wordCount),

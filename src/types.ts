@@ -354,14 +354,18 @@ export interface EditorProps {
 export interface StructureRailProps {
   checks: StructureCheck[];
   paragraphs: ParagraphInfo[];
-  /** Question type of the active prompt, to label expected parts. */
+  /** Question type of the active prompt, to label expected parts. Null for Task 1. */
   questionType: QuestionType | null;
+  /** Which task the rail is describing. Defaults to 'task2' when omitted. */
+  task?: TaskKind;
 }
 
 export interface FeedbackPanelProps {
   analysis: Analysis | null;
   profile: ErrorProfile | null;
   onSelectIssue: (issue: Issue) => void;
+  /** Which task is being written. Drives the word count at which estimates unlock. */
+  task?: TaskKind;
 }
 
 export interface TimerProps {

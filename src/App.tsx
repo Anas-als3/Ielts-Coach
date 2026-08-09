@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import type { Issue, IssueCategory, PromptSpec, SessionRecord, WritingMode } from './types'
-import { EXAM_DURATION_SEC, MIN_WORDS } from './meta'
-import { analyzeEssay } from './analysis/engine'
+import type {
+  Issue,
+  IssueCategory,
+  PromptSpec,
+  SessionRecord,
+  Task1PromptSpec,
+  TaskKind,
+  WritingMode,
+} from './types'
+import { TASK_CONSTANTS } from './meta'
+import { analyzeEssay, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
 import { computeProfile, computeTrends } from './profile/profile'
 import { PROMPTS, randomPrompt } from './prompts/bank'
+import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
+import Chart from './components/Chart'
 import Editor from './components/Editor'
 import StructureRail from './components/StructureRail'
 import FeedbackPanel from './components/FeedbackPanel'
@@ -35,13 +45,17 @@ function countWords(text: string): number {
 export default function App() {
   const [view, setView] = useState<View>('write')
   const [mode, setMode] = useState<WritingMode>('coach')
+  const [task, setTask] = useState<TaskKind>('task2')
   const [prompt, setPrompt] = useState<PromptSpec | null>(() => randomPrompt())
+  // Two prompt slots rather than one union: switching task and switching back
+  // should return the learner to the question they were already looking at.
+  const [task1Prompt, setTask1Prompt] = useState<Task1PromptSpec>(() => randomTask1Prompt())
   const [essayText, setEssayText] = useState('')
   const [sessions, setSessions] = useState<SessionRecord[]>(() => loadSessions())
   const [reportSessionId, setReportSessionId] = useState<string | null>(null)
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null)
   const [examState, setExamState] = useState<ExamState>('idle')
-  const [examSecondsLeft, setExamSecondsLeft] = useState(EXAM_DURATION_SEC)
+  const [examSecondsLeft, setExamSecondsLeft] = useState(TASK_CONSTANTS.task2.examDurationSec)
   const [panelTab, setPanelTab] = useState<'feedback' | 'cheatsheet'>('feedback')
   const submittingRef = useRef(false)
   const pacingRef = useRef<Array<{ t: number; words: number }>>([])
@@ -51,11 +65,14 @@ export default function App() {
   essayTextRef.current = essayText
   const handleSubmitRef = useRef<() => void>(() => {})
 
+  const taskConstants = TASK_CONSTANTS[task]
   const debouncedText = useDebounced(essayText, 400)
-  const analysis = useMemo(
-    () => (mode === 'coach' ? analyzeEssay(debouncedText, prompt) : null),
-    [debouncedText, prompt, mode],
-  )
+  const analysis = useMemo(() => {
+    if (mode !== 'coach') return null
+    return task === 'task1'
+      ? analyzeTask1(debouncedText, task1Prompt)
+      : analyzeEssay(debouncedText, prompt)
+  }, [debouncedText, prompt, task1Prompt, mode, task])
   const profile = useMemo(() => computeProfile(sessions), [sessions])
   const trends = useMemo(() => computeTrends(sessions), [sessions])
   const liveWordCount = countWords(essayText)
@@ -72,7 +89,7 @@ export default function App() {
       const deadline = examDeadlineRef.current
       if (deadline == null) return
       const left = Math.max(0, Math.round((deadline - Date.now()) / 1000))
-      const elapsed = EXAM_DURATION_SEC - left
+      const elapsed = taskConstants.examDurationSec - left
       const lastSampleT = pacingRef.current.length
         ? pacingRef.current[pacingRef.current.length - 1].t
         : 0
@@ -88,7 +105,14 @@ export default function App() {
       clearInterval(t)
       document.removeEventListener('visibilitychange', tick)
     }
-  }, [examState])
+  }, [examState, taskConstants.examDurationSec])
+
+  /* Switching task resets the clock to that task's duration. Guarded on
+     examState so a running exam is never silently re-timed — switchTask
+     refuses to switch while the clock runs without confirmation. */
+  useEffect(() => {
+    if (examState === 'idle') setExamSecondsLeft(taskConstants.examDurationSec)
+  }, [taskConstants.examDurationSec, examState])
 
   useEffect(() => {
     if (examState === 'running' && examSecondsLeft === 0) handleSubmit()
@@ -137,22 +161,24 @@ export default function App() {
     const secondsUsed =
       examDeadlineRef.current != null
         ? Math.min(
-            EXAM_DURATION_SEC,
+            taskConstants.examDurationSec,
             Math.max(
               0,
-              EXAM_DURATION_SEC - Math.round((examDeadlineRef.current - Date.now()) / 1000),
+              taskConstants.examDurationSec - Math.round((examDeadlineRef.current - Date.now()) / 1000),
             ),
           )
-        : EXAM_DURATION_SEC - examSecondsLeft
-    const finalAnalysis = analyzeEssay(essayText, prompt)
+        : taskConstants.examDurationSec - examSecondsLeft
+    const finalAnalysis =
+      task === 'task1' ? analyzeTask1(essayText, task1Prompt) : analyzeEssay(essayText, prompt)
+    const activeSpec = task === 'task1' ? task1Prompt : prompt
     const record: SessionRecord = {
       id: makeId(),
       dateISO: new Date().toISOString(),
       mode,
-      task: 'task2',
-      promptId: prompt?.id ?? null,
-      promptText: prompt?.text ?? '',
-      questionType: prompt?.type ?? null,
+      task,
+      promptId: activeSpec?.id ?? null,
+      promptText: activeSpec?.text ?? '',
+      questionType: task === 'task1' ? null : prompt?.type ?? null,
       essayText,
       durationSec: mode === 'exam' ? secondsUsed : null,
       pacing: mode === 'exam' && pacingRef.current.length ? [...pacingRef.current] : null,
@@ -164,7 +190,7 @@ export default function App() {
     setSessions(loadSessions())
     setReportSessionId(record.id)
     setExamState('idle')
-    setExamSecondsLeft(EXAM_DURATION_SEC)
+    setExamSecondsLeft(taskConstants.examDurationSec)
     examDeadlineRef.current = null
     setView('report')
     // submittingRef stays true until a new writing session starts, so a
@@ -174,11 +200,12 @@ export default function App() {
   function startNewEssay(nextPrompt?: PromptSpec | null) {
     submittingRef.current = false
     examDeadlineRef.current = null
-    setPrompt(nextPrompt ?? randomPrompt())
+    if (task === 'task1') setTask1Prompt(randomTask1Prompt())
+    else setPrompt(nextPrompt ?? randomPrompt())
     setEssayText('')
     setFocusIssueId(null)
     setExamState('idle')
-    setExamSecondsLeft(EXAM_DURATION_SEC)
+    setExamSecondsLeft(taskConstants.examDurationSec)
     setMode('coach')
     setView('write')
   }
@@ -186,12 +213,36 @@ export default function App() {
   function handleRedraft(session: SessionRecord) {
     submittingRef.current = false
     examDeadlineRef.current = null
-    const p = PROMPTS.find((x) => x.id === session.promptId) ?? null
-    setPrompt(p)
+    setTask(session.task)
+    if (session.task === 'task1') {
+      const t1 = TASK1_PROMPTS.find((x) => x.id === session.promptId)
+      if (t1) setTask1Prompt(t1)
+    } else {
+      setPrompt(PROMPTS.find((x) => x.id === session.promptId) ?? null)
+    }
     setEssayText(session.essayText)
     setMode('coach')
     setExamState('idle')
     setView('write')
+  }
+
+  function switchTask(next: TaskKind) {
+    if (next === task) return
+    if (mode === 'exam' && examState === 'running') {
+      const leave = window.confirm(
+        'The exam clock is running. Switch task and abandon this attempt?',
+      )
+      if (!leave) return
+    }
+    submittingRef.current = false
+    examDeadlineRef.current = null
+    setTask(next)
+    // A Task 2 essay sitting in a Task 1 answer sheet would be scored against
+    // the wrong rules and produce confidently wrong feedback.
+    setEssayText('')
+    setExamState('idle')
+    setExamSecondsLeft(TASK_CONSTANTS[next].examDurationSec)
+    setFocusIssueId(null)
   }
 
   function switchMode(next: WritingMode) {
@@ -206,7 +257,7 @@ export default function App() {
     examDeadlineRef.current = null
     setMode(next)
     setExamState('idle')
-    setExamSecondsLeft(EXAM_DURATION_SEC)
+    setExamSecondsLeft(taskConstants.examDurationSec)
     setFocusIssueId(null)
   }
 
@@ -269,18 +320,32 @@ export default function App() {
         {view === 'write' && (
           <div className="topbar-right">
             <span
-              className={`wordcount mono${mode === 'coach' && liveWordCount < MIN_WORDS ? ' under' : ''}`}
-              title={mode === 'coach' ? `Minimum ${MIN_WORDS} words` : undefined}
+              className={`wordcount mono${mode === 'coach' && liveWordCount < taskConstants.minWords ? ' under' : ''}`}
+              title={mode === 'coach' ? `Minimum ${taskConstants.minWords} words` : undefined}
             >
               {liveWordCount} words
             </span>
             {inExam && (
               <Timer
                 secondsLeft={examSecondsLeft}
-                totalSeconds={EXAM_DURATION_SEC}
+                totalSeconds={taskConstants.examDurationSec}
                 running={examState === 'running'}
               />
             )}
+            <div className="mode-toggle task-toggle" role="group" aria-label="IELTS task">
+              <button
+                className={task === 'task1' ? 'mode-btn active' : 'mode-btn'}
+                onClick={() => switchTask('task1')}
+              >
+                Task 1
+              </button>
+              <button
+                className={task === 'task2' ? 'mode-btn active' : 'mode-btn'}
+                onClick={() => switchTask('task2')}
+              >
+                Task 2
+              </button>
+            </div>
             <div className="mode-toggle" role="group" aria-label="Writing mode">
               <button
                 className={mode === 'coach' ? 'mode-btn active' : 'mode-btn'}
@@ -316,28 +381,66 @@ export default function App() {
               <StructureRail
                 checks={analysis?.structure ?? []}
                 paragraphs={analysis?.paragraphs ?? []}
-                questionType={prompt?.type ?? null}
+                questionType={task === 'task1' ? null : prompt?.type ?? null}
+                task={task}
               />
             </aside>
           )}
 
           <section className="sheet-zone">
-            {!inExam && (
-              <PromptPicker prompts={PROMPTS} current={prompt} onPick={(p) => setPrompt(p)} />
-            )}
-            {inExam && prompt && (
-              <div className="exam-prompt card">
-                <p className="eyebrow">Task 2 · write at least 250 words</p>
-                <p className="exam-prompt-text">{prompt.text}</p>
-              </div>
+            {task === 'task1' ? (
+              <>
+                {!inExam && (
+                  <div className="t1-picker card">
+                    <label className="eyebrow" htmlFor="t1-select">
+                      Task 1 question
+                    </label>
+                    <select
+                      id="t1-select"
+                      className="t1-select"
+                      value={task1Prompt.id}
+                      onChange={(e) => {
+                        const next = TASK1_PROMPTS.find((p) => p.id === e.target.value)
+                        if (next) setTask1Prompt(next)
+                      }}
+                    >
+                      {TASK1_PROMPTS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.chart.kind} · {p.chart.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {/* The chart IS the question, so exam mode must show it too. */}
+                <div className="exam-prompt card">
+                  <p className="eyebrow">Task 1 · write at least {taskConstants.minWords} words</p>
+                  <p className="exam-prompt-text">{task1Prompt.text}</p>
+                  <Chart chart={task1Prompt.chart} />
+                </div>
+              </>
+            ) : (
+              <>
+                {!inExam && (
+                  <PromptPicker prompts={PROMPTS} current={prompt} onPick={(p) => setPrompt(p)} />
+                )}
+                {inExam && prompt && (
+                  <div className="exam-prompt card">
+                    <p className="eyebrow">
+                      Task 2 · write at least {taskConstants.minWords} words
+                    </p>
+                    <p className="exam-prompt-text">{prompt.text}</p>
+                  </div>
+                )}
+              </>
             )}
 
             {inExam && examState === 'idle' ? (
               <div className="exam-start card">
                 <h2>Exam conditions</h2>
                 <p>
-                  40 minutes, no feedback, no highlights. The full report appears when you submit —
-                  exactly like the real thing.
+                  {Math.round(taskConstants.examDurationSec / 60)} minutes, no feedback, no
+                  highlights. The full report appears when you submit — exactly like the real thing.
                 </p>
                 <button
                   className="btn btn-primary"
@@ -345,7 +448,7 @@ export default function App() {
                     pacingRef.current = []
                     pasteAttemptsRef.current = 0
                     submittingRef.current = false
-                    examDeadlineRef.current = Date.now() + EXAM_DURATION_SEC * 1000
+                    examDeadlineRef.current = Date.now() + taskConstants.examDurationSec * 1000
                     setExamState('running')
                   }}
                 >
@@ -359,7 +462,9 @@ export default function App() {
                 issues={inlineIssues}
                 placeholder={
                   mode === 'coach'
-                    ? 'Plan first: position, two main ideas, examples. Then write.'
+                    ? task === 'task1'
+                      ? 'Read the chart first: what is the overall pattern? Open by rewording the title.'
+                      : 'Plan first: position, two main ideas, examples. Then write.'
                     : undefined
                 }
                 focusIssueId={focusIssueId}
@@ -375,32 +480,38 @@ export default function App() {
 
           {mode === 'coach' && (
             <aside className="panel-zone">
-              <div className="panel-tabs" role="tablist" aria-label="Coach panel">
-                <button
-                  role="tab"
-                  aria-selected={panelTab === 'feedback'}
-                  className={panelTab === 'feedback' ? 'panel-tab active' : 'panel-tab'}
-                  onClick={() => setPanelTab('feedback')}
-                >
-                  Feedback
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={panelTab === 'cheatsheet'}
-                  className={panelTab === 'cheatsheet' ? 'panel-tab active' : 'panel-tab'}
-                  onClick={() => setPanelTab('cheatsheet')}
-                >
-                  Cheat sheet
-                </button>
-              </div>
-              {panelTab === 'feedback' ? (
+              {/* The cheat sheet is Task 2 content. Rather than show a tab that
+                  teaches the wrong task, Task 1 gets the feedback panel alone
+                  until a Task 1 sheet is written. */}
+              {task === 'task2' && (
+                <div className="panel-tabs" role="tablist" aria-label="Coach panel">
+                  <button
+                    role="tab"
+                    aria-selected={panelTab === 'feedback'}
+                    className={panelTab === 'feedback' ? 'panel-tab active' : 'panel-tab'}
+                    onClick={() => setPanelTab('feedback')}
+                  >
+                    Feedback
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={panelTab === 'cheatsheet'}
+                    className={panelTab === 'cheatsheet' ? 'panel-tab active' : 'panel-tab'}
+                    onClick={() => setPanelTab('cheatsheet')}
+                  >
+                    Cheat sheet
+                  </button>
+                </div>
+              )}
+              {task === 'task2' && panelTab === 'cheatsheet' ? (
+                <CheatSheet />
+              ) : (
                 <FeedbackPanel
                   analysis={analysis}
                   profile={profile}
                   onSelectIssue={handleSelectIssue}
+                  task={task}
                 />
-              ) : (
-                <CheatSheet />
               )}
             </aside>
           )}
