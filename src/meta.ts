@@ -1,11 +1,25 @@
-import type { Criterion, IssueCategory, QuestionType } from './types'
+import type { Criterion, IssueCategory, QuestionType, TaskKind } from './types'
 
-/** Display metadata for the four IELTS band criteria. */
+/** Display metadata for the four IELTS band criteria. Task 2 wording is the default. */
 export const CRITERION_META: Record<Criterion, { label: string; short: string }> = {
   TR: { label: 'Task Response', short: 'Task' },
   CC: { label: 'Coherence & Cohesion', short: 'Coherence' },
   LR: { label: 'Lexical Resource', short: 'Vocabulary' },
   GRA: { label: 'Grammatical Range & Accuracy', short: 'Grammar' },
+}
+
+/**
+ * Criterion display name for a given task.
+ *
+ * IELTS marks the same first slot as "Task Response" in Task 2 and "Task
+ * Achievement" in Task 1 — ONE slot, two names. That is why `Criterion` stays
+ * four members: a fifth would force `Partial<Record<Criterion, …>>` through the
+ * band estimator and every view that renders it, to express a key that is
+ * always absent for one task.
+ */
+export function criterionLabel(criterion: Criterion, task: TaskKind): { label: string; short: string } {
+  if (criterion === 'TR' && task === 'task1') return { label: 'Task Achievement', short: 'Task' }
+  return CRITERION_META[criterion]
 }
 
 /** Learner-facing names and one-line explanations per error category. */
@@ -47,6 +61,15 @@ export const CATEGORY_META: Record<IssueCategory, { label: string; criterion: Cr
   'connector-comma': { label: 'Connector commas', criterion: 'GRA', hint: "Fronted connectors take a comma: 'Therefore, …' — and no space before any comma." },
   'first-person-overuse': { label: 'First-person overuse', criterion: 'GRA', hint: "Use 'I' for your position only; argue impersonally elsewhere." },
   'missing-hedging': { label: 'Hedging', criterion: 'GRA', hint: 'Academic claims are qualified: may, tends to, is likely to.' },
+  't1-word-count': { label: 'Word count', criterion: 'TR', hint: 'Task 1 requires at least 150 words; under-length answers are penalised.' },
+  't1-overview-missing': { label: 'Overview missing', criterion: 'TR', hint: 'Task 1 needs one sentence naming the overall trend or the biggest difference — it is the largest single scoring lever.' },
+  't1-invented-figure': { label: 'Figure not in the chart', criterion: 'TR', hint: 'Every number you quote must appear in the data you were given.' },
+  't1-no-data-cited': { label: 'No figures cited', criterion: 'TR', hint: 'Support each main feature with a specific figure from the chart.' },
+  't1-no-comparison': { label: 'No comparison made', criterion: 'TR', hint: 'When the chart shows two or more series, compare them directly.' },
+  't1-explains-causes': { label: 'Explaining causes', criterion: 'TR', hint: 'Task 1 reports what the data shows — it never explains why, and never predicts.' },
+  't1-opinion': { label: 'Opinion in Task 1', criterion: 'TR', hint: 'Task 1 has no opinion. Describe the data, do not evaluate it.' },
+  't1-prompt-echo': { label: 'Copied chart title', criterion: 'TR', hint: 'Paraphrase the chart title in your own words — copied wording is excluded from your word count.' },
+  't1-shape': { label: 'Answer shape', criterion: 'CC', hint: 'Task 1 shape: paraphrase, overview, one or two detail paragraphs. No conclusion is needed.' },
 }
 
 export const QUESTION_TYPE_META: Record<QuestionType, { label: string; mustAddress: string[] }> = {

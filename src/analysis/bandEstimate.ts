@@ -32,17 +32,17 @@ function countComplexityMarkers(doc: TokenizedDoc): number {
 
 /* --------------------------------- helpers --------------------------------- */
 
-function count(issues: Issue[], category: IssueCategory): number {
+export function count(issues: Issue[], category: IssueCategory): number {
   let n = 0
   for (const issue of issues) if (issue.category === category) n += 1
   return n
 }
 
-function hasError(issues: Issue[], category: IssueCategory): boolean {
+export function hasError(issues: Issue[], category: IssueCategory): boolean {
   return issues.some((i) => i.category === category && i.severity === 'error')
 }
 
-function hasWarning(issues: Issue[], category: IssueCategory): boolean {
+export function hasWarning(issues: Issue[], category: IssueCategory): boolean {
   return issues.some((i) => i.category === category && i.severity === 'warning')
 }
 
@@ -52,19 +52,19 @@ function hasWarning(issues: Issue[], category: IssueCategory): boolean {
  * model (topic sentences, hedging, passive balance are low-precision
  * heuristics), so they never block a reward.
  */
-function isClean(issues: Issue[], criterion: Criterion): boolean {
+export function isClean(issues: Issue[], criterion: Criterion): boolean {
   return !issues.some((i) => i.criterion === criterion && i.severity !== 'info')
 }
 
 /** Clamp to 4.0–9.0, apply caps, snap to 0.5 steps. */
-function finishScore(raw: number, caps: number[]): number {
+export function finishScore(raw: number, caps: number[]): number {
   const capped = caps.reduce((acc, c) => Math.min(acc, c), raw)
   const clamped = Math.min(9, Math.max(4, capped))
   return Math.round(clamped * 2) / 2
 }
 
 /** Round to the nearest 0.5 step, with .25/.75 rounding DOWN (conservative). */
-function roundOverallHalfDown(x: number): number {
+export function roundOverallHalfDown(x: number): number {
   return Math.ceil(x * 2 - 0.5) / 2
 }
 
@@ -73,7 +73,7 @@ function roundOverallHalfDown(x: number): number {
  * round the picture out. Never more than 4, never fewer than 2 in practice
  * because every problem has a paired strength.
  */
-function composeBullets(problems: string[], strengths: string[]): string[] {
+export function composeBullets(problems: string[], strengths: string[]): string[] {
   const out = problems.slice(0, 3)
   const maxLen = out.length === 0 ? 3 : 4
   for (const s of strengths) {

@@ -156,7 +156,18 @@ export type IssueCategory =
   | 'who-for-people'
   | 'connector-comma'
   | 'first-person-overuse'
-  | 'missing-hedging';
+  | 'missing-hedging'
+  // Task 1 (Task Achievement — occupies the 'TR' criterion slot)
+  | 't1-word-count'
+  | 't1-overview-missing'
+  | 't1-invented-figure'
+  | 't1-no-data-cited'
+  | 't1-no-comparison'
+  | 't1-explains-causes'
+  | 't1-opinion'
+  | 't1-prompt-echo'
+  // Task 1 (Coherence & Cohesion)
+  | 't1-shape';
 
 export type Severity = 'error' | 'warning' | 'info';
 

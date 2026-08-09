@@ -319,3 +319,71 @@ maximum, and that an overview was given at all.
   conclusion is not required and merely repeats the overview).
 - Maps are deliberately NOT supported: a map cannot be expressed as `categories × series` and would
   need a different renderer and different rules.
+
+### `analysis/rules/task1Achievement.ts` — exports `task1AchievementRules(doc, prompt, facts)`
+Takes `Task1ChartFacts`, so it is NOT a `RuleFn` — `RuleFn` keeps its `(doc, PromptSpec | null)` shape.
+- `t1-word-count`: < 150 error · 150–159 warning "dangerously close" · > 220 warning "over-length".
+- `t1-overview-missing` (error, ≥ 100 words): no overview marker anywhere. Detection is TWO-TIER —
+  unambiguous phrases (overall|in general|in summary|it is clear that|the most striking feature|the
+  most noticeable|the clearest trend|the general trend|the overall trend|taken as a whole) count
+  anywhere; bare adverbs (generally|broadly) count ONLY sentence-initially, because "the lines moved
+  broadly in parallel" is a detail sentence, not an overview. Accuracy matters in both directions: a
+  missed overview costs a 5.5 cap the learner did not earn, and an invented one leaves the app silent
+  about the biggest mark in Task 1.
+- `t1-invented-figure` (error, inline): a number in the answer that is not in `facts.values`. GUARDS —
+  skip values appearing in `chart.categories` (years are labels); accept |written − real| ≤ 0.5 or a
+  round number within 5% (approximation is correct IELTS practice); accept pairwise sums and absolute
+  differences of chart values ("a combined 90 per cent", "a gap of 36 points"); never fire when
+  `facts.values` is empty. A false accusation is worse than a miss.
+- `t1-no-data-cited` (warning, ≥ 120 words): zero numbers written while the chart has values.
+- `t1-no-comparison` (warning, ≥ 120 words, only when `facts.comparative`): no comparison marker.
+- `t1-explains-causes` (warning, inline): causal/predictive markers — Task 1 reports, never explains
+  or forecasts. Worded as a check, not an accusation.
+- `t1-opinion` (warning, inline): any Task 2 stance regex in a Task 1 answer.
+- `t1-prompt-echo` (warning, inline): ≥ 8 verbatim words shared with the chart title or task text,
+  ≥ 2 content words in the run — same threshold and reasoning as Task 2 `prompt-echo`.
+
+### `analysis/rules/task1Structure.ts` — exports `buildTask1Structure(doc, prompt, facts, achievementIssues)`
+Paragraph roles: paragraph 0 = `introduction` (the paraphrase), all others = `body`. **Never
+`conclusion`** — Task 1 has none. Takes the achievement issues so `t1-paraphrase` can tell whether the
+opening actually paraphrased or merely copied.
+Checks (stable order, present from the first keystroke): `t1-paraphrase`, `t1-overview`,
+`t1-detail-1`, `t1-detail-2`, `t1-figures`, `t1-comparison` (pushed ONLY when `facts.comparative`),
+`complex-count` (reused from Task 2, target 4, one per paragraph).
+Issues: `t1-shape` (warning, ≥ 150 words — paragraph count outside 3–4, or a conclusion signal in the
+final paragraph), plus the reused `paragraph-balance`, which compares **detail paragraphs only**
+(index 2 onward): paragraph 1 is the overview and is MEANT to be one short sentence, so measuring it
+against a 60-word detail paragraph would flag the correct Task 1 shape as unbalanced.
+
+### `analysis/task1BandEstimate.ts` — exports `estimateTask1Band(partial, doc)`
+Imports the shared helpers from `bandEstimate.ts` rather than copying them, so the two estimators
+cannot drift apart arithmetically. CC, LR and GRA are scored exactly as Task 2, except: the CC shape
+reward targets **3–4** paragraphs with no conclusion requirement, the `no-conclusion` cap does not
+exist, and the CC linking reward needs 6 devices rather than 8 (a 170-word answer has fewer
+sentences). Under **100** words → all criteria 4.0 (Task 2's floor is 150).
+TA (the 'TR' slot): `t1-word-count` error → cap 5.0 · `t1-overview-missing` → cap 5.5 ·
+`t1-invented-figure` ≥ 3 → cap 6.0, ≥ 1 → −0.5 · `t1-no-data-cited` → −1.0 · `t1-no-comparison` → −0.5 ·
+`t1-explains-causes` ≥ 2 → −0.5 · `t1-opinion` ≥ 1 → −0.5 · `t1-prompt-echo` ≥ 1 → −0.5.
+Rewards: clean sweep · overview satisfied AND figures check satisfied · all structure checks satisfied.
+Calibration anchor (`tests/task1-rules.test.ts`): a 170-word model answer to a two-series line graph
+scores ≥ 7.0 on every criterion.
+
+### Criterion naming
+`Criterion` stays FOUR members. IELTS marks the same first slot as "Task Response" (Task 2) and "Task
+Achievement" (Task 1) — one slot, two names. `meta.ts` exports `criterionLabel(criterion, task)`;
+`CRITERION_META` remains the Task 2 default. A fifth member would force `Partial<Record<Criterion, …>>`
+through the estimator and every view that renders it, to express a key always absent for one task.
+
+### Engine
+`analyzeTask1(text, prompt)` in `analysis/engine.ts`, beside an UNCHANGED `analyzeEssay`. Achievement
+runs BEFORE structure, because the structure checks read its prompt-echo spans. The sort-and-assign-ids
+block is deliberately duplicated rather than factored out, so `analyzeEssay` stays byte-identical and
+the Task 2 regression tests mean what they say.
+`cohesionRules`, `lexicalRules`, `grammarRangeRules` and `accuracyRules` are reused unchanged. They are
+called with a `topicContext(prompt)` adapter, NOT with null: those modules read `keywords` (which
+`lexical.ts` excludes from repetition counting) and `type` (which `cohesion.ts` checks only for
+'discussion'). Passing null would strip the keyword exclusion, and a Task 1 answer MUST repeat the
+chart's subject nouns. The adapter also injects TASK1_MEASUREMENT_VOCABULARY (cent, percent,
+percentage, proportion, figure, chart, graph, table, period, year, total …) — a 180-word percentage
+description says "per cent" five or six times because there is no synonym, and the engine must not
+penalise a learner for describing a percentage chart in percentages.
