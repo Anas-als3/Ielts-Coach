@@ -16,36 +16,15 @@ import type {
   StructureCheck,
   TokenizedDoc,
 } from '../types'
+import { PARTICIPIAL_OPENER_RE, countGraMarkers } from './complexity'
 
 /* ------------------------- complexity markers (GRA) ------------------------- */
-// Same marker definition as rules/grammarRange.ts (kept module-private there,
-// so the small counter is mirrored here).
 
-const SUBORDINATORS = [
-  'provided that',
-  'in spite of',
-  'even though',
-  'so that',
-  'although',
-  'though',
-  'whereas',
-  'while',
-  'because',
-  'since',
-  'unless',
-  'if',
-  'when',
-  'despite',
-]
-const SUBORDINATOR_RE = new RegExp(`\\b(${SUBORDINATORS.join('|')})\\b`, 'gi')
-const RELATIVE_RE = /\b(which|whose|who)\b/gi
-const PARTICIPIAL_OPENER_RE = /^[A-Z][a-z]+(ing|ed),/
-
+/** Total GRA complexity markers across the document (SPEC.md rules/grammarRange.ts). */
 function countComplexityMarkers(doc: TokenizedDoc): number {
   let markers = 0
   for (const s of doc.sentences) {
-    markers += (s.text.match(SUBORDINATOR_RE) ?? []).length
-    markers += (s.text.match(RELATIVE_RE) ?? []).length
+    markers += countGraMarkers(s.text).total
     if (PARTICIPIAL_OPENER_RE.test(s.text.trimStart())) markers += 1
   }
   return markers

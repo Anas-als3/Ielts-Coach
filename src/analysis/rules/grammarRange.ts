@@ -6,32 +6,20 @@
  * lists follow SPEC.md ("rules/grammarRange.ts") exactly.
  */
 import type { Issue, IssueCategory, RuleFn, Severity, SentenceSpan, TokenizedDoc } from '../../types'
+import { GRA_SUBORDINATORS, PARTICIPIAL_OPENER_RE, countGraMarkers } from '../complexity'
 
 /* ------------------------------- word lists -------------------------------- */
 
-/** Subordinators from SPEC — multi-word phrases first so alternation prefers them. */
-const SUBORDINATORS = [
-  'provided that',
-  'in spite of',
-  'even though',
-  'so that',
-  'although',
-  'though',
-  'whereas',
-  'while',
-  'because',
-  'since',
-  'unless',
-  'if',
-  'when',
-  'despite',
-]
-
-const SUBORDINATOR_RE = new RegExp(`\\b(${SUBORDINATORS.join('|')})\\b`, 'gi')
-const OPENS_WITH_SUBORDINATOR_RE = new RegExp(`^\\s*(${SUBORDINATORS.join('|')})\\b`, 'i')
-const RELATIVE_RE = /\b(which|whose|who)\b/gi
-/** Participial opener, applied to the sentence text: "Considering, …" / "Faced, …". */
-const PARTICIPIAL_OPENER_RE = /^[A-Z][a-z]+(ing|ed),/
+/**
+ * Comma-splice guard: does the sentence OPEN with a subordinator?
+ *
+ * Anchored at `^`, and deliberately WITHOUT the `(?!-)` hyphen guard the
+ * counting regexes carry. A sentence opening "After-school clubs help…" does
+ * not open a subordinate clause, so the guard must not fire there either — but
+ * that falls out of the anchor plus the existing `\b`, and adding the lookahead
+ * here would silently change which sentences the splice rule skips.
+ */
+const OPENS_WITH_SUBORDINATOR_RE = new RegExp(`^\\s*(${GRA_SUBORDINATORS.join('|')})\\b`, 'i')
 
 /** Comma splice pattern A: comma + pronoun + auxiliary/verb. */
 const SPLICE_PRONOUN_RE =
@@ -105,12 +93,11 @@ function trimExcerpt(text: string): string {
 
 /** Count complexity markers in one sentence: subordinators + relative pronouns + participial opener. */
 function countSentenceMarkers(text: string): { total: number; because: number } {
-  const subs = text.match(SUBORDINATOR_RE) ?? []
-  let because = 0
-  for (const m of subs) if (m.toLowerCase() === 'because') because += 1
-  let total = subs.length + (text.match(RELATIVE_RE) ?? []).length
-  if (PARTICIPIAL_OPENER_RE.test(text.trimStart())) total += 1
-  return { total, because }
+  const { total, because } = countGraMarkers(text)
+  return {
+    total: total + (PARTICIPIAL_OPENER_RE.test(text.trimStart()) ? 1 : 0),
+    because,
+  }
 }
 
 /* ---------------------------------- rules ---------------------------------- */

@@ -206,3 +206,56 @@ describe('prompt-echo', () => {
     expect(wc[0].message).toContain('copied from the question')
   })
 })
+
+/* --------------------------- hyphenated compounds ---------------------------- */
+
+/**
+ * A word boundary sits between `after` and `-`, so an unguarded `\bafter\b`
+ * matches the `after` inside `after-school` and credits a compound MODIFIER as
+ * a subordinate clause. Real learner text hit this: "offering enjoyable
+ * after-school sports" scored a complex-sentence marker it had not earned.
+ *
+ * `analysis/complexity.ts` guards every marker alternation with `(?!-)`. These
+ * cases pin the guard from both sides — it must suppress the compound and
+ * nothing else.
+ */
+describe('hyphenated compounds are not complex markers', () => {
+  /** The rail's complex-count detail, which names the running total. */
+  function complexDetail(text: string): string {
+    const check = analyze(text, null).structure.find((c) => c.id === 'complex-count')
+    return check?.detail ?? ''
+  }
+
+  it('does not count the "after" inside "after-school"', () => {
+    expect(complexDetail('Schools should offer enjoyable after-school sports for every pupil.')).toContain(
+      '0 of 4',
+    )
+  })
+
+  it('still counts "after" when it genuinely opens a clause', () => {
+    expect(complexDetail('Pupils relax after school sports finish for the day.')).toContain('1 of 4')
+  })
+
+  it('does not count the "before" inside "before-tax"', () => {
+    expect(complexDetail('The report listed a before-tax figure for every department.')).toContain(
+      '0 of 4',
+    )
+  })
+
+  it('does not suppress a real marker merely because a hyphen appears elsewhere', () => {
+    // 'well-known' is hyphenated but is not a marker; 'which' must still count.
+    expect(complexDetail('This is a well-known problem, which many councils now face.')).toContain(
+      '1 of 4',
+    )
+  })
+
+  it('leaves the GRA marker count unaffected by hyphenated compounds', () => {
+    // sentence-variety needs >= 10 sentences before it speaks, so assert on the
+    // clean essay staying clean rather than on a short fixture.
+    const withCompounds = CLEAN_ESSAY.replace(
+      'Employees who enjoy their work',
+      'Employees in after-school programmes who enjoy their work',
+    )
+    expect(categoryOf(analyze(withCompounds), 'sentence-variety')).toEqual([])
+  })
+})

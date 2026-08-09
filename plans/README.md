@@ -27,7 +27,7 @@ directly, and do not have two sessions on the same plan.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | 001 | Make a schemaVersion bump non-destructive; add `task` to SessionRecord | P1 | S | — | DONE |
-| 002 | Collapse three copies of the complexity-marker lists; stop matching hyphenated compounds | P2 | S | — | TODO |
+| 002 | Collapse three copies of the complexity-marker lists; stop matching hyphenated compounds | P2 | S | — | DONE |
 | 003 | Task 1 prompt data model, 12-prompt bank with real chart data, SVG chart renderer | P1 | M | 001 | DONE |
 | 004 | Task 1 analysis pipeline — achievement rules, structure checks, band estimate, engine routing | P1 | L | 003 | TODO |
 | 005 | Wire Task 1 into the app — task switcher, 20-minute clock, chart panel, rail and report | P1 | M | 004 | TODO |

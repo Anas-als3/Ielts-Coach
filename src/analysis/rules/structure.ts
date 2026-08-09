@@ -19,6 +19,7 @@ import type {
   TokenizedDoc,
 } from '../../types'
 import { CATEGORY_META, QUESTION_TYPE_META } from '../../meta'
+import { countRailMarkers } from '../complexity'
 
 /* -------------------------------- word lists -------------------------------- */
 
@@ -57,13 +58,6 @@ const EXAMPLE_ANYWHERE = new RegExp(`\\b(${EXAMPLE_MARKERS.join('|')})\\b`, 'i')
 const EXAMPLE_AT_START = new RegExp(`^\\s*(${EXAMPLE_MARKERS.join('|')})\\b`, 'i')
 const FIGURE = /\d|%|\bpercent\b/i
 
-/**
- * Complexity markers (Patch v2 C5): subordinators and relative pronouns that
- * signal a complex sentence. 'that' is deliberately excluded — it is too
- * ambiguous (demonstrative, complementiser) to count reliably.
- */
-const COMPLEXITY_MARKER =
-  /\b(?:although|even though|though|whereas|while|unless|if|because|since|when|after|before|which|whose|who)\b/gi
 const MODAL_OBLIGATION = /\b(should|must|ought to|need to|have to)\b/i
 const EVALUATIVE_ADVERB = /\b(clearly|certainly|undoubtedly|obviously|surely|definitely|unquestionably|arguably)\b/i
 
@@ -118,7 +112,7 @@ function excerptOf(text: string): string {
 
 /** Number of complexity markers in a stretch of text (Patch v2 C5). */
 function complexityCount(text: string): number {
-  return (text.match(COMPLEXITY_MARKER) ?? []).length
+  return countRailMarkers(text)
 }
 
 /** Learner-facing paragraph names by role: 'the introduction', 'Body 1', … */

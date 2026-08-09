@@ -126,6 +126,8 @@ conclusion. Longest-first single alternation regex, word boundaries, sentence-in
   provided that) + relative clauses (which|who|whose) + participial openers (/^[A-Z][a-z]+(ing|ed),/).
   < 3 total → warning "few complex structures — GRA capped near Band 6"; also fires when sentence-length
   SD < 4 with mean 8–16 ("uniform simple sentences"). If 'because' > 60% of markers → info "one-trick subordination".
+  Every marker alternation is hyphen-guarded (`\b(...)\b(?!-)`): a word boundary sits before a hyphen, so
+  an unguarded `\bafter\b` credits the compound modifier in "after-school" as a subordinate clause.
 - `comma-splice` (warning, inline): /,\s*(it|this|they|he|she|we|I|there)\s+(is|are|was|were|has|have|had|can|will|would|should|do|does|did)\b/i
   unless preceded by and/but/or/so/yet or sentence opens with a subordinator; also
   /,\s*(however|therefore|moreover|nevertheless|consequently|furthermore|thus)\b/ mid-sentence →
@@ -259,6 +261,9 @@ New IssueCategory ids exist in types.ts; CATEGORY_META has entries for all of th
   paragraph): count subordinator/relative markers per paragraph (although|though|even though|whereas|
   while|unless|if|because|since|when|after|before|which|who|whose), excluding 'that'; satisfied when
   total >= 4 AND every paragraph has >= 1; detail names paragraphs with zero ("3 of 4 — none in Body 2").
+  The alternation is hyphen-guarded (`(?!-)`) so hyphenated compounds ("after-school", "before-tax") do
+  not count. Both marker lists live in `analysis/complexity.ts`; the GRA list and the rail list are
+  deliberately DIFFERENT and must not be merged without re-running the band calibration anchors.
 - taskResponse C4 `position-consistency` (warning, essay-level unless spans available): find the
   stance sentence in the intro and in the conclusion (existing stance regexes); if intro stance
   matches ABSOLUTE /\b(must|only|always|never|the only|no exception|entirely|execute|abolish|ban)\b/i
