@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
+import { promptsForModule } from '../../src/prompts/bank'
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -35,6 +36,11 @@ function modeButton(name: 'Coach' | 'Exam'): HTMLElement {
 
 function sheet(): HTMLTextAreaElement {
   return screen.getByRole('textbox') as HTMLTextAreaElement
+}
+
+/** The Task 2 picker's selected option IS the question on the desk. */
+function promptSelect(): HTMLSelectElement {
+  return screen.getByLabelText('Choose a prompt') as HTMLSelectElement
 }
 
 async function type(user: ReturnType<typeof userEvent.setup>, text: string): Promise<void> {
@@ -78,6 +84,38 @@ describe('switching to General Training', () => {
     expect(moduleButton('General')).toHaveClass('active')
     expect(moduleButton('Academic')).not.toHaveClass('active')
     expect(sheet().value).toBe('')
+  })
+
+  it('hands Task 2 a question from the exam just chosen, every time', async () => {
+    // The bug this pins: the old rule kept any prompt that "still suits" the
+    // new exam. Every General prompt also suits Academic, so the question never
+    // moved — a learner toggling Academic/General saw one subject forever, and
+    // the toggle looked broken. Task 1 hid it, because chart and letter are
+    // different sheets entirely.
+    const user = userEvent.setup()
+    renderApp()
+
+    expect(promptSelect().value).toBe('op-01')
+
+    const seen = ['op-01']
+    for (const next of ['General', 'Academic', 'General', 'Academic'] as const) {
+      const before = promptSelect().value
+      await user.click(moduleButton(next))
+
+      const after = promptSelect().value
+      // A redraw that returns the same question is the defect itself.
+      expect(after).not.toBe(before)
+      // ...and it must come from the exam now selected.
+      const pool = promptsForModule(next === 'General' ? 'general' : 'academic')
+      expect(pool.map((p) => p.id)).toContain(after)
+      seen.push(after)
+    }
+
+    // The per-toggle assertions above are the guarantee: each draw differs from
+    // the one it replaced. A question CAN legitimately return two toggles later
+    // — the draw excludes only the prompt on screen — so this asserts the thing
+    // that was actually broken: the learner is not pinned to one subject.
+    expect(new Set(seen).size).toBeGreaterThan(1)
   })
 
   it('keeps Task 2 fully usable, because it is marked identically in both', async () => {

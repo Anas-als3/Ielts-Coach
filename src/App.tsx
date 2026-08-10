@@ -432,9 +432,24 @@ export default function App({
     setModule(next)
     // A prompt the new exam does not ask disappears from the picker, so leaving
     // it selected would strand the learner on a question they cannot see listed.
-    // Prompts that suit both exams — the majority — survive the switch, which is
-    // why the seeded test prompt stays put and the UI suite stays deterministic.
-    setPrompt((current) => (current && suitsModule(current, next) ? current : randomPrompt(next)))
+    //
+    // Keeping every prompt that merely "still suits" was the old rule, and it
+    // made the toggle look broken. 28 of the 40 Task 2 prompts are tagged for
+    // BOTH exams and none is General-only, so every General prompt is also an
+    // Academic one: General -> Academic could never change the question, and
+    // Academic -> General left it alone 28 times in 40. Toggling back and forth
+    // showed one subject forever.
+    //
+    // On the writing desk the answer sheet is cleared below regardless, so
+    // there is no work to protect — draw a fresh question from the new exam's
+    // pool and never re-deal the one on screen. Away from the desk the essay
+    // SURVIVES (see the early return below), so the question must stay put
+    // unless the new exam does not ask it; swapping it there would change the
+    // task under an essay in progress.
+    setPrompt((current) => {
+      if (view === 'write') return randomPrompt(next, current)
+      return current && suitsModule(current, next) ? current : randomPrompt(next)
+    })
     // The answer sheet is cleared only when the learner is looking at it. Task 1
     // is a different task in the two exams, so an answer written for one cannot
     // be marked against the other — but switching exam from the READING section

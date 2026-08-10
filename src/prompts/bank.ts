@@ -575,10 +575,19 @@ export function promptsForModule(module: Module): PromptSpec[] {
  * module is given. The pool is never empty — every question type keeps General
  * Training entries — but the fallback guards a future mis-tagging rather than
  * handing back `undefined`.
+ *
+ * `exclude` drops one prompt from the draw, for callers replacing the question
+ * on screen. Without it a redraw can hand back the prompt the learner is already
+ * looking at, and a control that visibly does nothing reads as broken — the
+ * exact failure the exam-type toggle had. `PromptPicker.handleShuffle` applies
+ * the same rule to its own pool. If excluding would empty the draw, the
+ * exclusion is dropped rather than returning `undefined`.
  */
-export function randomPrompt(module?: Module): PromptSpec {
+export function randomPrompt(module?: Module, exclude?: PromptSpec | null): PromptSpec {
   const pool = module ? promptsForModule(module) : PROMPTS
-  const from = pool.length > 0 ? pool : PROMPTS
+  const base = pool.length > 0 ? pool : PROMPTS
+  const withoutCurrent = exclude ? base.filter((p) => p.id !== exclude.id) : base
+  const from = withoutCurrent.length > 0 ? withoutCurrent : base
   const index = Math.floor(Math.random() * from.length)
   return from[index] ?? from[0]
 }

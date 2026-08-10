@@ -278,3 +278,57 @@ describe('the Task 2 prompt bank is tagged for both exams', () => {
     }
   })
 })
+
+/**
+ * The exam-type toggle once appeared to do nothing on Task 2, and the prompt
+ * tagging is why: every General prompt is ALSO an Academic one (there are no
+ * General-only entries), so a rule of "keep the prompt if it still suits the
+ * new exam" could never change the question on the way back to Academic.
+ *
+ * These pin the shape that made the old rule silently wrong, and the `exclude`
+ * argument the fix relies on.
+ */
+describe('redrawing a prompt for the other exam', () => {
+  it('has no General-only prompts, which is what made "still suits" a trap', () => {
+    const generalOnly = PROMPTS.filter((p) => !suitsModule(p, 'academic'))
+    expect(generalOnly).toEqual([])
+
+    // Therefore: every prompt a General learner can be sitting on also suits
+    // Academic. Keeping a "still suitable" prompt is a no-op in that direction,
+    // for the whole pool — not an edge case.
+    const general = promptsForModule('general')
+    expect(general.every((p) => suitsModule(p, 'academic'))).toBe(true)
+    expect(general.length).toBeGreaterThan(0)
+  })
+
+  it('never re-deals the prompt already on screen', () => {
+    // Every prompt, both directions, many draws: the excluded one never comes
+    // back. A single miss here is a toggle that visibly does nothing.
+    for (const module of ['academic', 'general'] as const) {
+      for (const current of promptsForModule(module)) {
+        for (let i = 0; i < 20; i++) {
+          const next = randomPrompt(module, current)
+          expect(next.id).not.toBe(current.id)
+          expect(suitsModule(next, module)).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('still returns a prompt when excluding would empty the pool', () => {
+    // Guards a future bank where a module has exactly one prompt: returning
+    // `undefined` would blank the question, which is worse than repeating it.
+    const only = promptsForModule('general')[0]
+    const solo = randomPrompt('general', only)
+    expect(solo).toBeDefined()
+    expect(suitsModule(solo, 'general')).toBe(true)
+  })
+
+  it('leaves the unexcluded draw alone', () => {
+    // The old one-argument call sites must keep their behaviour.
+    for (let i = 0; i < 60; i++) {
+      expect(suitsModule(randomPrompt('general'), 'general')).toBe(true)
+      expect(PROMPTS).toContain(randomPrompt())
+    }
+  })
+})
