@@ -32,7 +32,10 @@
  * the harness stopped reaching the rules would fail there instead.
  */
 import { describe, expect, it } from 'vitest'
-import { analyzeEssay } from '../src/analysis/engine'
+import { analyzeEssay, analyzeLetter, analyzeTask1 } from '../src/analysis/engine'
+import { LETTER_ONLY_CATEGORIES, TASK1_ONLY_CATEGORIES } from '../src/meta'
+import { LETTER_PROMPTS } from '../src/prompts/letterBank'
+import { TASK1_PROMPTS } from '../src/prompts/task1Bank'
 import type { Issue, IssueCategory } from '../src/types'
 
 /** Everything the learner would actually see: `info` is advisory, not an accusation. */
@@ -280,4 +283,55 @@ describe('fragment — the guard did not gut the rule', () => {
   ])('still flags: %s', (text) => {
     expect(accusations(text).filter((i) => i.category === 'fragment').length).toBeGreaterThan(0)
   })
+})
+
+/* ------------- the corpus guards one pipeline of three — run the other two --- */
+
+/**
+ * The corpus above guards ONE of the three pipelines.
+ *
+ * `analyzeLetter` and `analyzeTask1` run the same accuracy, grammar-range,
+ * lexical and cohesion modules — but not identically: Task 1 passes
+ * `task: 'task1'` into `cohesionRules` and a synthesised prompt into
+ * `lexicalRules`, and letters drive `lexicalRules` with a target tone. A shared
+ * rule can therefore accuse correct English in one pipeline and stay quiet in
+ * another, which is exactly the failure this corpus exists to prevent — and
+ * letters are the pipeline that has produced false accusations twice.
+ *
+ * `tests/model-answers.test.ts` already runs every model answer through all
+ * three pipelines. That proves polished prose written to pass does pass. This
+ * proves the SIXTY SENTENCES THAT HAVE ACTUALLY BROKEN A RULE do not break one
+ * here either — different evidence, deliberately.
+ *
+ * Each pipeline's own whole-answer categories are filtered out, because a bare
+ * sentence legitimately has no greeting, no sign-off, no overview and no
+ * bullets. Everything else must be silent. If a category outside the filter
+ * fires, do NOT widen the filter — that is a false positive, and it belongs in
+ * a fix, not in an allowlist.
+ */
+const PIPELINES = [
+  {
+    name: 'analyzeLetter (General Training Task 1)',
+    analyse: (text: string) => analyzeLetter(text, LETTER_PROMPTS.find((p) => p.id === 'gt-01')!),
+    structural: LETTER_ONLY_CATEGORIES,
+  },
+  {
+    name: 'analyzeTask1 (Academic Task 1)',
+    analyse: (text: string) => analyzeTask1(text, TASK1_PROMPTS.find((p) => p.id === 't1-01')!),
+    structural: TASK1_ONLY_CATEGORIES,
+  },
+] as const
+
+describe('golden corpus — the other two pipelines stay quiet too', () => {
+  for (const { name, analyse, structural } of PIPELINES) {
+    describe(name, () => {
+      it.each(CORPUS)('is clean: %s', (sentence) => {
+        const hits = analyse(sentence)
+          .issues.filter((i) => i.severity !== 'info')
+          .filter((i) => !structural.has(i.category))
+        // Readable failure output, matching describeIssues above: "category: message".
+        expect(hits.map((i) => `${i.category}: ${i.message}`)).toEqual([])
+      })
+    })
+  }
 })
