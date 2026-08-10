@@ -23,7 +23,7 @@ const STANDARD_T1 =
 
 /** A line chart over `categories` with the given series. */
 function chartOf(categories: string[], series: Task1Series[], kind: Task1Chart['kind'] = 'line'): Task1Chart {
-  return { kind, title: 'Test chart', unit: '%', categories, series, steps: [] }
+  return { kind, title: 'Test chart', unit: '%', categories, series, steps: [], subject: 'a test topic' }
 }
 
 /* ----------------------------- deriveChartFacts ------------------------------ */
@@ -107,6 +107,7 @@ describe('deriveChartFacts', () => {
       categories: [],
       series: [],
       steps: ['One', 'Two'],
+      subject: 'a manufacturing process',
     })
 
     expect(facts.values).toEqual([])

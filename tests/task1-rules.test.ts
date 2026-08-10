@@ -33,6 +33,7 @@ const FIXTURE: Task1PromptSpec = {
       { name: 'Southport', values: [4, 12, 30, 52] },
     ],
     steps: [],
+    subject: 'internet access in two towns',
   },
   parts: ['Paraphrase the chart title', 'State an overview', 'Support with figures'],
   keywords: ['homes', 'broadband', 'cities', 'northtown', 'southport', 'percentage', 'access', 'rose', 'internet', 'connections'],
