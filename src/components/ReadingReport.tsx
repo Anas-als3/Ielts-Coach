@@ -245,6 +245,10 @@ export default function ReadingReport({
                 {entry.correct}/{entry.total}
               </span>
               <span className="rrp-type-pct mono">{percent(entry.accuracy)}%</span>
+              <details className="rrp-type-how">
+                <summary>How to attack it</summary>
+                <p>{READING_TYPE_META[entry.type].technique}</p>
+              </details>
             </li>
           ))}
         </ul>

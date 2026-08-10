@@ -533,6 +533,21 @@ describe('the Listening report', () => {
     expect(scores).toEqual(['0/6', '0/5', '0/10', '6/9', '8/8', '0/2'])
   })
 
+  it('teaches a technique behind a disclosure on every format row', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await sitPaper(user)
+
+    // The paper does not contain every possible format (the breakdown above
+    // shows 6 of the 7 — no table completion), so this asserts row-for-row
+    // coverage rather than a fixed 7.
+    expect(document.querySelectorAll('.lrp-format-how').length).toBe(
+      document.querySelectorAll('.lrp-format').length,
+    )
+    // Plan labelling IS in the paper (the weakest format, above).
+    expect(screen.getByText(/walk the route in your head/)).toBeInTheDocument()
+  })
+
   it('shows every question against the key, and can hide the ones that were right', async () => {
     const user = userEvent.setup()
     renderApp()

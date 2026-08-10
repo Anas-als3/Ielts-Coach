@@ -330,6 +330,27 @@ describe('the Reading report', () => {
     expect(scores).toContain('0/6')
   })
 
+  it('teaches a technique behind a disclosure on every type row', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await sitPassageOne(user)
+
+    // The paper exercises all six question types (the order test above
+    // already pins this), so the per-type breakdown carries six disclosures.
+    expect(document.querySelectorAll('.rrp-type-how')).toHaveLength(6)
+    // jsdom keeps <details> children in the DOM even when collapsed.
+    expect(screen.getByText(/the passage takes no side/)).toBeInTheDocument()
+
+    const rows = Array.from(document.querySelectorAll('.rrp-type'))
+    const tfngRow = rows.find(
+      (row) => row.querySelector('.rrp-type-label')?.textContent === 'True / False / Not Given',
+    )!
+    const details = tfngRow.querySelector<HTMLDetailsElement>('.rrp-type-how')!
+    expect(details.open).toBe(false)
+    await user.click(details.querySelector('summary')!)
+    expect(details.open).toBe(true)
+  })
+
   it('shows every question against the key, and can hide the ones that were right', async () => {
     const user = userEvent.setup()
     renderApp()

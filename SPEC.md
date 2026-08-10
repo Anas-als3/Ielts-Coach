@@ -1652,3 +1652,19 @@ nouns after a preposition would suppress genuine errors ("he walked to shop"). O
 - All copy is original prose (see the copyright rule under this section's
   parent heading); both sheets end with a memorisation warning matching
   `ModelAnswer.tsx`'s.
+
+### Question-type technique (`meta.ts` → `technique`)
+
+- `READING_TYPE_META` and `LISTENING_FORMAT_META` each carry a `technique`
+  string: an original 2–4 sentence method note per type/format, surfaced as a
+  disclosure on the per-type accuracy rows of the Reading and Listening
+  reports. The Record types make the field mandatory — a new question type
+  cannot ship without its technique.
+- Technique notes state only what the marking already enforces (e.g. the
+  completion note repeats `markAnswerKey`'s over-limit rule); they never
+  promise behaviour the engine does not have.
+- Listening's disclosure appears per row of `byFormat`, so only formats
+  present in the paper show one. All 13 strings are pinned by
+  `tests/technique-meta.test.ts`.
+- Future hook (plan 014): the drill loop can deep-link a technique disclosure
+  from a drill card. Nothing is built for that here.

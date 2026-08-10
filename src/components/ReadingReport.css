@@ -172,6 +172,27 @@
   text-align: right;
 }
 
+.rrp-type-how {
+  grid-column: 1 / -1;
+}
+
+.rrp-type-how summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.rrp-type-how summary:hover {
+  color: var(--ink);
+}
+
+.rrp-type-how p {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
 /* ---------------------------------------------------------------- review */
 .rrp-review-head {
   display: flex;
