@@ -767,6 +767,38 @@ I would be grateful if you could confirm in writing which of these two options y
   })
 })
 
+/* ------------------- one mistake, one issue — the invariant ------------------- */
+
+describe('a letter never reports two non-info issues on the same span', () => {
+  it('holds even when can’t, guys, gonna, ! and No problem all fire at once', () => {
+    // This is the invariant steps 4 and 5 restore: FORMAL_VIOLATION_MARKERS in
+    // `letterAchievement.ts` and REGISTER_LEXICON / EXCLAMATION_RE in
+    // `lexical.ts` overlap by construction, and every span they share must end
+    // up owned by exactly ONE rule. Round one fixed eight false accusations
+    // this way and introduced four more, one marker at a time, because nothing
+    // constrained the rules as a SET. This test is that constraint: it is what
+    // stops the next marker being added to both lists.
+    const body = `${FORMAL_BODY} I can't accept a further delay! The guys are not gonna be happy about it. No problem. I will arrange it myself.`
+    const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+
+    const bySpan = new Map<string, number>()
+    for (const i of a.issues) {
+      if (i.severity === 'info' || i.start === null) continue
+      const key = `${i.start},${i.end}`
+      bySpan.set(key, (bySpan.get(key) ?? 0) + 1)
+    }
+    for (const [span, count] of bySpan) {
+      expect(count, span).toBe(1)
+    }
+    // And it has teeth: every marker in the fixture actually fired.
+    expect(a.issues.some((i) => i.excerpt === "can't")).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === 'guys')).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === 'gonna')).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === '!')).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === 'No problem')).toBe(true)
+  })
+})
+
 /* ------------------------- the tone guard must not leak ----------------------- */
 
 describe('the lexical tone guard is confined to letters', () => {
