@@ -22,7 +22,15 @@ import {
   type MarkableTest,
   type SubmittedAnswers,
 } from '../src/marking/markAnswerKey'
-import { ACADEMIC_TEST_01, GENERAL_TEST_01, READING_TESTS, readingTestById, readingTestsForModule } from '../src/reading/tests'
+import {
+  ACADEMIC_TEST_01,
+  ACADEMIC_TEST_02,
+  GENERAL_TEST_01,
+  GENERAL_TEST_02,
+  READING_TESTS,
+  readingTestById,
+  readingTestsForModule,
+} from '../src/reading/tests'
 import type { ReadingQuestionType, ReadingTest } from '../src/reading/types'
 
 /* --------------------------------- helpers ---------------------------------- */
@@ -559,36 +567,112 @@ describe('authored answer keys are complete in their own renderings', () => {
       }
     }
   })
+
+  /* --------------------------- the second papers --------------------------- */
+
+  const LIDO_TIME = 'gt2-q10'
+
+  it('accepts every ordinary way of writing the lido’s closing time', () => {
+    const forms = [
+      '8.45pm',
+      '8:45pm',
+      '8.45 pm',
+      '8:45 pm',
+      '8.45p.m.',
+      '8:45p.m.',
+      '8.45 p.m.',
+      '8:45 p.m.',
+      '20:45',
+      '20.45',
+      // Case and stray space are the marker's job, not the key's.
+      '8.45 PM',
+      '  8:45 p.m. ',
+    ]
+
+    for (const given of forms) {
+      const result = markAnswerKey(GENERAL_TEST_02, { [LIDO_TIME]: given })
+      expect(result.raw, `Q10 rejects "${given}"`).toBe(1)
+    }
+  })
+
+  it('still marks a different closing time wrong', () => {
+    for (const given of ['20:15', '8.45am', '9.45pm', '8.45']) {
+      expect(markAnswerKey(GENERAL_TEST_02, { [LIDO_TIME]: given }).raw, `Q10 accepts "${given}"`).toBe(0)
+    }
+  })
+
+  it('accepts the preprinted-£ price bare, with the symbol repeated, and spelled out', () => {
+    // gt2-q11's prompt preprints the £, so all six renderings are one answer —
+    // the same reasoning as ls-q08's key.
+    for (const given of ['90', '£90', '£ 90', '90 pounds', 'ninety', 'ninety pounds']) {
+      expect(markAnswerKey(GENERAL_TEST_02, { 'gt2-q11': given }).raw, `Q11 rejects "${given}"`).toBe(1)
+    }
+  })
+
+  it('gives figure and word forms of every number on the second papers', () => {
+    const numeric: Array<[ReadingTest, string, string[]]> = [
+      [GENERAL_TEST_02, 'gt2-q12', ['10 days', 'ten days']],
+      [GENERAL_TEST_02, 'gt2-q13', ['30 minutes', 'thirty minutes']],
+      [GENERAL_TEST_02, 'gt2-q14', ['four hours', '4 hours']],
+      [GENERAL_TEST_02, 'gt2-q16', ['two weeks', '2 weeks']],
+      [GENERAL_TEST_02, 'gt2-q19', ['60 days', 'sixty days']],
+      [ACADEMIC_TEST_02, 'ac2-q10', ['43 metres', '43 meters', 'forty-three metres', 'forty-three meters']],
+    ]
+
+    for (const [test, id, forms] of numeric) {
+      for (const given of forms) {
+        expect(markAnswerKey(test, { [id]: given }).raw, `${id} rejects "${given}"`).toBe(1)
+      }
+    }
+  })
+
+  it('does not accept the three-word spelling that breaks ac2-q10’s two-word limit', () => {
+    // "forty three metres" is the space form of the compound: three words
+    // against NO MORE THAN TWO. The real exam fails it, so the key must too.
+    const result = markAnswerKey(ACADEMIC_TEST_02, { 'ac2-q10': 'forty three metres' })
+    expect(result.raw).toBe(0)
+    expect(result.questions.find((q) => q.questionId === 'ac2-q10')!.overWordLimit).toBe(true)
+  })
 })
 
 /* ------------------------------ structure by module -------------------------- */
 
 describe('authored test structure', () => {
-  it('gives the Academic test three single-text passages of 700–900 words', () => {
-    expect(ACADEMIC_TEST_01.module).toBe('academic')
+  it('gives every Academic paper three single-text passages of 700–900 words', () => {
+    const academic = readingTestsForModule('academic')
+    expect(academic.length).toBeGreaterThan(0)
 
-    for (const passage of ACADEMIC_TEST_01.passages) {
-      expect(passage.texts, `${passage.id} should hold one continuous text`).toHaveLength(1)
+    for (const test of academic) {
+      expect(test.module).toBe('academic')
 
-      const words = passage.texts[0].paragraphs.reduce((sum, p) => sum + countWords(normaliseAnswer(p.text)), 0)
-      expect(words, `${passage.id} is ${words} words`).toBeGreaterThanOrEqual(700)
-      expect(words, `${passage.id} is ${words} words`).toBeLessThanOrEqual(900)
+      for (const passage of test.passages) {
+        expect(passage.texts, `${passage.id} should hold one continuous text`).toHaveLength(1)
+
+        const words = passage.texts[0].paragraphs.reduce((sum, p) => sum + countWords(normaliseAnswer(p.text)), 0)
+        expect(words, `${passage.id} is ${words} words`).toBeGreaterThanOrEqual(700)
+        expect(words, `${passage.id} is ${words} words`).toBeLessThanOrEqual(900)
+      }
     }
   })
 
-  it('gives General Training the short-text Section 1 and two-text Section 2 the real paper has', () => {
-    expect(GENERAL_TEST_01.module).toBe('general')
+  it('gives every General Training paper the short-text Section 1 and two-text Section 2 the real paper has', () => {
+    const general = readingTestsForModule('general')
+    expect(general.length).toBeGreaterThan(0)
 
-    const [section1, section2, section3] = GENERAL_TEST_01.passages
-    expect(section1.texts.length).toBeGreaterThanOrEqual(2)
-    expect(section2.texts).toHaveLength(2)
-    expect(section3.texts).toHaveLength(1)
+    for (const test of general) {
+      expect(test.module).toBe('general')
+
+      const [section1, section2, section3] = test.passages
+      expect(section1.texts.length, `${test.id} section 1`).toBeGreaterThanOrEqual(2)
+      expect(section2.texts, `${test.id} section 2`).toHaveLength(2)
+      expect(section3.texts, `${test.id} section 3`).toHaveLength(1)
+    }
   })
 
-  it('offers each module only its own test', () => {
-    expect(readingTestsForModule('academic')).toEqual([ACADEMIC_TEST_01])
-    expect(readingTestsForModule('general')).toEqual([GENERAL_TEST_01])
-    expect(READING_TESTS).toHaveLength(2)
+  it('offers each module only its own tests', () => {
+    expect(readingTestsForModule('academic')).toEqual([ACADEMIC_TEST_01, ACADEMIC_TEST_02])
+    expect(readingTestsForModule('general')).toEqual([GENERAL_TEST_01, GENERAL_TEST_02])
+    expect(READING_TESTS).toHaveLength(4)
   })
 
   it('offers every registered paper to exactly one module', () => {

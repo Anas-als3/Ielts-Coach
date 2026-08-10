@@ -31,6 +31,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import ReadingRunner from '../../src/components/ReadingRunner'
+import { READING_TESTS } from '../../src/reading/tests'
 import type { ReadingQuestion, ReadingTest } from '../../src/reading/types'
 
 /* --------------------------------- helpers ---------------------------------- */
@@ -69,14 +70,17 @@ function assertNoRubricContradiction(): number {
   return stated
 }
 
-async function sitPaper(user: User, module: 'Academic' | 'General'): Promise<number> {
+async function sitPaper(user: User, module: 'Academic' | 'General', title: string): Promise<number> {
   await user.click(within(document.querySelector('.nav') as HTMLElement).getByText('Reading'))
   await user.click(
     within(screen.getByRole('group', { name: 'IELTS exam type' })).getByRole('button', {
       name: module,
     }),
   )
-  await user.click(screen.getByRole('button', { name: 'Start this paper' }))
+  // Each module now lists more than one paper: find the start button through
+  // the named paper's own card.
+  const card = screen.getByText(title).closest('.rdp-test') as HTMLElement
+  await user.click(within(card).getByRole('button', { name: 'Start this paper' }))
   const tabs = screen.getAllByRole('tab')
 
   let stated = 0
@@ -90,20 +94,27 @@ async function sitPaper(user: User, module: 'Academic' | 'General'): Promise<num
 /* ---------------------------- the real papers ------------------------------- */
 
 describe('the printed word limit agrees with every gap under it', () => {
-  it('holds across every pane of the Academic paper', async () => {
+  // Every registered paper, by module and title, so a new paper inherits the
+  // invariant the moment it is registered instead of needing a new case here.
+  const PAPERS = READING_TESTS.map((test) => ({
+    title: test.title,
+    module: (test.module === 'academic' ? 'Academic' : 'General') as 'Academic' | 'General',
+  }))
+
+  it.each(PAPERS)('holds across every pane of $title', async ({ title, module }) => {
     const user = userEvent.setup()
     renderApp()
 
-    expect(await sitPaper(user, 'Academic')).toBeGreaterThan(0)
+    expect(await sitPaper(user, module, title)).toBeGreaterThan(0)
   })
 
-  it('holds across every pane of the General Training paper, which mixes limits', async () => {
+  it('states at least two different limits on General Training Reading Test 1, which mixes them', async () => {
     const user = userEvent.setup()
     renderApp()
 
     // This paper is the reason the fix exists: two different limits inside one
     // run of completion questions, 11–14 at two words and 15–20 at three.
-    const stated = await sitPaper(user, 'General')
+    const stated = await sitPaper(user, 'General', 'General Training Reading Test 1')
     expect(stated).toBeGreaterThanOrEqual(2)
   })
 })
