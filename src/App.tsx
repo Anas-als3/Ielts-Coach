@@ -109,8 +109,9 @@ export default function App({
   const [view, setView] = useState<View>('write')
   const [mode, setMode] = useState<WritingMode>('coach')
   const [task, setTask] = useState<TaskKind>('task2')
-  // Academic is the default because it is the exam the app was built for.
-  const [module, setModule] = useState<Module>('academic')
+  // Academic is the default because it is the exam the app was built for; a
+  // learner who has chosen General should not have to re-choose every visit.
+  const [module, setModule] = useState<Module>(() => loadPrefs().module ?? 'academic')
   const [prompt, setPrompt] = useState<PromptSpec | null>(() => initialPrompt ?? randomPrompt())
   // THREE prompt slots rather than one union: switching task or exam and
   // switching back should return the learner to the question they were already
@@ -618,6 +619,10 @@ export default function App({
       if (!leave) return
     }
     setModule(next)
+    // Persisted so a returning General candidate does not have to re-choose
+    // every visit — see the lazy initializer above. Sits AFTER the confirm
+    // guards, so declining the "abandon this attempt?" dialog persists nothing.
+    savePrefs({ module: next })
     // A prompt the new exam does not ask disappears from the picker, so leaving
     // it selected would strand the learner on a question they cannot see listed.
     //
