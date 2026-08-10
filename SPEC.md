@@ -6,7 +6,7 @@ Contracts live in `src/types.ts` and `src/meta.ts` — code against them exactly
 ## Product
 
 Single-page React+TS app, one learner, IELTS Writing — Academic Task 1 and Task 2, plus General
-Training Task 2 (General Training Task 1 is plan 009). Pure client-side,
+Training Task 1 (letters) and Task 2. Pure client-side,
 localStorage persistence, deterministic rule-based analysis (regex + word lists + arithmetic —
 no LLM, no server). Two modes: **Coach** (live inline feedback + structure rail + feedback panel)
 and **Exam** (40:00 countdown, zero feedback, paste blocked, full report at submit).
@@ -39,12 +39,12 @@ Consequences pinned here so no module re-derives them:
   task differs, never the clock.
 - **Storage is schemaVersion 3.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
   because Academic was the only exam the app supported.
-- **The error profile is not module-scoped.** `categoryAppliesTo` scopes categories by TASK. When letter-
-  only categories arrive with plan 009 they will need the same treatment by module; today the sets
-  would be empty.
-- **General Training Task 1 is not built.** Selecting General + Task 1 renders an honest "letters are
-  not ready yet" card in place of the chart, editor, rail and coach panel — never a disabled button.
-  The letter engine is specified in plan 009.
+- **The error profile is scoped by TASK and MODULE.** `categoryAppliesTo(category, task, module)` —
+  `module` is optional and defaults to `'academic'`. It had to grow that dimension because Academic
+  Task 1 (a chart description) and General Training Task 1 (a letter) share the id `'task1'` and share
+  almost no rules, so `TaskKind` alone cannot say which of them a category belongs to.
+- **General Training Task 1 is a letter, and it is built.** Selecting General + Task 1 opens the letter
+  sheet and routes analysis to `analyzeLetter`. See "General Training Task 1 (letters)" below.
 
 ## Canonical constants (single source of truth — no module invents its own)
 
@@ -459,6 +459,183 @@ scores ≥ 7.0 on every criterion.
 Achievement" (Task 1) — one slot, two names. `meta.ts` exports `criterionLabel(criterion, task)`;
 `CRITERION_META` remains the Task 2 default. A fifth member would force `Partial<Record<Criterion, …>>`
 through the estimator and every view that renders it, to express a key always absent for one task.
+
+## General Training Task 1 (letters)
+
+IELTS General Training Writing Task 1: write a letter of ≥ 150 words in 20 minutes, answering three
+bullet points the prompt supplies.
+
+**Letter conventions are formulaic and externally fixed**, which is exactly the shape of problem a
+deterministic rule engine solves perfectly. A candidate loses real marks for things a regex can see
+with certainty — which greeting goes with which sign-off, whether the purpose was stated, whether all
+three bullets were answered — and none of it needs to understand meaning.
+
+- `LetterPromptSpec` is a SIBLING of `PromptSpec` and `Task1PromptSpec`, not an extension: a letter has
+  no `QuestionType` and no chart, and one shape covering all three would make every rule defend against
+  fields it cannot use. `task: 'letter'` discriminates.
+- `prompts/letterBank.ts` → 15 prompts (`gt-01`…`gt-15`): 5 formal, 5 semi-formal, 5 informal.
+  Standard instruction ends every prompt text: "Write at least 150 words. You do NOT need to write any
+  addresses. Begin your letter as follows: Dear ...,"
+- Canonical letter constants: word count minimum **150** (error below), target 170–200, exam duration
+  **20:00** — identical to Academic Task 1, because `TASK_CONSTANTS` is keyed by task and not by module.
+- Paragraph shape: greeting · purpose · one paragraph per bullet · close · sign-off. **No conclusion.**
+  Paragraph 0 is the `introduction`, all others are `body`; `'conclusion'` is never assigned, so the
+  rail draws no Conclusion group.
+- **Reading is LINE-based, not paragraph-based.** The tokenizer merges any fragment under five words
+  into its neighbour, and "Dear Anna," and "Yours faithfully," are exactly such fragments — by the time
+  the paragraph list exists they have been absorbed into the body. `readLetterParts(doc)` therefore
+  works over non-empty lines with absolute offsets, and is exported so the rail and the feedback panel
+  can never disagree about whether a greeting exists.
+
+### The tone system
+
+`LetterTone = 'formal' | 'semi-formal' | 'informal'` is fixed by the prompt and drives three separate
+checks: which greeting is acceptable, which sign-off pairs with it, and — uniquely in this codebase —
+whether contractions are correct English in the answer at all.
+
+| Tone | Reader | Greeting | Sign-off | Contractions |
+|---|---|---|---|---|
+| formal | unnamed, or a title + surname | Dear Sir or Madam · Dear Mr Hughes | Yours faithfully · Yours sincerely | error |
+| semi-formal | named, known | Dear Mr Hughes · Dear Anna | Yours sincerely · Kind regards · Best wishes | error |
+| informal | a friend | Dear Anna · Hi Anna | Best wishes · All the best · Love · Take care | **correct** |
+
+### The pairing matrix (`analysis/rules/letterAchievement.ts`)
+
+Encoded as DATA — two tables, `SALUTATION_FORMS` and `SIGNOFF_FORMS` — never as branching. A false
+positive is then fixed by ADDING a greeting or closing form the table did not know about, never by
+weakening the rule, which is the most valuable deterministic check in the whole letter module.
+
+Greetings resolve to one of three kinds; each closing declares which kinds it licenses:
+
+| Sign-off | Licensed after |
+|---|---|
+| Yours faithfully | `unnamed` ONLY |
+| Yours sincerely · Yours truly · Sincerely yours | `named-formal` · `named-informal` (a name, either kind) |
+| Kind/Warm/Best regards · Regards · Best wishes | `named-formal` · `named-informal` |
+| All the best · See you soon · Take care · Love | `named-informal` ONLY |
+
+Greeting kinds: `unnamed` (Dear Sir or Madam · Dear Sir/Madam · Dear Sir · To whom it may concern) ·
+`named-formal` (Dear + Mr/Mrs/Ms/Miss/Dr/Prof + surname) · `named-informal` (Dear + first name ·
+Hi/Hello/Hey + first name). The list is ORDERED and the first match wins, so "Dear Sir" reads as
+`unnamed` rather than as a letter to somebody called Sir.
+
+### `analysis/rules/letterAchievement.ts` — exports `letterAchievementRules(doc, prompt)`
+Takes a `LetterPromptSpec`, so it is NOT a `RuleFn` — same reasoning as `task1AchievementRules`.
+
+- `gt-word-count`: < 150 error · 150–159 warning "dangerously close" · > 220 warning "over-length".
+- `gt-salutation-missing` (error, ≥ 40 words): the first line matches no greeting form. The gate is low
+  because a greeting is the FIRST thing written. GUARD — the first line is tried whole AND clipped at
+  its first comma when that comma is within 45 characters, so "Dear Sir or Madam, I am writing to…" as
+  one run-on line is still a greeting; reporting an ERROR for a formatting habit is a false accusation.
+- `gt-salutation-tone` (warning, inline): the greeting's `tones` do not include `prompt.tone`.
+  "Hi Dave" in a formal letter; "Dear Sir or Madam" in a letter to a friend.
+- `gt-signoff-missing` (error, ≥ 100 words): no closing in the last two non-empty lines. Two lines is
+  the standard shape — closing, then signature — and keeping the window tight is what stops a
+  mid-letter "regards" or "love" being mistaken for the sign-off. Second GUARD: a line with more than
+  four words left over after the match is prose, not a closing.
+- `gt-signoff-pairing` (error, inline on the closing): the matrix above is violated. **GUARD — fires
+  only when BOTH a greeting and a closing were found.** With half the evidence the correct pairing is
+  unknowable, and guessing from half is how a rule starts telling learners their correct letter is
+  wrong. The message names the correct closing explicitly rather than only reporting the clash.
+- `gt-bullet-uncovered` (error, essay-level, ≥ 100 words): fewer than 2 DISTINCT keywords from
+  `bulletKeywords[i]` appear in the body. The message quotes the bullet that was missed. GUARDS —
+  the greeting line and everything from the sign-off onwards are cut out of the scan (a name in the
+  greeting is not coverage); TWO keywords, never one, because a single common word is not evidence;
+  keywords match by word-boundary PREFIX so "repair" covers repairs/repaired/repairing; and a bullet
+  whose keyword list is too short to reach the threshold reads as COVERED, because an authoring bug
+  must never be charged to the learner. **Under-detecting coverage tells someone who answered the task
+  that they failed it, which is the worst thing this app can output.**
+- `gt-purpose-missing` (warning, ≥ 100 words): no purpose marker (`I am writing to` · `I am writing
+  regarding` · `I am writing in connection with` · `I would like to` · `I wish to` · `this letter is
+  to` · …) in the first **60** words of the body. Sixty is deliberately generous: a greeting on its own
+  line plus a short scene-setting sentence can legitimately reach word 40 before the purpose arrives.
+- `gt-tone-mismatch` (warning, inline, body only): register markers wrong for the tone, in BOTH
+  directions. Formal/semi-formal → contractions, `hey`, `guys`, `mate`, `wanna`, `cheers`, `fed up`,
+  `sort out`, exclamation marks. Informal → officialese: `henceforth`, `aforementioned`, `hereby`,
+  `pursuant to`, `at your earliest convenience`, `profound dissatisfaction`, `I look forward to your
+  prompt reply`, `to whom it may concern`. An informal letter that reads like a legal notice is exactly
+  as wrong as a formal letter full of slang. Scanned over the BODY only, because the greeting and the
+  closing have their own rules — flagging "Hi Dave" twice would report one mistake as two. The overlap
+  with `contraction` in a formal letter is DELIBERATE: the two say different things, one teaching the
+  full form and one teaching that this letter has a register to hold.
+
+### `analysis/rules/letterStructure.ts` — exports `buildLetterStructure(doc, prompt)`
+Paragraph roles: paragraph 0 = `introduction` (greeting plus purpose), all others = `body`. **Never
+`conclusion`.** Unlike `buildTask1Structure` it does NOT take the achievement issues: it derives the
+greeting and sign-off from `readLetterParts` directly, so the rail and the feedback panel cannot
+diverge.
+Checks (stable order, present from the first keystroke): `gt-salutation` (found AND matching the
+prompt's tone), `gt-purpose`, `gt-bullet-1` … `gt-bullet-N` (one per bullet the task supplies),
+`gt-signoff` (found AND correctly paired), `complex-count` (reused from Task 2, target 4).
+`complex-count` here does NOT additionally demand one marker per paragraph as Academic Task 1 does — a
+letter's closing paragraph is legitimately a single short request, and requiring a subordinate clause
+there would leave the check permanently unsatisfiable for a correctly shaped letter.
+Issues: only the reused `paragraph-balance` (warning, ≥ 150 words). There is deliberately no letter
+shape category: three bullets can be answered in three paragraphs or folded into two, and both are
+good letters. Balance compares paragraphs carrying NEITHER the greeting NOR the sign-off, because the
+tokenizer merges those fragments into the first and last paragraphs, and measuring a 60-word middle
+paragraph against a closing line plus a two-word signature would flag the correct shape as unbalanced.
+
+### `analysis/letterBandEstimate.ts` — exports `estimateLetterBand(partial, doc)`
+Imports the shared helpers from `bandEstimate.ts` rather than copying them, so the three estimators
+cannot drift apart arithmetically. CC, LR and GRA are scored as Academic Task 1, except the CC shape
+reward targets **3–5** paragraphs, and the LR register count includes `gt-tone-mismatch` alongside
+`informal-register` and `contraction`. Under **100** words → all criteria 4.0.
+TA (the 'TR' slot): `gt-word-count` error → cap 5.0 · `gt-bullet-uncovered` ≥ 1 → **cap 5.5** (an
+unanswered bullet is an unanswered part of the task, the weight `question-coverage` carries in Task 2)
+· `gt-salutation-missing` → −0.5 · `gt-signoff-missing` → −0.5 · `gt-signoff-pairing` → −0.5 ·
+`gt-purpose-missing` → −0.5 · `gt-tone-mismatch` ≥ 2 → −0.5 · `gt-salutation-tone` → −0.5.
+Rewards: clean sweep · all bullets covered AND the register never slipping · all structure checks
+satisfied.
+
+### The `lexical.ts` tone guard — the one tone-dependent branch in the engine
+
+`lexicalRules` takes an optional trailing `LetterTone`, exactly as `cohesionRules` takes an optional
+`TaskKind`. It is supplied ONLY by `analyzeLetter`. Two clauses stand down, and each is a case where
+the Task 2 rule gives actively WRONG advice about a letter:
+
+1. **`contraction`, when the tone is `informal`.** "I can't wait to see you" is correct English at that
+   register — an informal General Training letter is the one place in IELTS Writing where it is right.
+   Left in place, the rule marks a correct answer down.
+2. **The second-person clause of `informal-register`, for EVERY letter tone.** That clause exists
+   because a Task 2 essay must argue impersonally, and its fix — "write about 'people' or
+   'individuals'" — is nonsense inside "I would be grateful if you could confirm". Measured against a
+   correct 150-word formal complaint it fired four times. A letter ADDRESSES its reader; that is what a
+   letter is for.
+
+Nothing else in the module changes, and no other caller can be affected: `analyzeEssay` and
+`analyzeTask1` pass no tone and reach identical code. `tests/letters.test.ts` pins that directly by
+asserting both rules still fire for Task 2 and Academic Task 1 on a fixed input — the only way this
+guard can go wrong is by leaking, so that is what is tested.
+
+### Engine and error profile
+`analyzeLetter(text, prompt)` in `analysis/engine.ts`, beside an UNCHANGED `analyzeEssay` and an
+UNCHANGED `analyzeTask1`. Achievement runs before structure, mirroring `analyzeTask1`. The
+sort-and-assign-ids block is duplicated a third time for the same reason it was duplicated a second.
+The four shared modules are called with a `letterContext(prompt)` adapter carrying the prompt keywords
+PLUS every bullet keyword, and NO measurement vocabulary — a letter quotes no figures.
+`categoryAppliesTo(category, task, module)` gained an optional `module` parameter defaulting to
+`'academic'`. `TaskKind` alone cannot express "General Training Task 1": the letter and the Academic
+chart description are different tasks sharing the id `'task1'`. Letter categories apply only to
+`task1 + general`; the `t1-*` set is now `task1 + module !== 'general'` (written that way, not
+`=== 'academic'`, so a stored record from before the module field existed still counts as Academic).
+
+### Worked letters and UI
+`answers/letterModels.ts` holds THREE hand-written letters, one per tone. Letters cannot be generated
+the way Academic Task 1 answers are — there is no data to compose from — so they are maintained by
+hand. What a learner needs from a worked letter is the SHAPE and the REGISTER, and both are properties
+of the tone rather than of the scenario, so `letterModelFor(prompt)` offers the model for the same tone
+with `exact: false` when the prompt has no letter of its own. All three are graded by the app's own
+engine in `tests/model-answers.test.ts`: no error or warning, every structure check satisfied,
+band ≥ 8.0 (they score 8.5 / 8.5 / 8.0).
+UI: General + Task 1 renders a letter picker, the task text with its three bullets as a real `<ul>`
+(the bullets ARE the task, so exam mode shows them too) and the editor. `App` keeps THREE prompt slots,
+because Academic and General Training Task 1 are different tasks sharing a `TaskKind`. `StructureRail`
+takes an optional `module` and derives a `RailShape` of `'task2' | 'task1' | 'letter'`; `gt-salutation`
+and `gt-purpose` group under Introduction and everything else falls through to Body, so no Conclusion
+group is drawn. Letter paragraph norms: opening 20–50, body 30–80; short label `Open` then `B1`, `B2`.
+`Report` needed no change — `criterionLabel(c, 'task1')` already reads "Task Achievement" and the
+POSITION CHECK card is already Task 2 only.
 
 ## Worked answers (`answers/`)
 

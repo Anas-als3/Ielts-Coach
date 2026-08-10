@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { ParagraphRole, StructureCheck, StructureRailProps, TaskKind } from '../types'
+import type { Module, ParagraphRole, StructureCheck, StructureRailProps, TaskKind } from '../types'
 import { QUESTION_TYPE_META } from '../meta'
 import './StructureRail.css'
 
@@ -13,10 +13,27 @@ const GROUP_LABELS: Record<GroupKey, string> = {
   conclusion: 'Conclusion',
 }
 
+/**
+ * Which set of norms and labels the rail is drawing.
+ *
+ * NOT `TaskKind`: Academic Task 1 (a chart description) and General Training
+ * Task 1 (a letter) share the id `'task1'` and have almost nothing else in
+ * common, so the rail needs a third shape rather than a second meaning for an
+ * existing one.
+ */
+type RailShape = 'task2' | 'task1' | 'letter'
+
+function railShape(task: TaskKind, module: Module): RailShape {
+  return task === 'task1' && module === 'general' ? 'letter' : task
+}
+
 /* Same word-count norms the paragraph rules use (SPEC canonical constants).
    Task 1 is a different shape entirely: a short paraphrase, a one-sentence
-   overview, then one or two detail paragraphs — and no conclusion. */
-const NORMS: Record<TaskKind, Record<ParagraphRole, readonly [number, number]>> = {
+   overview, then one or two detail paragraphs — and no conclusion.
+   A letter is different again: the greeting is absorbed into the opening
+   paragraph and the sign-off into the last, so both ends run a little longer
+   than the bullet paragraphs between them. */
+const NORMS: Record<RailShape, Record<ParagraphRole, readonly [number, number]>> = {
   task2: {
     introduction: [30, 60],
     body: [60, 120],
@@ -27,6 +44,11 @@ const NORMS: Record<TaskKind, Record<ParagraphRole, readonly [number, number]>> 
     body: [20, 70],
     conclusion: [20, 40], // never assigned in Task 1; present to satisfy the record
   },
+  letter: {
+    introduction: [20, 50],
+    body: [30, 80],
+    conclusion: [20, 50], // never assigned in a letter; present to satisfy the record
+  },
 }
 
 /* Entrance stagger: 30ms steps, capped so late elements join the same moment. */
@@ -35,16 +57,26 @@ const STAGGER_CAP = 12
 function groupOf(check: StructureCheck): GroupKey {
   // Task 1 ids first — 't1-paraphrase' would otherwise fall through to 'body'.
   if (check.id === 't1-paraphrase' || check.id === 't1-overview') return 'intro'
+  // Letter ids next, for the same reason. The greeting and the purpose
+  // statement are the opening of a letter; the bullets and the sign-off fall
+  // through to 'body'. There is deliberately NO letter check under
+  // 'conclusion' — a letter has none, and the rail drops empty groups, so no
+  // Conclusion heading is ever drawn.
+  if (check.id === 'gt-salutation' || check.id === 'gt-purpose') return 'intro'
   if (check.id.startsWith('intro') || check.id === 'position-stated') return 'intro'
   if (check.id.startsWith('conclusion')) return 'conclusion'
   return 'body'
 }
 
-function shortLabel(role: ParagraphRole, bodyOrdinal: number, task: TaskKind): string {
-  if (role === 'introduction') return task === 'task1' ? 'Para' : 'Intro'
+function shortLabel(role: ParagraphRole, bodyOrdinal: number, shape: RailShape): string {
+  if (role === 'introduction') {
+    if (shape === 'task1') return 'Para'
+    if (shape === 'letter') return 'Open'
+    return 'Intro'
+  }
   if (role === 'conclusion') return 'Concl'
   // Task 1: the first body paragraph is the overview, the rest are details.
-  if (task === 'task1') return bodyOrdinal === 1 ? 'Over' : `D${bodyOrdinal - 1}`
+  if (shape === 'task1') return bodyOrdinal === 1 ? 'Over' : `D${bodyOrdinal - 1}`
   return `B${bodyOrdinal}`
 }
 
@@ -92,8 +124,10 @@ export default function StructureRail({
   paragraphs,
   questionType,
   task = 'task2',
+  module = 'academic',
 }: StructureRailProps) {
   const isEmpty = paragraphs.length === 0
+  const shape = railShape(task, module)
 
   const groups = GROUP_ORDER.map((key) => ({
     key,
@@ -107,10 +141,10 @@ export default function StructureRail({
   let bodyOrdinal = 0
   const bars = paragraphs.map((p) => {
     if (p.role === 'body') bodyOrdinal += 1
-    const [lo, hi] = NORMS[task][p.role]
+    const [lo, hi] = NORMS[shape][p.role]
     return {
       key: p.index,
-      label: shortLabel(p.role, bodyOrdinal, task),
+      label: shortLabel(p.role, bodyOrdinal, shape),
       words: p.wordCount,
       inRange: p.wordCount >= lo && p.wordCount <= hi,
       widthPct: barWidthPct(p.wordCount),

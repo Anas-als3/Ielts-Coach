@@ -1,10 +1,10 @@
 /**
  * Academic / General Training switching, rendered (SPEC.md "Modules").
  *
- * IELTS is two exams sharing a name, and the app implements Academic. The point
- * of these cases is that the app never PRETENDS otherwise: switching exam type
- * clears the desk, General Training Task 1 says out loud that letters are not
- * built yet, and every saved session records which exam it was written for.
+ * IELTS is two exams sharing a name. The point of these cases is that the app
+ * never confuses them: switching exam type clears the desk, General Training
+ * Task 1 opens the LETTER sheet rather than the chart, and every saved session
+ * records which exam it was written for.
  *
  * Everything drives the real <App /> through `renderApp()`, which pins the
  * prompt draw — an unseeded render reintroduces the flake plan 007 removed.
@@ -95,24 +95,28 @@ describe('switching to General Training', () => {
 })
 
 describe('General Training Task 1', () => {
-  it('says letters are not built yet instead of marking one against chart rules', async () => {
+  it('opens the letter sheet instead of marking a letter against chart rules', async () => {
     const user = userEvent.setup()
     renderApp()
     await user.click(moduleButton('General'))
     await user.click(taskButton('Task 1'))
 
-    expect(screen.getByText('Letters are not ready yet')).toBeInTheDocument()
-    expect(screen.getByText(/asks you to write a letter, not to describe a chart/i))
-      .toBeInTheDocument()
-    // The Academic chart engine must not be on screen, and there is nothing to
-    // write on: a sheet here would be scored by rules meant for another task.
+    // The guarantee this case has always protected: the Academic chart engine
+    // must never mark a letter, because it would produce a confident band from
+    // rules meant for another task. Until plan 009 that was kept by showing a
+    // "letters are not ready yet" card; now it is kept by running the LETTER
+    // engine instead, so the assertion moved from the placeholder to its
+    // successor while the guarantee did not change.
     expect(document.querySelectorAll('.chart')).toHaveLength(0)
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByText(/overview/i)).not.toBeInTheDocument()
 
-    // And the way out is offered, not just described.
-    await user.click(screen.getByRole('button', { name: 'Go to Task 2' }))
-    expect(taskButton('Task 2')).toHaveClass('active')
+    // What is on screen is the letter sheet: a letter picker, the task's three
+    // bullet points, a rail asking for a greeting, and somewhere to write.
     expect(sheet()).toBeInTheDocument()
+    expect(screen.getByLabelText('Task 1 letter')).toBeInTheDocument()
+    expect(screen.getByText('Greeting')).toBeInTheDocument()
+    expect(document.querySelectorAll('.gt-bullets li')).toHaveLength(3)
+    expect(screen.getByRole('button', { name: 'Finish & review' })).toBeInTheDocument()
   })
 
   it('gives Academic Task 1 back its chart when the learner switches back', async () => {

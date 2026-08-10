@@ -12,8 +12,8 @@ which exam it was written for. Task 2 is identical in both — same criteria, sa
 same 40 minutes — so the marking never changes; what changes is the questions you are offered,
 because General Training asks about everyday matters rather than abstract policy or research.
 Task 1 is where they genuinely diverge: Academic describes a chart, General Training writes a
-letter. Academic Task 1 is built; the General Training letter is not, and the app says so
-plainly rather than marking a letter with chart rules.
+letter. Both are built, and each has its own engine — a letter is never marked with chart rules,
+and the app keeps a separate question for each so switching exams does not lose your place.
 
 ## Two modes
 
@@ -38,6 +38,13 @@ plainly rather than marking a letter with chart rules.
   ("every coin has two sides" and friends).
 - **Grammatical Range** — run-on sentences, choppy runs, complexity-marker variety,
   comma splices, hedging balance, section-aware first-person usage.
+- **General Training letters** — the greeting and the sign-off must pair ("Yours faithfully"
+  goes only with "Dear Sir or Madam", "Yours sincerely" only with a name — reversing them is
+  one of the most common marks lost in General Training), the greeting must match how formal
+  the letter is, all three bullet points must be answered, and the opening must say why you
+  are writing. Register is judged in both directions: slang in a letter to the council is a
+  fault, and so is officialese in a letter to a friend — where, uniquely in IELTS Writing,
+  "I can't wait to see you" is *correct* and the app stays quiet about it.
 
 Band estimates are always shown as a range, labeled "rule-based estimate — not an examiner",
 with the exact drivers listed per criterion.
@@ -64,8 +71,8 @@ labeled "form-only estimate — your real band is likely this or lower."
 A **Model answer** tab shows a worked example of the question on screen, together with the
 band this app's own engine gives it and the structure checks it satisfies — so the target is
 verifiable rather than asserted. Task 1 examples are generated from the chart's own numbers, so
-every figure quoted is real; Task 2 examples are hand-written, one per question type. The tab
-never appears in Exam Mode.
+every figure quoted is real; Task 2 examples are hand-written, one per question type, and
+letters are hand-written, one per tone. The tab never appears in Exam Mode.
 
 A one-page **cheat sheet** (format, sentence starters, comma rules, conclusion template,
 complex-sentence patterns, pre-submit checklist) lives in a Feedback ⇄ Cheat sheet tab beside
@@ -96,5 +103,7 @@ React 18 + TypeScript (strict) + Vite. No runtime dependencies beyond React.
 - `src/analysis/` — tokenizer, rule modules, band estimator, engine
 - `src/profile/` — localStorage store + profile/trend computation
 - `src/prompts/bank.ts` — 40 Task 2 prompts with coverage metadata and the exam each suits
+- `src/prompts/task1Bank.ts` — 12 Academic Task 1 charts, carried as data rather than images
+- `src/prompts/letterBank.ts` — 15 General Training letters, five per tone
 - `src/components/` — Editor (mirror-overlay highlighting), StructureRail, FeedbackPanel,
   Timer, Report, Dashboard

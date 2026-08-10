@@ -25,7 +25,7 @@ sessions on the same plan.
 | **006** | **Stop the engine accusing correct English — five guards + golden corpus** | **P0** | M | — | DONE |
 | 014 | Make the error profile do something — the drill loop | P1 | M | 006 | TODO |
 | 008 | Academic / General Training module switch | P1 | M | — | DONE |
-| 009 | General Training Task 1 — letters | P1 | L | 008 | TODO |
+| 009 | General Training Task 1 — letters | P1 | L | 008 | DONE |
 | 010 | Reading — both modules, real question types, real band tables | P2 | L | 008 | TODO |
 | 013 | Full mock test mode | P2 | M | 010 | TODO |
 | 011 | Listening — marking is easy, audio is the project | P3 | L | 010 | TODO |
@@ -90,7 +90,7 @@ learner's three weaknesses and the "practice" button hands them a blank essay.
 
 | Section | Academic | General Training | Plan |
 |---|---|---|---|
-| Writing Task 1 | ✅ charts | ❌ **letters** | 009 |
+| Writing Task 1 | ✅ charts | ✅ letters | 009 |
 | Writing Task 2 | ✅ | ✅ same engine, 28 of 40 prompts tagged GT-appropriate | 008 |
 | Reading | ❌ | ❌ (stricter band table) | 010 |
 | Listening | ❌ | ❌ (identical to Academic) | 011 |
@@ -162,8 +162,9 @@ So nobody re-audits these:
 - **No Task 1 cheat sheet** — `CheatSheet.tsx` is Task 2 content and is hidden
   in Task 1 rather than replaced.
 - **`Report.tsx` (719 lines) and `Dashboard.tsx` (466) have no component tests.**
-- **`categoryAppliesTo` scopes by task, not module** — harmless until plan 009
-  adds letter-only categories, then it must take `Module` too.
+- ~~**`categoryAppliesTo` scopes by task, not module**~~ — fixed by plan 009: it
+  now takes an optional `Module` (defaulting to `'academic'`), because Academic
+  Task 1 and General Training Task 1 share the id `'task1'`.
 
 ## What was NOT audited
 

@@ -16,6 +16,9 @@
  * evidence that a learner has stopped losing marks for `no-position` — Task 1
  * never evaluates that rule. Counting it as a clean run reads as improvement
  * the learner did not earn, and drags a real weakness out of their focus list.
+ * The scope is (task, MODULE): General Training Task 1 is a letter and Academic
+ * Task 1 is a chart description, so the two share a `TaskKind` while sharing
+ * almost no rules.
  */
 
 import type {
@@ -138,7 +141,7 @@ export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
     // below — rates, trend, recentRate, EWMA — runs over this subset.
     const applicable: number[] = []
     for (let i = 0; i < ordered.length; i++) {
-      if (categoryAppliesTo(category, ordered[i].task)) applicable.push(i)
+      if (categoryAppliesTo(category, ordered[i].task, ordered[i].module)) applicable.push(i)
     }
 
     // Per-session per-100-words rates, chronological (0 where it did not fire).
@@ -204,7 +207,7 @@ export function computeTrends(sessions: SessionRecord[]): CategoryTrend[] {
     // for sessions whose task could have produced this category — a sparkline
     // must never plot a zero the learner could not have avoided.
     perSession: ordered.flatMap((s, i) => {
-      if (!categoryAppliesTo(category, s.task)) return []
+      if (!categoryAppliesTo(category, s.task, s.module)) return []
       const count = counts[i][category] ?? 0
       return [
         {

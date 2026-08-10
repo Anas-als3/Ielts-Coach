@@ -102,6 +102,52 @@ export interface Task1PromptSpec {
   keywords: string[];
 }
 
+/* ------------------------ general training task 1 --------------------------- */
+
+/**
+ * How formal a letter must be. The prompt fixes this — "write to your manager"
+ * is semi-formal, "write to the council" is formal, "write to a friend" is
+ * informal — and the whole letter must hold that register consistently.
+ *
+ * Tone is the ONE piece of a letter prompt that changes what counts as correct
+ * English in the answer, which is why it reaches as far as `lexicalRules`: a
+ * contraction is an error in a letter to a bank and correct in a letter to a
+ * friend.
+ */
+export type LetterTone = 'formal' | 'semi-formal' | 'informal';
+
+/**
+ * A General Training Writing Task 1 prompt.
+ *
+ * A SIBLING of PromptSpec and Task1PromptSpec, for the same reason those two are
+ * siblings: a letter has no QuestionType and no chart, and forcing one shape to
+ * cover all three would make every rule defend against fields it cannot use.
+ */
+export interface LetterPromptSpec {
+  id: string;
+  /** Always the literal 'letter' — lets a union of the three prompt kinds discriminate. */
+  task: 'letter';
+  /** Full task text, ending with the standard General Training instruction. */
+  text: string;
+  tone: LetterTone;
+  /** Who the letter goes to, as the prompt names them: "your manager", "the council". */
+  recipient: string;
+  /**
+   * The three bullet points the prompt supplies. All three must be covered —
+   * this drives the `gt-bullet-uncovered` check.
+   */
+  bullets: string[];
+  /**
+   * Content words per bullet, lowercase — how coverage is detected. Index-aligned
+   * with `bullets`. Each list must be WIDE (the synonyms a good answer would
+   * reach for), because under-detecting coverage tells a correct learner they
+   * failed the task, which is the worst thing this app can say.
+   */
+  bulletKeywords: string[][];
+  topic: string;
+  keywords: string[];
+}
+
 /**
  * Facts derived from a Task1Chart, computed once and reused by the analysis
  * rules. See `analysis/chartFacts.ts`.
@@ -183,7 +229,16 @@ export type IssueCategory =
   | 't1-opinion'
   | 't1-prompt-echo'
   // Task 1 (Coherence & Cohesion)
-  | 't1-shape';
+  | 't1-shape'
+  // General Training Task 1 (letters). Task Achievement occupies the 'TR' slot.
+  | 'gt-word-count'
+  | 'gt-salutation-missing'
+  | 'gt-salutation-tone'
+  | 'gt-signoff-missing'
+  | 'gt-signoff-pairing'
+  | 'gt-bullet-uncovered'
+  | 'gt-purpose-missing'
+  | 'gt-tone-mismatch';
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -295,10 +350,16 @@ export interface Analysis {
  * Signature every rule module implements.
  *
  * A module may declare extra trailing parameters (see `cohesionRules`, which
- * takes an optional `TaskKind`) — TypeScript accepts a longer signature here,
- * and callers that do not pass them get the documented default.
+ * takes an optional `TaskKind`, and `lexicalRules`, which additionally takes an
+ * optional `LetterTone`) — TypeScript accepts a longer signature here, and
+ * callers that do not pass them get the documented default.
  */
-export type RuleFn = (doc: TokenizedDoc, prompt: PromptSpec | null, task?: TaskKind) => Issue[];
+export type RuleFn = (
+  doc: TokenizedDoc,
+  prompt: PromptSpec | null,
+  task?: TaskKind,
+  tone?: LetterTone,
+) => Issue[];
 
 /* ----------------------------- sessions & profile --------------------------- */
 
@@ -397,6 +458,13 @@ export interface StructureRailProps {
   questionType: QuestionType | null;
   /** Which task the rail is describing. Defaults to 'task2' when omitted. */
   task?: TaskKind;
+  /**
+   * Which exam. Only read together with `task === 'task1'`, where it separates
+   * the Academic chart answer from the General Training letter — two different
+   * tasks with different paragraph norms sharing one `TaskKind`. Defaults to
+   * 'academic' so every existing call site keeps its behaviour.
+   */
+  module?: Module;
 }
 
 export interface FeedbackPanelProps {
@@ -450,14 +518,22 @@ export interface AppProps {
   initialPrompt?: PromptSpec;
   /** Initial Task 1 prompt, for the same reason. */
   initialTask1Prompt?: Task1PromptSpec;
+  /** Initial General Training letter prompt, for the same reason. */
+  initialLetterPrompt?: LetterPromptSpec;
 }
 
 export interface ModelAnswerProps {
   task: TaskKind;
   /** The active Task 2 prompt, when task is 'task2'. */
   prompt: PromptSpec | null;
-  /** The active Task 1 prompt, when task is 'task1'. */
+  /** The active Task 1 prompt, when task is 'task1' in the Academic module. */
   task1Prompt: Task1PromptSpec | null;
+  /**
+   * The active letter prompt, when task is 'task1' in General Training. Takes
+   * precedence over `task1Prompt`, because the two can never be on screen at
+   * once and the letter is the more specific case.
+   */
+  letterPrompt?: LetterPromptSpec | null;
 }
 
 export interface ChartProps {

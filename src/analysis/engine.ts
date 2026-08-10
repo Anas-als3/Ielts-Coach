@@ -1,4 +1,12 @@
-import type { Analysis, EssayStats, Issue, PromptSpec, Task1PromptSpec, TokenizedDoc } from '../types'
+import type {
+  Analysis,
+  EssayStats,
+  Issue,
+  LetterPromptSpec,
+  PromptSpec,
+  Task1PromptSpec,
+  TokenizedDoc,
+} from '../types'
 import { tokenize } from './tokenize'
 import { buildStructure } from './rules/structure'
 import { taskResponseRules } from './rules/taskResponse'
@@ -8,9 +16,12 @@ import { grammarRangeRules } from './rules/grammarRange'
 import { accuracyRules } from './rules/accuracy'
 import { task1AchievementRules } from './rules/task1Achievement'
 import { buildTask1Structure } from './rules/task1Structure'
+import { letterAchievementRules } from './rules/letterAchievement'
+import { buildLetterStructure } from './rules/letterStructure'
 import { deriveChartFacts } from './chartFacts'
 import { estimateBand } from './bandEstimate'
 import { estimateTask1Band } from './task1BandEstimate'
+import { estimateLetterBand } from './letterBandEstimate'
 
 const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 } as const
 
@@ -175,6 +186,85 @@ export function analyzeTask1(text: string, prompt: Task1PromptSpec): Analysis {
   const stats = computeStats(doc)
   const partial = { issues, paragraphs, structure: checks, stats }
   const band = estimateTask1Band(partial, doc)
+
+  return { ...partial, band }
+}
+
+/**
+ * Topic-vocabulary context for the four shared rule modules when analysing a
+ * letter — the letter's equivalent of `topicContext`.
+ *
+ * The same reasoning applies: those modules read `keywords` (which `lexical.ts`
+ * excludes from repetition counting) and `type` (which `cohesion.ts` checks only
+ * for `'discussion'`). Passing `null` would strip the keyword exclusion, and a
+ * letter MUST repeat the nouns of the thing it is about — a complaint about a
+ * washing machine says "machine" repeatedly because there is no synonym that
+ * stays clear.
+ *
+ * The BULLET keywords are folded in alongside the prompt's, because they are
+ * the vocabulary the task explicitly asks the learner to use. Nothing from
+ * `TASK1_MEASUREMENT_VOCABULARY` is included: a letter quotes no figures, so
+ * excusing repeated "per cent" would only widen the exclusion for no reason.
+ */
+function letterContext(prompt: LetterPromptSpec): PromptSpec {
+  return {
+    id: prompt.id,
+    type: 'problem-solution', // inert here — only 'discussion' triggers a branch
+    text: prompt.text,
+    topic: prompt.topic,
+    parts: prompt.bullets,
+    keywords: [...prompt.keywords, ...prompt.bulletKeywords.flat()],
+  }
+}
+
+/**
+ * Full General Training Task 1 (letter) analysis. Same contract as
+ * `analyzeEssay`: pure, synchronous, safe to call debounced on every keystroke.
+ *
+ * Four of the rule families apply unchanged — cohesion, lexical, grammatical
+ * range and accuracy contain no task-specific concepts. Only achievement and
+ * structure are letter specific.
+ *
+ * `lexicalRules` is the one module that receives the TONE. It is the single
+ * tone-dependent branch in the engine, and it exists because register is the one
+ * thing General Training Task 1 changes about what counts as correct English:
+ * "I can't wait to see you" is right in a letter to a friend and wrong in a
+ * letter to a bank, and a letter of any tone addresses its reader as "you".
+ */
+export function analyzeLetter(text: string, prompt: LetterPromptSpec): Analysis {
+  const doc = tokenize(text)
+  const context = letterContext(prompt)
+
+  // Achievement runs first, mirroring analyzeTask1, so the two Task 1 pipelines
+  // read the same way even though the letter structure module derives its own
+  // greeting and sign-off rather than reading them back off the issue list.
+  const achievementIssues = letterAchievementRules(doc, prompt)
+  const { paragraphs, checks, issues: structureIssues } = buildLetterStructure(doc, prompt)
+
+  const issues: Issue[] = [
+    ...structureIssues,
+    ...achievementIssues,
+    ...cohesionRules(doc, context, 'task1'),
+    ...lexicalRules(doc, context, 'task1', prompt.tone),
+    ...grammarRangeRules(doc, context),
+    ...accuracyRules(doc, context),
+  ]
+
+  // Duplicated from analyzeEssay rather than factored out, for the same reason
+  // analyzeTask1 duplicates it: analyzeEssay must stay byte-identical so the
+  // Task 2 regression tests mean what they say.
+  issues.sort((a, b) => {
+    const sev = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
+    if (sev !== 0) return sev
+    return (a.start ?? -1) - (b.start ?? -1)
+  })
+  issues.forEach((issue, i) => {
+    issue.id = `i${i}`
+  })
+
+  const stats = computeStats(doc)
+  const partial = { issues, paragraphs, structure: checks, stats }
+  const band = estimateLetterBand(partial, doc)
 
   return { ...partial, band }
 }

@@ -10,7 +10,7 @@
  * apostrophe-s ("the government's plan") is never flagged.
  */
 
-import type { Issue, PromptSpec, RuleFn, Token, TokenizedDoc } from '../../types'
+import type { Issue, LetterTone, PromptSpec, RuleFn, TaskKind, Token, TokenizedDoc } from '../../types'
 
 /* ------------------------------ shared helpers ----------------------------- */
 
@@ -125,7 +125,13 @@ const CONTRACTION_RE = new RegExp(
   'gi',
 )
 
-function contractionIssues(doc: TokenizedDoc, issues: Issue[]): void {
+function contractionIssues(doc: TokenizedDoc, issues: Issue[], tone?: LetterTone): void {
+  // Contractions are CORRECT at informal register. An informal General Training
+  // letter is the one place in IELTS Writing where "I can't wait to see you" is
+  // right, and flagging it would mark a correct answer down. Every other caller
+  // passes no tone and reaches the unchanged code below.
+  if (tone === 'informal') return
+
   for (const f of findAll(CONTRACTION_RE, doc.text)) {
     const key = f.text.toLowerCase().replace(/’/g, "'")
     const expansion = CONTRACTION_EXPANSIONS[key]
@@ -158,6 +164,11 @@ const BIG_ABSTRACT_RE =
 interface RegisterEntry {
   re: RegExp
   message: (f: Found) => string
+  /**
+   * Marks the second-person clause, which is the only entry a letter has to
+   * stand down. See the tone guard in `registerIssues`.
+   */
+  addressesReader?: true
 }
 
 // 'a lot of' / 'lots of' are handled by the vague-quantifier rule only, so one
@@ -227,14 +238,23 @@ const REGISTER_LEXICON: RegisterEntry[] = [
     // Lookahead skips "you're"/"you've" etc. — those are flagged as contractions.
     re: /\b(?:you|your)\b(?!['’])/gi,
     message: (f) => `Avoid addressing the reader as '${f.text.toLowerCase()}' — write about 'people' or 'individuals'.`,
+    addressesReader: true,
   },
 ]
 
 const EXCLAMATION_RE = /!+/g
 const QUESTION_RE = /\?+/g
 
-function registerIssues(doc: TokenizedDoc, issues: Issue[]): void {
+function registerIssues(doc: TokenizedDoc, issues: Issue[], tone?: LetterTone): void {
   for (const entry of REGISTER_LEXICON) {
+    // A LETTER addresses its reader; that is what a letter is for. The
+    // second-person clause exists because a Task 2 essay must argue
+    // impersonally, and its fix ("write about 'people' or 'individuals'") is
+    // actively wrong advice inside "I would be grateful if you could confirm".
+    // Left in place it accuses a correct formal letter once per sentence, so it
+    // stands down for every letter tone, not only the informal one.
+    if (entry.addressesReader && tone !== undefined) continue
+
     for (const f of findAll(entry.re, doc.text)) {
       issues.push(issue('informal-register', 'warning', entry.message(f), f.start, f.end, doc))
     }
@@ -572,13 +592,27 @@ function memorisedPhraseIssues(doc: TokenizedDoc, issues: Issue[]): void {
 
 /* --------------------------------- rule fn --------------------------------- */
 
+/**
+ * `tone` is the letter register, supplied ONLY by `analyzeLetter`. It is the
+ * single tone-dependent branch in the rule engine, and it is here because
+ * register is the one thing General Training Task 1 changes about what counts as
+ * correct English: "I can't wait to see you" is right in a letter to a friend
+ * and wrong in a letter to a bank.
+ *
+ * `analyzeEssay` and `analyzeTask1` pass no tone and reach exactly the code they
+ * reached before — the existing suites prove it. If a SECOND rule module ever
+ * needs tone, pass a small context object rather than growing this list further.
+ */
 export const lexicalRules: RuleFn = (
   doc: TokenizedDoc,
   prompt: PromptSpec | null,
+  task?: TaskKind,
+  tone?: LetterTone,
 ): Issue[] => {
+  void task // accepted for RuleFn compatibility; lexical rules are task-blind
   const issues: Issue[] = []
-  contractionIssues(doc, issues)
-  registerIssues(doc, issues)
+  contractionIssues(doc, issues, tone)
+  registerIssues(doc, issues, tone)
   vagueQuantifierIssues(doc, issues)
   weakVocabularyIssues(doc, issues)
   repetitionIssues(doc, prompt, issues)
