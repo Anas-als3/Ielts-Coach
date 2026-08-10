@@ -4,6 +4,7 @@ import type {
   AppProps,
   Issue,
   IssueCategory,
+  LetterPromptSpec,
   Module,
   PromptSpec,
   SessionRecord,
@@ -12,11 +13,12 @@ import type {
   WritingMode,
 } from './types'
 import { MODULE_META, TASK_CONSTANTS } from './meta'
-import { analyzeEssay, analyzeTask1 } from './analysis/engine'
+import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
 import { computeProfile, computeTrends } from './profile/profile'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
+import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
 import Chart from './components/Chart'
 import Editor from './components/Editor'
 import StructureRail from './components/StructureRail'
@@ -46,18 +48,23 @@ function countWords(text: string): number {
   return m ? m.length : 0
 }
 
-export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}) {
+export default function App({ initialPrompt, initialTask1Prompt, initialLetterPrompt }: AppProps = {}) {
   const [view, setView] = useState<View>('write')
   const [mode, setMode] = useState<WritingMode>('coach')
   const [task, setTask] = useState<TaskKind>('task2')
-  // Academic is the default because it is the exam the app was built for and the
-  // only one whose Task 1 exists; General Training is opt-in until plan 009.
+  // Academic is the default because it is the exam the app was built for.
   const [module, setModule] = useState<Module>('academic')
   const [prompt, setPrompt] = useState<PromptSpec | null>(() => initialPrompt ?? randomPrompt())
-  // Two prompt slots rather than one union: switching task and switching back
-  // should return the learner to the question they were already looking at.
+  // THREE prompt slots rather than one union: switching task or exam and
+  // switching back should return the learner to the question they were already
+  // looking at. Task 1 is a different task in the two exams — a chart in
+  // Academic, a letter in General Training — so those two need separate slots
+  // even though they share the TaskKind 'task1'.
   const [task1Prompt, setTask1Prompt] = useState<Task1PromptSpec>(
     () => initialTask1Prompt ?? randomTask1Prompt(),
+  )
+  const [letterPrompt, setLetterPrompt] = useState<LetterPromptSpec>(
+    () => initialLetterPrompt ?? randomLetterPrompt(),
   )
   const [essayText, setEssayText] = useState('')
   const [sessions, setSessions] = useState<SessionRecord[]>(() => loadSessions())
@@ -79,13 +86,20 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
   // thing here is WHICH questions are offered: abstract topics are not asked of
   // General Training candidates.
   const modulePrompts = useMemo(() => promptsForModule(module), [module])
+  /**
+   * General Training Task 1 is a LETTER, not a chart description. This one flag
+   * routes the analysis, the sheet, the rail and the model answer, so the two
+   * tasks that share the id 'task1' can never be marked by each other's rules.
+   */
+  const isLetter = module === 'general' && task === 'task1'
   const debouncedText = useDebounced(essayText, 400)
   const analysis = useMemo(() => {
     if (mode !== 'coach') return null
+    if (isLetter) return analyzeLetter(debouncedText, letterPrompt)
     return task === 'task1'
       ? analyzeTask1(debouncedText, task1Prompt)
       : analyzeEssay(debouncedText, prompt)
-  }, [debouncedText, prompt, task1Prompt, mode, task])
+  }, [debouncedText, prompt, task1Prompt, letterPrompt, mode, task, isLetter])
   const profile = useMemo(() => computeProfile(sessions), [sessions])
   const trends = useMemo(() => computeTrends(sessions), [sessions])
   const liveWordCount = countWords(essayText)
@@ -181,9 +195,12 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
             ),
           )
         : taskConstants.examDurationSec - examSecondsLeft
-    const finalAnalysis =
-      task === 'task1' ? analyzeTask1(essayText, task1Prompt) : analyzeEssay(essayText, prompt)
-    const activeSpec = task === 'task1' ? task1Prompt : prompt
+    const finalAnalysis = isLetter
+      ? analyzeLetter(essayText, letterPrompt)
+      : task === 'task1'
+        ? analyzeTask1(essayText, task1Prompt)
+        : analyzeEssay(essayText, prompt)
+    const activeSpec = isLetter ? letterPrompt : task === 'task1' ? task1Prompt : prompt
     const record: SessionRecord = {
       id: makeId(),
       dateISO: new Date().toISOString(),
@@ -214,7 +231,8 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
   function startNewEssay(nextPrompt?: PromptSpec | null) {
     submittingRef.current = false
     examDeadlineRef.current = null
-    if (task === 'task1') setTask1Prompt(randomTask1Prompt())
+    if (isLetter) setLetterPrompt(randomLetterPrompt())
+    else if (task === 'task1') setTask1Prompt(randomTask1Prompt())
     // Draw from the active exam's pool: a General Training learner asked to
     // write about globalisation theory has been handed the wrong exam.
     else setPrompt(nextPrompt ?? randomPrompt(module))
@@ -233,7 +251,10 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
     // Redrafting must reopen the exam the essay was written for, or the picker
     // would not list the very prompt being redrafted.
     setModule(session.module)
-    if (session.task === 'task1') {
+    if (session.task === 'task1' && session.module === 'general') {
+      const letter = LETTER_PROMPTS.find((x) => x.id === session.promptId)
+      if (letter) setLetterPrompt(letter)
+    } else if (session.task === 'task1') {
       const t1 = TASK1_PROMPTS.find((x) => x.id === session.promptId)
       if (t1) setTask1Prompt(t1)
     } else {
@@ -332,14 +353,6 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
   const inExam = mode === 'exam' && view === 'write'
   const inlineIssues =
     mode === 'coach' && analysis ? analysis.issues.filter((i) => i.start != null) : []
-  /**
-   * General Training Task 1 is a letter, and the letter rules are plan 009. The
-   * chart engine would happily mark a letter and produce a confident band for
-   * it, so the app says the honest thing instead of running the wrong exam. The
-   * General button is NOT disabled: a learner is entitled to see what their exam
-   * contains and which parts are ready.
-   */
-  const generalTask1Unbuilt = module === 'general' && task === 'task1'
 
   return (
     <div className={`app${inExam ? ' app-exam' : ''}`}>
@@ -428,9 +441,7 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
                 Exam
               </button>
             </div>
-            {/* Nothing to submit while the General Training letter sheet does not
-                exist — a greyed-out "Finish & review" would only look broken. */}
-            {(mode === 'coach' || examState === 'running') && !generalTask1Unbuilt && (
+            {(mode === 'coach' || examState === 'running') && (
               <button
                 className="btn btn-primary"
                 onClick={handleSubmit}
@@ -446,39 +457,62 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
 
       {view === 'write' && (
         <main className="workspace">
-          {/* The rail and the coach panel describe an answer sheet. With no sheet
-              on the desk they would show an empty Task 1 checklist and a model
-              CHART answer next to a card that just said letters do not exist
-              yet — so they stand down with the editor. */}
-          {mode === 'coach' && !generalTask1Unbuilt && (
+          {mode === 'coach' && (
             <aside className="rail-zone">
               <StructureRail
                 checks={analysis?.structure ?? []}
                 paragraphs={analysis?.paragraphs ?? []}
                 questionType={task === 'task1' ? null : prompt?.type ?? null}
                 task={task}
+                module={module}
               />
             </aside>
           )}
 
           <section className="sheet-zone">
-            {generalTask1Unbuilt ? (
-              <div className="not-built card">
-                <p className="eyebrow">General Training · Task 1</p>
-                <h2>Letters are not ready yet</h2>
-                <p>
-                  General Training Task 1 asks you to write a letter, not to describe a chart. That
-                  needs its own marking rules, so it is being built separately. Task 2 is marked
-                  identically in both exams and is ready to use now.
-                </p>
-                <button className="btn btn-primary" onClick={() => switchTask('task2')}>
-                  Go to Task 2
-                </button>
-              </div>
-            ) : (
+            {isLetter ? (
               <>
-              {task === 'task1' ? (
-                <>
+                {!inExam && (
+                  <div className="t1-picker card">
+                    <label className="eyebrow" htmlFor="gt-select">
+                      Task 1 letter
+                    </label>
+                    <select
+                      id="gt-select"
+                      className="t1-select"
+                      value={letterPrompt.id}
+                      onChange={(e) => {
+                        const next = LETTER_PROMPTS.find((p) => p.id === e.target.value)
+                        if (next) setLetterPrompt(next)
+                      }}
+                    >
+                      {LETTER_PROMPTS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.tone} · to {p.recipient}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {/* The bullets ARE the task, so exam mode must show them too:
+                    all three have to be covered, and a candidate who cannot see
+                    them cannot answer them. The tone is stated on the card
+                    because it decides which greeting and sign-off are correct. */}
+                <div className="exam-prompt card">
+                  <p className="eyebrow">
+                    Task 1 · {letterPrompt.tone} letter · write at least {taskConstants.minWords}{' '}
+                    words
+                  </p>
+                  <p className="exam-prompt-text">{letterPrompt.text}</p>
+                  <ul className="gt-bullets">
+                    {letterPrompt.bullets.map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            ) : task === 'task1' ? (
+              <>
                   {!inExam && (
                     <div className="t1-picker card">
                       <label className="eyebrow" htmlFor="t1-select">
@@ -555,9 +589,11 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
                   issues={inlineIssues}
                   placeholder={
                     mode === 'coach'
-                      ? task === 'task1'
-                        ? 'Read the chart first: what is the overall pattern? Open by rewording the title.'
-                        : 'Plan first: position, two main ideas, examples. Then write.'
+                      ? isLetter
+                        ? 'Start with the greeting, then say why you are writing. Give each bullet point its own paragraph.'
+                        : task === 'task1'
+                          ? 'Read the chart first: what is the overall pattern? Open by rewording the title.'
+                          : 'Plan first: position, two main ideas, examples. Then write.'
                       : undefined
                   }
                   focusIssueId={focusIssueId}
@@ -569,11 +605,9 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
                   showHighlights={mode === 'coach' && debouncedText === essayText}
                 />
               )}
-              </>
-            )}
           </section>
 
-          {mode === 'coach' && !generalTask1Unbuilt && (
+          {mode === 'coach' && (
             <aside className="panel-zone">
               {/* The cheat sheet is Task 2 content. Rather than show a tab that
                   teaches the wrong task, Task 1 gets the feedback panel alone
@@ -613,7 +647,8 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
                 <ModelAnswer
                   task={task}
                   prompt={prompt}
-                  task1Prompt={task === 'task1' ? task1Prompt : null}
+                  task1Prompt={task === 'task1' && !isLetter ? task1Prompt : null}
+                  letterPrompt={isLetter ? letterPrompt : null}
                 />
               ) : (
                 <FeedbackPanel

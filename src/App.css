@@ -228,6 +228,21 @@
   margin-top: 6px;
 }
 
+/* The three bullet points of a General Training letter task. Rendered as a real
+   list, not as prose: all three must be covered, and a candidate scanning the
+   card mid-answer needs to see at a glance which one they have not reached. */
+.gt-bullets {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  margin: 10px 0 2px;
+  padding-left: 22px;
+  list-style: disc;
+}
+
+.gt-bullets li {
+  margin-bottom: 3px;
+}
+
 .exam-start {
   padding: 40px;
   text-align: center;
@@ -279,31 +294,6 @@
 .module-toggle,
 .task-toggle {
   margin-right: 4px;
-}
-
-/* The honest gap: General Training Task 1 is a letter, and the letter engine is
-   not built. Shaped like .exam-start so it reads as a considered state of the
-   app rather than an error. */
-.not-built {
-  padding: 40px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.not-built h2 {
-  font-family: var(--font-serif);
-}
-
-.not-built p {
-  max-width: 52ch;
-  color: var(--ink-soft);
-}
-
-.not-built .eyebrow {
-  color: var(--ink-soft);
 }
 
 /* Task 1 question picker: twelve prompts need a plain select, not a filter UI. */

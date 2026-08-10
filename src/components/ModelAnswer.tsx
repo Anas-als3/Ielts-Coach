@@ -12,11 +12,13 @@
  */
 import { useMemo } from 'react'
 import type { ModelAnswerProps } from '../types'
-import { analyzeEssay, analyzeTask1 } from '../analysis/engine'
+import { analyzeEssay, analyzeLetter, analyzeTask1 } from '../analysis/engine'
 import { buildTask1ModelAnswer } from '../answers/task1Model'
+import { letterModelFor } from '../answers/letterModels'
 import { task2ModelFor } from '../answers/task2Models'
 import { criterionLabel } from '../meta'
 import { PROMPTS } from '../prompts/bank'
+import { LETTER_PROMPTS } from '../prompts/letterBank'
 import type { Criterion } from '../types'
 import './ModelAnswer.css'
 
@@ -26,8 +28,18 @@ function formatBand(v: number): string {
   return v.toFixed(1)
 }
 
-export default function ModelAnswer({ task, prompt, task1Prompt }: ModelAnswerProps) {
+export default function ModelAnswer({
+  task,
+  prompt,
+  task1Prompt,
+  letterPrompt = null,
+}: ModelAnswerProps) {
   const model = useMemo(() => {
+    if (letterPrompt) {
+      const m = letterModelFor(letterPrompt)
+      if (!m) return null
+      return { text: m.text, exact: m.exact, sourcePrompt: null, sourceLabel: m.sourcePromptId }
+    }
     if (task === 'task1') {
       if (!task1Prompt) return null
       return {
@@ -45,10 +57,18 @@ export default function ModelAnswer({ task, prompt, task1Prompt }: ModelAnswerPr
     // screen — see `sourcePrompt` below.
     const sourcePrompt = PROMPTS.find((p) => p.id === m.sourcePromptId) ?? prompt
     return { text: m.text, exact: m.exact, sourcePrompt, sourceLabel: m.sourcePromptId }
-  }, [task, prompt, task1Prompt])
+  }, [task, prompt, task1Prompt, letterPrompt])
 
   const analysis = useMemo(() => {
     if (!model) return null
+    if (letterPrompt) {
+      // Graded against the prompt the letter was WRITTEN for, for the same
+      // reason Task 2 answers are: a tone-matched fallback legitimately does not
+      // answer the learner's bullet points, and marking it against them would
+      // report the app's own exemplar as failing the task.
+      const source = LETTER_PROMPTS.find((p) => p.id === model.sourceLabel) ?? letterPrompt
+      return analyzeLetter(model.text, source)
+    }
     if (task === 'task1' && task1Prompt) return analyzeTask1(model.text, task1Prompt)
     // Graded against the prompt the answer was written for, never the one on
     // screen. A fallback answer legitimately does not address the learner's
@@ -56,7 +76,7 @@ export default function ModelAnswer({ task, prompt, task1Prompt }: ModelAnswerPr
     // exemplar down on 14 of the 40 prompts — the exact failure SPEC.md's
     // worked-answer section promises cannot happen.
     return analyzeEssay(model.text, model.sourcePrompt)
-  }, [model, task, prompt, task1Prompt])
+  }, [model, task, prompt, task1Prompt, letterPrompt])
 
   if (!model || !analysis) {
     return (
