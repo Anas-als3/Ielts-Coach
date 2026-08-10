@@ -131,6 +131,30 @@ interface SalutationForm {
   label: string
 }
 
+/** Optional title plus one or two name tokens: "Mr Hughes", "Anna", "Anna Petrova". */
+const NAME_TOKEN = "[a-zà-ÿ][a-zà-ÿ'’-]*"
+const TITLE = '(?:mr|mrs|ms|miss|dr|prof|professor)\\.?'
+const PLAIN_PART = `${NAME_TOKEN}(?:\\s+${NAME_TOKEN})?`
+const TITLED_PART = `(?:${TITLE}\\s+)?${PLAIN_PART}`
+
+/**
+ * A greeting to two OR MORE readers — "A and B" or "A, B and C" — built from the
+ * fragments above so any list length is one pattern, not one row per reader
+ * count.
+ *
+ * `requireTitle` gates the FORMAL reading: a lookahead requires a TITLE
+ * ANYWHERE in the list, not only on the first part, so "Dear Mr Hughes and
+ * Anna," still reads as formal — the conservative direction, since a title
+ * present means at least semi-formal.
+ */
+function nameListRe(part: string, requireTitle: boolean): RegExp {
+  const titleGuard = requireTitle ? `(?=.*\\b${TITLE})` : ''
+  return new RegExp(`^dear\\s+${titleGuard}${part}(?:\\s*,\\s*${part})*\\s+and\\s+${part}[,.:!]?$`, 'i')
+}
+
+const NAMED_FORMAL_LIST_RE = nameListRe(TITLED_PART, true)
+const NAMED_INFORMAL_LIST_RE = nameListRe(PLAIN_PART, false)
+
 /**
  * Ordered — the FIRST match wins, so the specific unnamed forms must precede the
  * bare-name pattern. "Dear Sir" has to read as `unnamed`, not as a letter to
@@ -180,12 +204,18 @@ const SALUTATION_FORMS: readonly SalutationForm[] = [
     label: 'Dear Mr/Ms + surname',
   },
   {
-    // TWO titles sharing a surname: "Dear Mr and Mrs Hughes". A letter to a
-    // couple is ordinary General Training material (landlords, hosts, the
-    // neighbours you kept awake), and the single-title row above cannot match it
-    // — so without this row a learner who plainly wrote a greeting was told, by
-    // an ERROR, that they had not. Same kind and same tones as one title.
-    re: /^dear\s+(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+and\s+(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+[a-zà-ÿ][a-zà-ÿ'’-]*(?:\s+[a-zà-ÿ][a-zà-ÿ'’-]*)?[,.:!]?$/i,
+    // A greeting to TWO OR MORE readers with a title ANYWHERE in the list:
+    // "Dear Mr and Mrs Hughes,", "Dear Mr Hughes and Mrs Hughes,", "Dear Mr
+    // Hughes and Anna,", "Dear Dr Ali and Dr Chen,". A letter to a couple, or to
+    // two named readers, is ordinary General Training material (landlords,
+    // hosts, the neighbours you kept awake), and the single-title row above
+    // matches only ONE reader — so without this row a learner who plainly wrote
+    // a greeting to two readers was told, by an ERROR, that they had written no
+    // greeting at all. Placed ABOVE the plain name-list row below, and both sit
+    // BELOW the "Dear Sir and Madam" row: read as a pair of names that row would
+    // license "Yours sincerely" and reject the "Yours faithfully" it actually
+    // calls for.
+    re: NAMED_FORMAL_LIST_RE,
     kind: 'named-formal',
     tones: ['formal', 'semi-formal'],
     label: 'Dear Mr/Ms + surname',
@@ -198,12 +228,14 @@ const SALUTATION_FORMS: readonly SalutationForm[] = [
     label: 'Dear + first name',
   },
   {
-    // TWO given names: "Dear Anna and Tom". The bare-name row above allows at
-    // most two tokens and no conjunction, so it read a perfectly good greeting to
-    // a couple as no greeting at all. Placed AFTER the bare-name row so nothing
-    // it already matched changes hands, and after the unnamed rows so "Dear Sir
-    // and Madam" is still `unnamed`.
-    re: /^dear\s+[a-zà-ÿ][a-zà-ÿ'’-]*\s+and\s+[a-zà-ÿ][a-zà-ÿ'’-]*[,.:!]?$/i,
+    // A greeting to TWO OR MORE UNTITLED readers: "Dear Anna and Tom,", "Dear
+    // Anna, Tom and Sam,". The bare-name row above matches only one reader, so
+    // it read a perfectly good greeting to several people as no greeting at
+    // all. Placed AFTER the titled-list row above (so a list carrying a title
+    // reads as formal, not informal) and after the unnamed rows so "Dear Sir
+    // and Madam" is still `unnamed` — read as a pair of names it would license
+    // "Yours sincerely" and reject the "Yours faithfully" it actually calls for.
+    re: NAMED_INFORMAL_LIST_RE,
     kind: 'named-informal',
     tones: ['semi-formal', 'informal'],
     label: 'Dear + first name',
@@ -563,12 +595,20 @@ export interface LetterParts {
  * a false accusation. So the first line is tried twice: as a whole, and clipped
  * at its first comma when that comma is close enough to the start to be ending a
  * greeting rather than separating clauses.
+ *
+ * The WHOLE line is tried FIRST. Every `SALUTATION_FORMS` pattern is
+ * `$`-anchored, so a genuine run-on line (the whole line was never a match) still
+ * falls through to the clipped candidate — this guard is unaffected. What
+ * changes is the case where BOTH match: "Dear Anna, Tom and Sam," used to clip
+ * to "Dear Anna," first, which matched the bare-name row and threw away "Tom and
+ * Sam" — reading a three-reader greeting as a warmer one-reader greeting and
+ * then rejecting the sign-off it actually called for.
  */
 function salutationCandidates(line: Line): Line[] {
   const out: Line[] = [line]
   const comma = line.text.indexOf(',')
   if (comma > 0 && comma < SALUTATION_COMMA_WINDOW && comma < line.text.length - 1) {
-    out.unshift({
+    out.push({
       text: line.text.slice(0, comma + 1),
       start: line.start,
       end: line.start + comma + 1,

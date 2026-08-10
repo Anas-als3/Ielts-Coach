@@ -902,6 +902,49 @@ describe('015-c: one mistake, one issue in a letter', () => {
   }
 })
 
+describe('015-d: the two-name greeting table covers all four shapes', () => {
+  // FALSE POSITIVE: `gt-salutation-missing` is an ERROR worth −0.5 Task
+  // Achievement, and it was telling learners who plainly wrote a greeting to
+  // two titled readers that they had written no greeting at all — because the
+  // table only knew "title + surname" shared by both, or two bare given names.
+  //
+  // Judgment call: the plan text for this block names 'Yours faithfully' as the
+  // sign-off for the three titled cases, but a titled two-reader greeting reads
+  // as `named-formal`, which pairs with 'Yours sincerely' (PAIRING_FIX), not
+  // 'Yours faithfully' (unnamed only) — pairing these with 'Yours faithfully'
+  // would itself raise a genuine gt-signoff-pairing error. Using 'Yours
+  // sincerely' here matches the already-fixed single-title row and the existing
+  // 'Dear Mr and Mrs Hughes,' case in the block above.
+  const TITLED_TWO_READER_CASES = [
+    'Dear Mr Hughes and Mrs Hughes,',
+    'Dear Mr Hughes and Anna,',
+    'Dear Dr Ali and Dr Chen,',
+  ]
+
+  for (const salutation of TITLED_TWO_READER_CASES) {
+    it(`accepts '${salutation}' as a titled greeting to two readers`, () => {
+      // A title present anywhere in the list means at least semi-formal — the
+      // conservative direction — so this reads as `named-formal` and pairs
+      // with 'Yours sincerely', exactly like the single-title row it extends.
+      const a = analyzeLetter(letter(salutation, FORMAL_BODY, 'Yours sincerely'), FORMAL)
+      expect(categories(a), salutation).not.toContain('gt-salutation-missing')
+      expect(categories(a), salutation).not.toContain('gt-salutation-tone')
+      expect(categories(a), salutation).not.toContain('gt-signoff-pairing')
+    })
+  }
+
+  it("accepts 'Dear Anna, Tom and Sam,' as an informal greeting to three readers", () => {
+    // FALSE POSITIVE, and a second bug in the same greeting: the comma-clipped
+    // candidate was tried BEFORE the whole line, so 'Dear Anna,' matched the
+    // bare-name row first and threw away 'Tom and Sam' — reading a three-reader
+    // greeting as a warmer one-reader greeting and then rejecting the sign-off
+    // it actually called for.
+    const a = analyzeLetter(letter('Dear Anna, Tom and Sam,', INFORMAL_BODY, 'Best wishes', 'Sam'), INFORMAL)
+    expect(categories(a)).not.toContain('gt-salutation-tone')
+    expect(categories(a)).not.toContain('gt-signoff-pairing')
+  })
+})
+
 /* --------------------------------- the bank ----------------------------------- */
 
 describe('the letter prompt bank', () => {
