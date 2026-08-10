@@ -258,6 +258,24 @@ byte-identical copy already on disk is the backup, and one per read would fill t
 essays. A schemaVersion bump must never destroy a learner's history, and neither must a single bad
 record.
 
+**The backup key is `<ISO timestamp>` plus a COUNTER suffix, never a random salt.** `toISOString()`
+has millisecond resolution and `setItem` overwrites, so two DIFFERENT payloads backed up inside the
+same millisecond used to collapse into one key — the first was silently destroyed while the console
+said a copy had been kept for it. `nextBackupKey` checks `getItem(key) === null` and appends `-1`,
+`-2`, … until it finds a free key (bounded at 1,000 attempts, so a pathological store cannot spin
+forever). The suffix is a counter rather than a salt SPECIFICALLY so the keys keep sorting by age as
+plain text — `pruneBackups` relies on that ordering, and a random salt would make it silently start
+deleting the wrong copies.
+
+**`MAX_BACKUPS = 5`, newest kept.** A backup is a full serialisation of the store (see the record
+sizes below), so unbounded backups fill the same quota that holds the essays they exist to protect —
+the safety net becomes the thing that breaks the save. `pruneBackups(keep)` sorts every
+`ielts-coach.backup.` key ascending (text order = age order, because the suffix is a counter) and
+`removeItem`s the oldest until `keep` remain; it runs at the end of every successful `backupRaw`, in
+its OWN try/catch so a pruning failure can never read back as "could not back up" or block the read
+or write that triggered it. `removeItem` appears in exactly ONE place in `src/` — `pruneBackups` — and
+any second caller is deleting a learner's data and needs the same scrutiny this one got.
+
 **Cap 200 sessions PER SECTION** (drop that section's oldest), never 200 across the store. A global
 cap made the sections compete for one budget and Writing always lost: 20 essays plus 190 Reading
 papers deleted 10 essays, which inverts the whole purpose of the union — the `isWritingSession`
@@ -266,6 +284,31 @@ DELETE it. Sitting an answer-key paper must never cost a learner an essay. Recor
 that cap by parsed INSTANT, not by the text of `dateISO`: an imported file may carry an offset
 (`23:00+05:00` is three hours before `20:00Z` and sorts after it as text), and list order is what
 "oldest" means here.
+
+**Measured record sizes** (built through `analyzeEssay`/`markAnswerKey`, `JSON.stringify(...).length`,
+at `ae92bac`): a clean worked essay is 4.8–4.9 kB; a flawed Band-6 essay (12 issues, 290 words) is
+~8.0 kB; a completed answer key is ~12 kB (`reading-academic-01`: 12,241 B; `reading-general-01`:
+12,137 B). Worst case at `MAX_SESSIONS_PER_SECTION = 200`: 200 × 8 kB + 400 × 12 kB (Reading +
+Listening) ≈ **6.23 MB**, against a typical ~5 MB origin quota — backups sit on top of that. The cap
+was NOT lowered to fix this: a smaller number chosen by guess would delete a learner's work to solve
+a problem the backup cap and the write retry below already solve without deleting anything. Re-measure
+before raising `MAX_SESSIONS_PER_SECTION` or adding a fourth section — a mock-test record (plan 013)
+was not measured here and would likely be larger than either figure above.
+
+**`SaveResult` is what `saveSession` returns instead of `void`.** `{ ok: true }` or
+`{ ok: false, reason: 'quota' | 'unavailable', message }`, where `message` is learner-facing and says
+what to do (export now, before writing more). Before this, `writeStore` swallowed every failure into
+`console.warn` and a full quota looked identical to a successful save to every caller — `App.tsx`
+would still navigate to the report view with a session that was never persisted, landing a learner who
+had just finished a 40-minute essay on a header with nothing else (the Reading and Listening views
+already had a fallback for a null session; the Writing report did not). `writeStore` now retries ONCE
+after evicting the single oldest backup (`pruneBackups(backupCount() - 1)`) — spending a recovery copy
+of a store that has since been read successfully to save 40 minutes of work that cannot be re-run — and
+reports failure rather than retrying again if the second attempt also fails, so a full store cannot
+turn into a loop that deletes a learner's backups one at a time to make room. `App.tsx` shows one
+persistent `role="alert"` banner, shared by all three submit handlers (Writing, Reading, Listening),
+that stays until dismissed; the Writing report view now has the same null-session fallback Reading and
+Listening already had.
 
 `computeProfile`: per category, per-100-words rate per session; EWMA α = 0.35; trend from
 least-squares slope over last 6 sessions (improving < −0.05, worsening > 0.05); focusCategories = top 3 by
@@ -304,6 +347,22 @@ report, so `module: 'speaking'` used to index to `undefined`, throw out of a ren
 whole app behind the error boundary. Reading shipped at v4, after `module` arrived at v3, so no
 legitimate Reading record can lack it. `rawToBand` is total in that argument too — an unknown module
 falls back to the Academic table with a console warning, never a throw.
+
+**A writing record's `band.byCriterion` must carry all four `Criterion` keys as finite numbers** — the
+key list is derived from a totality-checked `Record<Criterion, true>` rather than a hard-coded array,
+so a fifth criterion added later cannot silently narrow the check. `isRecordObject(band.byCriterion)`
+alone used to accept `{}`: an imported or hand-edited record with an incomplete `byCriterion` loaded
+cleanly, and `Report.tsx`'s `clampBand` floored the resulting `undefined` to 4, rendering a confident
+"Task Response 4.0" with a filled bar and a matching aria-label for a band the record does not contain
+— exactly the failure `src/reading/bandTable.ts`'s band-table fallback policy warns against: a band
+that low is the number someone acts on. Two independent boundaries fix it. At the store, a record
+failing the check is DROPPED on read (through the same per-record branch that backs the whole payload
+up first, so nothing is destroyed) and rejected outright by `importData`. At the renderer,
+`formatBand`/`bandPct` in `Report.tsx` now take `number | undefined` and print `'—'` / render an empty
+bar rather than flooring to 4 — belt and suspenders, so a record that somehow reaches the report
+without going through the store's own validator still cannot lie about a band it does not have. The
+`aria-label` reads the same value through the same helper as the visible text, so a screen-reader user
+never hears "4.0" where a sighted user sees "—".
 
 **Both `computeProfile` and `computeTrends` drop Reading AND Listening sessions before any
 arithmetic.** Neither produces any `IssueCategory`, so to rate maths each is indistinguishable from a
