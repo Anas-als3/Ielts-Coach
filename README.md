@@ -150,9 +150,11 @@ the editor — Coach Mode only; it disappears with everything else under exam co
 ```bash
 npm install
 npm run dev
+npm run typecheck   # tsc --noEmit over src/ — strict, and not covered by npm test
 npm test            # everything
 npm run test:engine # analysis + storage, Node, no DOM
 npm run test:ui     # components, jsdom + Testing Library
+npm run build       # tsc -b + a real Vite bundle
 ```
 
 The suite is split in two vitest projects. `engine` runs the pure analysis and
@@ -160,12 +162,16 @@ storage code in Node — keeping it there means nothing in the engine can quietl
 start depending on a browser global. `ui` renders the real `<App />` in jsdom
 and drives it the way a learner would.
 
+CI runs `typecheck`, `test` and `build` on every push and pull request
+(`.github/workflows/ci.yml`); the Node version is pinned in `.nvmrc`.
+
 ## Architecture
 
 React 18 + TypeScript (strict) + Vite. No runtime dependencies beyond React.
 
 - `SPEC.md` — canonical thresholds and rule inventory (the source of truth)
 - `DESIGN.md` — visual direction (exam-stationery aesthetic)
+- `CLAUDE.md` — start here if you are an agent: the verification gate, what is canonical, and what has already been decided
 - `src/types.ts` — the shared contract; `IssueCategory` ids are stable across versions
 - `src/analysis/` — tokenizer, rule modules, band estimator, engine
 - `src/profile/` — localStorage store + profile/trend computation
