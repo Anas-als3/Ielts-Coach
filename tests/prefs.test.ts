@@ -9,8 +9,8 @@
  * reads `window.localStorage` at call time, so installing it in `beforeEach`
  * is enough, no module mocking needed.
  */
-import { beforeEach, describe, expect, it } from 'vitest'
-import { loadPrefs, updatePrefs } from '../src/profile/prefs'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadPrefs, savePrefs } from '../src/profile/prefs'
 
 const PREFS_KEY = 'ielts-coach.prefs.v1'
 
@@ -41,6 +41,9 @@ let store: Map<string, string>
 
 beforeEach(() => {
   store = installLocalStorage()
+  // savePrefs warns to the console on a write failure — expected, not a
+  // failure of the test itself (tests/store.test.ts:54 does the same).
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
 describe('loadPrefs reads defensively', () => {
@@ -67,9 +70,9 @@ describe('loadPrefs reads defensively', () => {
   })
 })
 
-describe('updatePrefs writes safely', () => {
+describe('savePrefs writes safely', () => {
   it('round-trips a written field', () => {
-    updatePrefs({ introDismissedAtISO: '2026-08-10T00:00:00.000Z' })
+    savePrefs({ introDismissedAtISO: '2026-08-10T00:00:00.000Z' })
     expect(loadPrefs()).toEqual({ introDismissedAtISO: '2026-08-10T00:00:00.000Z' })
   })
 
@@ -78,7 +81,7 @@ describe('updatePrefs writes safely', () => {
       PREFS_KEY,
       JSON.stringify({ introDismissedAtISO: '2026-08-10T00:00:00.000Z', futureField: true }),
     )
-    updatePrefs({ introDismissedAtISO: '2026-08-11T00:00:00.000Z' })
+    savePrefs({ introDismissedAtISO: '2026-08-11T00:00:00.000Z' })
     const raw = JSON.parse(store.get(PREFS_KEY) as string) as Record<string, unknown>
     expect(raw.futureField).toBe(true)
     expect(raw.introDismissedAtISO).toBe('2026-08-11T00:00:00.000Z')
@@ -90,6 +93,6 @@ describe('updatePrefs writes safely', () => {
     stub.setItem = () => {
       throw new Error('quota exceeded')
     }
-    expect(() => updatePrefs({ introDismissedAtISO: '2026-08-10T00:00:00.000Z' })).not.toThrow()
+    expect(() => savePrefs({ introDismissedAtISO: '2026-08-10T00:00:00.000Z' })).not.toThrow()
   })
 })

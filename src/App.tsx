@@ -28,7 +28,7 @@ import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/
 import type { WritingDraft } from './profile/draft'
 import { computeProfile, computeTrends } from './profile/profile'
 import { isBefore } from './profile/chronology'
-import { loadPrefs, updatePrefs } from './profile/prefs'
+import { loadPrefs, savePrefs } from './profile/prefs'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
@@ -790,7 +790,7 @@ export default function App({
 
   function dismissIntro() {
     setIntroDismissed(true)
-    updatePrefs({ introDismissedAtISO: new Date().toISOString() })
+    savePrefs({ introDismissedAtISO: new Date().toISOString() })
   }
 
   function handleImport(json: string) {
