@@ -15,7 +15,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { deleteSession, importData, loadSessions, saveSession } from '../src/profile/store'
 import { rawToBand } from '../src/reading/bandTable'
 import type { ReadingModule } from '../src/reading/types'
-import type { SessionRecord, TaskKind } from '../src/types'
+import { isWritingSession } from '../src/types'
+import type { Module, SessionRecord, TaskKind } from '../src/types'
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -110,6 +111,18 @@ function backupKeys(): string[] {
   return Array.from(store.keys()).filter((k) => k.startsWith(BACKUP_PREFIX))
 }
 
+// Every `makeSession`/`newRecord` fixture in this file is a Writing (task2 or
+// task1 essay) record — the migration cases exercise `task`/`module`, neither
+// of which `SessionRecord` carries unconditionally (`task` is Writing-only;
+// `module` is absent on Listening). Narrow with `isWritingSession` rather than
+// casting, per `src/types.ts`'s guard contract.
+function writingTask(s: SessionRecord): TaskKind | undefined {
+  return isWritingSession(s) ? s.task : undefined
+}
+function writingModule(s: SessionRecord): Module | undefined {
+  return isWritingSession(s) ? s.module : undefined
+}
+
 /* ------------------------------- v1 migration ------------------------------- */
 
 describe('v1 -> v2 migration', () => {
@@ -125,7 +138,7 @@ describe('v1 -> v2 migration', () => {
     const sessions = loadSessions()
     expect(sessions).toHaveLength(4)
     expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c', 'd'])
-    expect(sessions.every((s) => s.task === 'task2')).toBe(true)
+    expect(sessions.every((s) => writingTask(s) === 'task2')).toBe(true)
   })
 
   it('migrates on read without rewriting the stored payload', () => {
@@ -137,7 +150,7 @@ describe('v1 -> v2 migration', () => {
 
     const sessions = loadSessions()
     expect(sessions).toHaveLength(3)
-    expect(sessions.every((s) => s.task === 'task2')).toBe(true)
+    expect(sessions.every((s) => writingTask(s) === 'task2')).toBe(true)
 
     // Reads are pure: the raw payload is still v1 until something writes.
     const raw = JSON.parse(store.get(STORAGE_KEY) as string)
@@ -152,7 +165,7 @@ describe('v1 -> v2 migration', () => {
     ])
 
     const sessions = loadSessions()
-    expect(sessions.map((s) => s.task)).toEqual(['task1', 'task2'])
+    expect(sessions.map(writingTask)).toEqual(['task1', 'task2'])
   })
 
   it('drops only the record whose task value is invalid', () => {
@@ -272,8 +285,8 @@ describe('v1 -> v4 in a single read', () => {
     const sessions = loadSessions()
 
     expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c'])
-    expect(sessions.every((s) => s.task === 'task2')).toBe(true)
-    expect(sessions.every((s) => s.module === 'academic')).toBe(true)
+    expect(sessions.every((s) => writingTask(s) === 'task2')).toBe(true)
+    expect(sessions.every((s) => writingModule(s) === 'academic')).toBe(true)
     expect(sessions.every((s) => s.section === 'writing')).toBe(true)
 
     // One read did all three. Reads stay pure: the payload is still v1.
@@ -601,7 +614,7 @@ describe('importData', () => {
 
     const sessions = loadSessions()
     expect(sessions.map((s) => s.id)).toEqual(['x', 'y'])
-    expect(sessions.every((s) => s.task === 'task2')).toBe(true)
+    expect(sessions.every((s) => writingTask(s) === 'task2')).toBe(true)
   })
 
   it('rejects a file exported by a newer version', () => {
@@ -620,8 +633,8 @@ describe('importData', () => {
 
     const sessions = loadSessions()
     expect(sessions).toHaveLength(1)
-    expect(sessions[0].task).toBe('task2')
-    expect(sessions[0].module).toBe('academic')
+    expect(writingTask(sessions[0])).toBe('task2')
+    expect(writingModule(sessions[0])).toBe('academic')
     expect(sessions[0].section).toBe('writing')
   })
 
@@ -929,18 +942,18 @@ describe('a fractional schemaVersion still climbs every rung above it', () => {
 
     const sessions = loadSessions()
     expect(sessions).toHaveLength(1)
-    expect(sessions[0].module).toBe('academic')
+    expect(writingModule(sessions[0])).toBe('academic')
     expect(sessions[0].section).toBe('writing')
     // The rung it is already past is not re-run: `task` keeps its stored value.
-    expect(sessions[0].task).toBe('task2')
+    expect(writingTask(sessions[0])).toBe('task2')
   })
 
   it('climbs from below the first rung too', () => {
     seed(1.5, [makeSession('a', '2026-01-01T10:00:00.000Z')])
 
     const sessions = loadSessions()
-    expect(sessions[0].task).toBe('task2')
-    expect(sessions[0].module).toBe('academic')
+    expect(writingTask(sessions[0])).toBe('task2')
+    expect(writingModule(sessions[0])).toBe('academic')
     expect(sessions[0].section).toBe('writing')
   })
 
@@ -1030,10 +1043,9 @@ describe('saveSession replaces a record with the same id', () => {
     // update the record, not append a second one with the same id. Two records
     // sharing an id collide as React keys and are deleted together.
     saveSession(newRecord('same', '2026-01-01T10:00:00.000Z'))
-    saveSession({
-      ...(newRecord('same', '2026-01-01T10:00:00.000Z') as SessionRecord & { essayText: string }),
-      essayText: 'The rewritten essay.',
-    })
+    const rewritten = newRecord('same', '2026-01-01T10:00:00.000Z')
+    if (!isWritingSession(rewritten)) throw new Error('fixture must be a writing session')
+    saveSession({ ...rewritten, essayText: 'The rewritten essay.' })
 
     const sessions = loadSessions()
     expect(sessions).toHaveLength(1)
