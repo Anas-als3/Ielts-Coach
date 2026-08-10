@@ -5,6 +5,7 @@ import type {
   Issue,
   IssueCategory,
   LetterPromptSpec,
+  ListeningSessionRecord,
   Module,
   PromptSpec,
   ReadingSessionRecord,
@@ -14,8 +15,9 @@ import type {
   WritingMode,
   WritingSessionRecord,
 } from './types'
-import { isReadingSession, isWritingSession } from './types'
+import { isListeningSession, isReadingSession, isWritingSession } from './types'
 import type { ReadingAnswers } from './reading/types'
+import type { ListeningAnswers } from './listening/types'
 import { MODULE_META, TASK_CONSTANTS } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
@@ -24,6 +26,9 @@ import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
 import { readingTestById, readingTestsForModule } from './reading/tests'
+import { LISTENING_TESTS, listeningTestById } from './listening/tests'
+import { createSpeechDriver } from './listening/speech'
+import { markListening } from './listening/mark'
 import { markAnswerKey } from './marking/markAnswerKey'
 import Chart from './components/Chart'
 import Editor from './components/Editor'
@@ -38,12 +43,17 @@ import ModelAnswer from './components/ModelAnswer'
 import ReadingRunner from './components/ReadingRunner'
 import ReadingReport from './components/ReadingReport'
 import ReadingPicker from './components/ReadingPicker'
+import ListeningRunner from './components/ListeningRunner'
+import ListeningReport from './components/ListeningReport'
+import ListeningPicker from './components/ListeningPicker'
 
-type View = 'write' | 'report' | 'dashboard' | 'reading'
+type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening'
 type ExamState = 'idle' | 'running'
 type PanelTab = 'feedback' | 'cheatsheet' | 'model'
 /** Where the learner is inside the Reading section: choosing, sitting, reviewing. */
 type ReadingStage = 'picker' | 'running' | 'report'
+/** The same three places inside the Listening section. */
+type ListeningStage = 'picker' | 'running' | 'report'
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value)
@@ -59,7 +69,12 @@ function countWords(text: string): number {
   return m ? m.length : 0
 }
 
-export default function App({ initialPrompt, initialTask1Prompt, initialLetterPrompt }: AppProps = {}) {
+export default function App({
+  initialPrompt,
+  initialTask1Prompt,
+  initialLetterPrompt,
+  listeningDriver,
+}: AppProps = {}) {
   const [view, setView] = useState<View>('write')
   const [mode, setMode] = useState<WritingMode>('coach')
   const [task, setTask] = useState<TaskKind>('task2')
@@ -87,6 +102,15 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
   const [readingStage, setReadingStage] = useState<ReadingStage>('picker')
   const [readingTestId, setReadingTestId] = useState<string | null>(null)
   const [readingSessionId, setReadingSessionId] = useState<string | null>(null)
+  const [listeningStage, setListeningStage] = useState<ListeningStage>('picker')
+  const [listeningTestId, setListeningTestId] = useState<string | null>(null)
+  const [listeningSessionId, setListeningSessionId] = useState<string | null>(null)
+  /**
+   * Practice mode is chosen on the picker and held here for the length of the
+   * attempt, so "sit this paper again" from the report repeats the SAME
+   * conditions rather than quietly swapping them.
+   */
+  const [listeningPractice, setListeningPractice] = useState(false)
   const submittingRef = useRef(false)
   const pacingRef = useRef<Array<{ t: number; words: number }>>([])
   const pasteAttemptsRef = useRef(0)
@@ -147,6 +171,35 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
   const readingSession = useMemo<ReadingSessionRecord | null>(
     () => sessions.filter(isReadingSession).find((s) => s.id === readingSessionId) ?? null,
     [sessions, readingSessionId],
+  )
+
+  /* -------------------------------- listening ------------------------------- */
+  // `LISTENING_TESTS` is used whole and is NEVER filtered by `module` — there is
+  // deliberately no `listeningTestsForModule` to call. Academic and General
+  // Training candidates sit the identical Listening paper and convert through
+  // the identical table, so a filter here would have nothing to filter on and
+  // would only teach the next reader that the distinction exists. Compare the
+  // Reading block above, where the filter is load-bearing because the two
+  // exams' papers really are different objects marked by different tables.
+  const listeningTest = useMemo(
+    () => (listeningTestId === null ? null : listeningTestById(listeningTestId)),
+    [listeningTestId],
+  )
+  // Constructed once per mount: the browser's synthesiser where there is one,
+  // the paced transcript where there is not. Tests inject a `FakeSpeechDriver`
+  // through props, because jsdom has no `speechSynthesis` and no test may
+  // depend on a real one.
+  const speechDriver = useMemo(() => listeningDriver ?? createSpeechDriver(), [listeningDriver])
+  // Not filtered by module either, for the same reason, and the absence of a
+  // `.filter(s => s.module === module)` line here — which the Reading history
+  // above does have — is the whole difference between the two sections.
+  const listeningHistory = useMemo<ListeningSessionRecord[]>(
+    () => sessions.filter(isListeningSession).slice().reverse(),
+    [sessions],
+  )
+  const listeningSession = useMemo<ListeningSessionRecord | null>(
+    () => sessions.filter(isListeningSession).find((s) => s.id === listeningSessionId) ?? null,
+    [sessions, listeningSessionId],
   )
 
   /* ------------------------------- exam timer ------------------------------- */
@@ -418,6 +471,68 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
     setReadingStage('report')
   }
 
+  /* -------------------------------- listening ------------------------------- */
+
+  function openListening() {
+    setView('listening')
+    // A stale report from a previous sitting is not what "Listening" means; the
+    // section always opens on the list of papers unless a paper is being sat.
+    if (listeningStage === 'report') setListeningStage('picker')
+  }
+
+  function startListeningTest(testId: string, practice: boolean) {
+    setListeningTestId(testId)
+    setListeningSessionId(null)
+    setListeningPractice(practice)
+    setListeningStage('running')
+  }
+
+  /**
+   * Persist a sat paper. The ONLY place a Listening session is written — the
+   * runner holds answers in memory until this is called, so an abandoned
+   * attempt leaves no band in the learner's history.
+   *
+   * No `module` is recorded, and there is nothing missing: both exams sit this
+   * paper and convert through the one table, so there is no fact to store.
+   */
+  function handleListeningSubmit(
+    answers: ListeningAnswers,
+    durationSec: number,
+    practice: boolean,
+  ) {
+    const test = listeningTest
+    if (test === null) {
+      setListeningStage('picker')
+      return
+    }
+    const record: ListeningSessionRecord = {
+      section: 'listening',
+      id: makeId(),
+      dateISO: new Date().toISOString(),
+      testId: test.id,
+      testTitle: test.title,
+      answers,
+      result: markListening(test, answers),
+      durationSec,
+      // Taken from the RUNNER rather than from `listeningPractice`, so the flag
+      // records the conditions the paper was actually sat under even if the
+      // app's own state has since moved on.
+      practice,
+    }
+    saveSession(record)
+    // Re-read the store so in-memory state always matches persistence (cap, sort).
+    setSessions(loadSessions())
+    setListeningSessionId(record.id)
+    setListeningStage('report')
+  }
+
+  function openListeningSession(session: ListeningSessionRecord) {
+    setListeningTestId(session.testId)
+    setListeningSessionId(session.id)
+    setListeningPractice(session.practice)
+    setListeningStage('report')
+  }
+
   function switchMode(next: WritingMode) {
     if (next === mode) return
     if (mode === 'exam' && examState === 'running') {
@@ -463,7 +578,10 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
   // for an answer key — so sitting one clears the desk exactly as exam mode
   // does for writing: no navigation, no exam-type toggle, just the paper.
   const inReadingTest = view === 'reading' && readingStage === 'running'
-  const deskCleared = inExam || inReadingTest
+  // The same for Listening, and more sharply: the recording plays once, so a
+  // learner who navigated away mid-section would lose it for good.
+  const inListeningTest = view === 'listening' && listeningStage === 'running'
+  const deskCleared = inExam || inReadingTest || inListeningTest
   const inlineIssues =
     mode === 'coach' && analysis ? analysis.issues.filter((i) => i.start != null) : []
 
@@ -492,6 +610,12 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
                 Reading
               </button>
               <button
+                className={view === 'listening' ? 'nav-link active' : 'nav-link'}
+                onClick={openListening}
+              >
+                Listening
+              </button>
+              <button
                 className={view === 'dashboard' ? 'nav-link active' : 'nav-link'}
                 onClick={() => setView('dashboard')}
               >
@@ -501,6 +625,11 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
           )}
         </div>
 
+        {/* Deliberately `view === 'reading'` and not `view !== 'write'`: the
+            Listening section shows NO exam-type toggle, because Listening is
+            the identical paper with the identical conversion table in both
+            exams. A control that changed nothing would be worse than no
+            control — it would teach a learner that the choice matters. */}
         {view === 'reading' && !inReadingTest && (
           <div className="topbar-right">
             {/* The exam type decides which papers exist AND which conversion
@@ -851,6 +980,49 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
               history={readingHistory}
               onStart={startReadingTest}
               onOpen={openReadingSession}
+            />
+          </main>
+        )}
+
+      {view === 'listening' && listeningStage === 'running' && listeningTest !== null && (
+        <main className="listening-main">
+          <ListeningRunner
+            test={listeningTest}
+            practice={listeningPractice}
+            driver={speechDriver}
+            onSubmit={handleListeningSubmit}
+            onExit={() => setListeningStage('picker')}
+          />
+        </main>
+      )}
+
+      {view === 'listening' && listeningStage === 'report' && listeningSession !== null && (
+        <main className="page">
+          <ListeningReport
+            session={listeningSession}
+            test={listeningTestById(listeningSession.testId)}
+            onRetake={() =>
+              // The same conditions as last time. Turning a practice run into an
+              // exam run behind the learner's back would relabel a band they
+              // did not earn that way.
+              startListeningTest(listeningSession.testId, listeningSession.practice)
+            }
+            onPickAnother={() => setListeningStage('picker')}
+          />
+        </main>
+      )}
+
+      {view === 'listening' &&
+        (listeningStage === 'picker' ||
+          (listeningStage === 'running' && listeningTest === null) ||
+          (listeningStage === 'report' && listeningSession === null)) && (
+          <main className="page">
+            <ListeningPicker
+              tests={[...LISTENING_TESTS]}
+              history={listeningHistory}
+              driverKind={speechDriver.kind}
+              onStart={startListeningTest}
+              onOpen={openListeningSession}
             />
           </main>
         )}

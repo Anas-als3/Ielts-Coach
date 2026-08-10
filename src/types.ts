@@ -8,8 +8,21 @@
  * import of `Module` from this file: both are erased at compile time, so the
  * two files reference each other's types without any runtime cycle, and
  * `src/reading/` keeps the independence plan 010 gave it.
+ *
+ * `src/listening/` is imported on exactly the same terms, and for the same
+ * reason: the Listening engine shipped ahead of this wiring and must stay
+ * testable in Node without the app shell. `SpeechDriver` is included because
+ * the runner takes one as a prop — that is what lets a test drive playback with
+ * `FakeSpeechDriver` instead of a browser's `speechSynthesis`, which does not
+ * exist in jsdom and is flaky where it does.
  */
 import type { ReadingAnswers, ReadingResult, ReadingTest } from './reading/types';
+import type {
+  ListeningAnswers,
+  ListeningResult,
+  ListeningTest,
+} from './listening/types';
+import type { SpeechDriver, SpeechDriverKind } from './listening/speech';
 
 /* ---------------------------------- prompts --------------------------------- */
 
@@ -398,17 +411,19 @@ export type WritingMode = 'coach' | 'exam';
  * `SessionRecord`.
  *
  * A Writing session is an essay plus an `Analysis`; a Reading session is an
- * answer sheet plus a `ReadingResult`. They share almost no fields, so the
- * alternative — one record with every writing field made optional — would have
- * forced `analysis?` and `essayText?` on the report, the dashboard and the
- * error profile, which between them read those fields on nearly every line. A
+ * answer sheet plus a `ReadingResult`; a Listening session is an answer sheet
+ * plus a `ListeningResult`. They share almost no fields, so the alternative —
+ * one record with every writing field made optional — would have forced
+ * `analysis?` and `essayText?` on the report, the dashboard and the error
+ * profile, which between them read those fields on nearly every line. A
  * discriminated union pushes that decision to ONE `switch` at each boundary and
  * lets the compiler find every site that forgot it.
  *
- * Stamped onto pre-v4 records by the schemaVersion 4 migration; see
- * `profile/store.ts`.
+ * Stamped onto pre-v4 records by the schemaVersion 4 migration; `'listening'`
+ * was added by schemaVersion 5, which needed no data migration because no
+ * stored record could already be one. See `profile/store.ts`.
  */
-export type SessionSection = 'writing' | 'reading';
+export type SessionSection = 'writing' | 'reading' | 'listening';
 
 /** One practised essay, letter or chart description, as persisted. */
 export interface WritingSessionRecord {
@@ -466,13 +481,56 @@ export interface ReadingSessionRecord {
 }
 
 /**
+ * One sat Listening paper, as persisted.
+ *
+ * Deliberately a SIBLING of `ReadingSessionRecord` rather than a reuse of it,
+ * and the difference is the point: **there is no `module` field.** Academic and
+ * General Training candidates sit the identical Listening paper and convert
+ * through the identical table, so there is nothing to record and nothing to
+ * filter on. A `module` here would invite the history list, the picker and the
+ * report to branch on a distinction that does not exist — plan 011: "Listening
+ * needs no Academic/General branching. Resist any abstraction that implies
+ * otherwise."
+ *
+ * Like Reading, it carries no `Analysis` and produces no `IssueCategory`, so
+ * `computeProfile` and `computeTrends` must skip it for exactly the reason they
+ * skip Reading: a paper counted as a writing session with zero issues reads as
+ * a clean essay and dilutes every error rate the learner is working on.
+ */
+export interface ListeningSessionRecord {
+  section: 'listening';
+  id: string;
+  dateISO: string;
+  /** `ListeningTest.id`. May name a test no longer shipped. */
+  testId: string;
+  /** Test title captured at submit time, so history reads correctly regardless. */
+  testTitle: string;
+  /** Exactly what was submitted, keyed by question id. */
+  answers: ListeningAnswers;
+  /** Marking snapshot: raw score, band, per-question results, per-format accuracy. */
+  result: ListeningResult;
+  /** Seconds spent. Listening is always timed, but null is tolerated on read. */
+  durationSec: number | null;
+  /**
+   * True when the paper was sat in practice mode, where a section may be
+   * replayed and played out of order. Such a band is NOT comparable to an
+   * exam-condition run, and the report says so rather than quietly filing it
+   * beside scores that were earned once through.
+   */
+  practice: boolean;
+}
+
+/**
  * A saved session, discriminated on `section`.
  *
  * Narrow with `s.section === 'reading'` rather than by probing for a field.
  * Pre-v4 records reach the app already stamped `'writing'` by the migration,
  * so no consumer needs to defend against the field being absent.
  */
-export type SessionRecord = WritingSessionRecord | ReadingSessionRecord;
+export type SessionRecord =
+  | WritingSessionRecord
+  | ReadingSessionRecord
+  | ListeningSessionRecord;
 
 /**
  * Narrow a session to the Reading variant.
@@ -483,7 +541,7 @@ export type SessionRecord = WritingSessionRecord | ReadingSessionRecord;
  * subtly different test appearing in the dashboard or the profile.
  *
  * Written as `=== 'reading'` rather than `!== 'writing'` deliberately, so the
- * two guards agree on the same defensive default: a record whose `section` is
+ * three guards agree on the same defensive default: a record whose `section` is
  * somehow absent — hand-edited storage, an import from a build between
  * versions — counts as WRITING, exactly as every record did before Reading
  * existed. The same reasoning `categoryAppliesTo` applies to `module`.
@@ -492,9 +550,22 @@ export function isReadingSession(s: SessionRecord): s is ReadingSessionRecord {
   return s.section === 'reading';
 }
 
-/** Narrow a session to the Writing variant. See `isReadingSession`. */
+/** Narrow a session to the Listening variant. See `isReadingSession`. */
+export function isListeningSession(s: SessionRecord): s is ListeningSessionRecord {
+  return s.section === 'listening';
+}
+
+/**
+ * Narrow a session to the Writing variant.
+ *
+ * Every answer-key section must be named here explicitly. Writing is the
+ * fallthrough because it is the only thing a record with no `section` can be,
+ * so the list grows by one line per section that ships — and forgetting that
+ * line is precisely how a Listening paper would start counting as a flawless
+ * essay in the error profile. `tests/profile-scoping.test.ts` pins it.
+ */
 export function isWritingSession(s: SessionRecord): s is WritingSessionRecord {
-  return s.section !== 'reading';
+  return s.section !== 'reading' && s.section !== 'listening';
 }
 
 export interface CategoryStat {
@@ -615,6 +686,17 @@ export interface AppProps {
   initialTask1Prompt?: Task1PromptSpec;
   /** Initial General Training letter prompt, for the same reason. */
   initialLetterPrompt?: LetterPromptSpec;
+  /**
+   * The speech driver the Listening runner speaks through. Production passes
+   * nothing and gets `createSpeechDriver()` — the browser's synthesiser, or the
+   * paced transcript where there is no voice.
+   *
+   * Tests pass a `FakeSpeechDriver`. That is not a convenience: jsdom has no
+   * `speechSynthesis` at all, so an uninjected runner would fall back to the
+   * paced driver and drive the suite off real `setTimeout`s at 130 words per
+   * minute. No test may depend on a real speech engine.
+   */
+  listeningDriver?: SpeechDriver;
 }
 
 export interface ModelAnswerProps {
@@ -673,6 +755,66 @@ export interface ReadingReportProps {
    */
   test: ReadingTest | null;
   /** Sit the same paper again. */
+  onRetake: () => void;
+  /** Back to the list of papers. */
+  onPickAnother: () => void;
+}
+
+/* ----------------------------- listening component props -------------------- */
+
+/**
+ * NONE of these three take a `Module`, and that absence is deliberate and
+ * load-bearing. Listening is the identical paper in Academic and General
+ * Training, so a module prop would be a parameter no implementation could
+ * legitimately read — and the first time somebody read it anyway, a learner
+ * would be shown a distinction the exam does not make.
+ */
+export interface ListeningRunnerProps {
+  /** The paper being sat. */
+  test: ListeningTest;
+  /**
+   * Allow replaying a section and playing sections out of order. Chosen on the
+   * picker BEFORE the clock starts, never mid-paper: a learner who could switch
+   * it on after missing an answer would have no exam-condition score left.
+   */
+  practice: boolean;
+  /** Where the sections are spoken. Injected so tests need no speech engine. */
+  driver: SpeechDriver;
+  /**
+   * Called once, with everything typed or selected, the seconds spent, and
+   * whether replays were allowed. The runner holds answers in component state
+   * and persists NOTHING before this — a half-finished paper is not a session.
+   */
+  onSubmit: (answers: ListeningAnswers, durationSec: number, practice: boolean) => void;
+  /** Abandon the attempt. The runner confirms first; nothing is saved. */
+  onExit: () => void;
+}
+
+export interface ListeningPickerProps {
+  /** Every authored paper. There is no per-module list, because there is no per-module paper. */
+  tests: ListeningTest[];
+  /** Past attempts, most recent first. */
+  history: ListeningSessionRecord[];
+  /**
+   * Which driver the platform actually gave us. Decides whether the screen
+   * shows `SYNTHETIC_VOICE_NOTICE` or `TRANSCRIPT_FALLBACK_NOTICE` — the
+   * learner is told what they are about to get before they commit 40 minutes.
+   */
+  driverKind: SpeechDriverKind;
+  /** Start a paper. `practice` allows replays and out-of-order sections. */
+  onStart: (testId: string, practice: boolean) => void;
+  onOpen: (session: ListeningSessionRecord) => void;
+}
+
+export interface ListeningReportProps {
+  session: ListeningSessionRecord;
+  /**
+   * The test as authored, for the question prompts and formats the result does
+   * not carry. Null when the stored `testId` names content this build no longer
+   * ships — the report still renders the score, the band and every answer.
+   */
+  test: ListeningTest | null;
+  /** Sit the same paper again, under the same conditions. */
   onRetake: () => void;
   /** Back to the list of papers. */
   onPickAnother: () => void;

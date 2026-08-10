@@ -7,6 +7,8 @@
 
 ## Status
 
+- **DONE** — engine merged at `2a3873e`; runner, persistence and integration on
+  `advisor/011-listening`. Storage is schemaVersion 5.
 - **Priority**: P3
 - **Effort**: L (engine S — it reuses plan 010 almost entirely; audio is the cost)
 - **Risk**: MED — the audio strategy is an unresolved product decision, see below
@@ -85,11 +87,40 @@ reading of the constraint with the maintainer before building.
 
 ## Done criteria
 
-- [ ] The audio decision is recorded in SPEC.md before any component exists
-- [ ] Listening band table exhaustively tested for 0–40
-- [ ] The marking module is shared with Reading, not duplicated
-- [ ] One complete 4-section test with transcript
-- [ ] Bundle growth is measured and reported
+- [x] The audio decision is recorded in SPEC.md before any component exists —
+      option B, `window.speechSynthesis`, with the paced transcript as fallback.
+      SPEC.md "Listening → The audio decision" is now canonical; it had lived
+      only in `src/listening/speech.ts` and `index.ts`, which the core agent
+      could not escape.
+- [x] Listening band table exhaustively tested for 0–40 —
+      `tests/listening-bands.test.ts`
+- [x] The marking module is shared with Reading, not duplicated —
+      `src/listening/mark.ts` contains no marking logic, only the adapter that
+      injects `listeningRawToBand` into `markAnswerKey` and computes `byFormat`
+- [x] One complete 4-section test with transcript — `src/listening/tests/test01.ts`
+- [x] Bundle growth is measured and reported — +83.82 kB raw / +18.14 kB gzip
+      JS, table in `plans/README.md`. Nothing added to `package.json`.
+
+### Also delivered by the wiring pass
+
+- [x] `SessionRecord` gains `section: 'listening'` at **schemaVersion 5**. Step 6
+      of the original scope guessed no bump would be needed; that was wrong. The
+      union existed but `SessionSection` did not admit the value, `looksLikeSession`
+      rejected it, and `importData` needs to know a v5 export is readable. The
+      rung itself changes **no data** — no v4 record could be a Listening paper —
+      and says so in its own comment rather than inventing work.
+- [x] `computeProfile` / `computeTrends` skip Listening, via the single
+      `isWritingSession` guard. `tests/profile-scoping.test.ts` asserts the whole
+      profile object is byte-identical with and without five Listening papers.
+- [x] The 10-minute period is **kept**, entered when the recording ends or the
+      30 minutes expire, with the UI stating that there is no answer sheet to
+      copy onto on a screen and that the computer-delivered test gives 2 minutes.
+- [x] Runner renders by `format`; report breaks down by `byFormat`, not `byType`.
+- [x] Play-once and in-order enforced, practice mode explicit and labelled in the
+      toolbar, the history list and above the band in the report.
+- [x] Driven in a real browser (Chromium, 1400px and 880px): timer contrast on
+      the navy toolbar 12.55:1, no pane overlap when stacked, no horizontal
+      scroll, white focus rings on the navy bar, real `speechSynthesis` speaking.
 
 ## STOP conditions
 

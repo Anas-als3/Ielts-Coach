@@ -1,12 +1,13 @@
-# IELTS Coach — Writing and Reading
+# IELTS Coach — Writing, Reading and Listening
 
-A single-page web app that coaches one learner through IELTS Writing and Reading.
+A single-page web app that coaches one learner through IELTS Writing, Reading and Listening.
 Not a grammar checker — an **examiner's eye**: IELTS-specific structural rules plus a
 personal error profile tracked across every essay you write, so improvement is visible.
 
-Two sections, scored on two different footings, and the app never blurs them. A **Writing**
-band is a form-only estimate from rules that read shape, not meaning. A **Reading** band is
-an answer key and a published conversion table — exactly right, and labelled as such.
+Three sections, scored on two different footings, and the app never blurs them. A **Writing**
+band is a form-only estimate from rules that read shape, not meaning. A **Reading** or
+**Listening** band is an answer key and a published conversion table — exactly right, and
+labelled as such.
 
 ## Both exams
 
@@ -77,6 +78,39 @@ The papers are original: real IELTS passages are University of Cambridge copyrig
 ship in an app, so every passage here is prose written for this project, with its source and
 licence recorded in the file.
 
+## Listening — one paper, both exams, and an honest caveat about the voice
+
+30 minutes and 40 questions across four sections that get harder as they go — an everyday phone
+call, a monologue, a tutorial, then a lecture — followed by the exam's extra 10 minutes. Listening
+is **identical in Academic and General Training**: same paper, same timing, same conversion table.
+There is no exam type to pick in this section, and the app deliberately has no field to store one.
+
+**The voice is your browser's, not a recording, and the app says so on every screen.** This is the
+honest cost of a decision made in the open. The app has no server and no runtime dependency beyond
+React; a set of real recordings would add roughly 25–30 MB per test to a 371 kB app, so the choice
+was `window.speechSynthesis` — built into every modern browser, no bundled bytes, works offline.
+Where a browser has no usable voice at all, the transcript is revealed line by line at speaking pace
+instead, and the app tells you that the exercise has changed. The real test uses actors recorded in a
+studio with British, Australian, North American and New Zealand accents, and **accents are part of
+what it examines**. This trains the question types and note-taking. It does not train accents.
+
+**Each section plays once, in order, and never again** — because that is what the real test does. A
+practice that quietly allowed a second listen would report a band you will not reproduce on the day.
+There is a **practice mode** that lifts the rule, chosen before the clock starts rather than mid-paper,
+and a paper sat that way is labelled a practice run in your history and above the band in its report.
+The words are never printed while a voice is speaking: reading along would be a different exam.
+
+Five question formats: form, note and table completion, short answer, multiple choice, matching, and
+plan labelling (described in words, since the app ships no images). The report breaks accuracy down
+**by format, not by marking type** — matching and plan labelling are both marked as multiple choice,
+so a type-keyed report would print one "multiple choice" row and hide the one you actually lose. Every
+question is then shown against the key with **where the answer went past in the recording**, which is
+the only way to find out what you missed when you cannot replay it.
+
+The extra 10 minutes are kept, with the caveat stated: on a screen there is no answer sheet to copy
+onto, so use them to check spellings, plurals and word limits. Practising a 30-minute Listening and
+then sitting a 40-minute paper exam is rehearsing the wrong ending.
+
 ## The error profile
 
 Every session stores per-category error rates (per 100 words). A recency-weighted average
@@ -85,10 +119,10 @@ slope of your recent sessions. The Progress page shows your band trend (exam ses
 emphasised), focus-area sparklines, and the full session history. Data lives in
 localStorage — export/import it as JSON from the Progress page.
 
-Reading sessions are saved alongside your essays but are deliberately **excluded** from the
-writing error profile. A Reading paper produces no writing errors, so counting it would read
-as a flawless essay and quietly dilute every rate you are trying to bring down. Your Reading
-results have their own history list in the Reading section.
+Reading and Listening sessions are saved alongside your essays but are deliberately **excluded**
+from the writing error profile. An answer-key paper produces no writing errors, so counting one
+would read as a flawless essay and quietly dilute every rate you are trying to bring down. Those
+results have their own history lists in their own sections.
 
 Since patch v2 (calibrated against a real human-marked Band-6 essay) the engine also catches
 sentence-mechanics errors: missing articles (token-walk over ~40 countable nouns), agreement
@@ -140,11 +174,22 @@ React 18 + TypeScript (strict) + Vite. No runtime dependencies beyond React.
 - `src/prompts/letterBank.ts` — 15 General Training letters, five per tone
 - `src/reading/` — Reading contracts, both raw-score→band conversion tables, and the
   authored papers (one per exam, 40 questions each, sources and licences in each file header)
-- `src/marking/markAnswerKey.ts` — answer-key marking, shared with Listening when it lands
+- `src/listening/` — Listening contracts, the single conversion table, the speech layer
+  (`speech.ts`: the driver interface, the browser synthesiser, the paced-transcript fallback and
+  the test double), the headless play-once player, and one authored 4-section paper
+- `src/marking/markAnswerKey.ts` — answer-key marking, shared by Reading and Listening. Neither
+  section has any marking code of its own; each supplies only its conversion table
 - `src/components/` — Editor (mirror-overlay highlighting), StructureRail, FeedbackPanel,
-  Timer, Report, Dashboard, ReadingPicker, ReadingRunner, ReadingReport
+  Timer, Report, Dashboard, ReadingPicker, ReadingRunner, ReadingReport, ListeningPicker,
+  ListeningRunner, ListeningReport
 
-Saved data is `schemaVersion 4`. Every version is migrated forward on read and never
-discarded — a store written by the very first build climbs all three rungs in a single read —
+Saved data is `schemaVersion 5`. Every version is migrated forward on read and never
+discarded — a store written by the very first build climbs every rung in a single read —
 and anything this build cannot understand is copied to a timestamped backup key before the
-live one is touched.
+live one is touched. The v4 → v5 rung changes no data: it only widens the `section` union to
+admit `'listening'`, and no older record could have been a Listening paper.
+
+`speechSynthesis` is a browser API, not a runtime dependency: `package.json` is still `react` and
+`react-dom` and nothing else. Nothing under `src/listening/` touches a browser global at import
+time, so the engine suite imports all of it in Node, and no test anywhere depends on a real speech
+engine — `FakeSpeechDriver` has no timers, no globals and no randomness.

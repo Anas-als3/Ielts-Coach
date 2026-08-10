@@ -88,7 +88,7 @@ function makeSession(id: string, dateISO: string, overrides: Record<string, unkn
 }
 
 /**
- * A brand-new record as App.tsx would build it today (schemaVersion 4 shape).
+ * A brand-new record as App.tsx would build it today (schemaVersion 5 shape).
  *
  * It carries `section` because App.tsx stamps it at the point of creation:
  * the migration ladder is for records written by OLDER builds, and a record
@@ -282,7 +282,7 @@ describe('v1 -> v4 in a single read', () => {
     expect(raw.sessions[0].section).toBeUndefined()
   })
 
-  it('keeps a v1 history intact across the save that rewrites it as v4', () => {
+  it('keeps a v1 history intact across the save that rewrites it forward', () => {
     seed(1, [
       makeSession('a', '2026-01-01T10:00:00.000Z'),
       makeSession('b', '2026-01-02T10:00:00.000Z'),
@@ -294,7 +294,10 @@ describe('v1 -> v4 in a single read', () => {
     const sessions = loadSessions()
     expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c', 'd'])
     expect(sessions.every((s) => s.section === 'writing')).toBe(true)
-    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(4)
+    // Whatever the current SCHEMA_VERSION is — 4 when this was written, 5 since
+    // Listening. The assertion that matters is that the three v1 essays above
+    // came through the rewrite, not the digit itself.
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(5)
   })
 
   it('lets a v1 store gain a Reading session without losing an essay', () => {
@@ -342,6 +345,11 @@ describe('Reading sessions round-trip', () => {
   })
 
   it('drops a record whose section value is not one this build knows', () => {
+    // Written before Listening shipped, when 'listening' was simply an unknown
+    // value. It still holds at schemaVersion 5, and for a STRONGER reason: the
+    // section is now recognised, so the record is routed to the Listening shape
+    // check — where an essay with no testId, no answers and no marking result
+    // still fails. Claiming a section is not enough; the record has to be one.
     seed(4, [
       makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
       makeSession('bad', '2026-01-02T10:00:00.000Z', { task: 'task2', section: 'listening' }),
@@ -349,17 +357,210 @@ describe('Reading sessions round-trip', () => {
 
     expect(loadSessions().map((s) => s.id)).toEqual(['a'])
   })
+
+  it('still drops a record naming a section this build has never heard of', () => {
+    // The case the test above used to cover. Kept explicitly so the guard is
+    // pinned by a value no future plan is going to make legal by accident.
+    seed(4, [
+      makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      makeSession('bad', '2026-01-02T10:00:00.000Z', { task: 'task2', section: 'speaking' }),
+    ])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['a'])
+  })
+})
+
+/* --------------------- v5: the Listening variant ---------------------------- */
+
+/**
+ * A Listening session on the wire, as schemaVersion 5 writes one.
+ *
+ * Note what is NOT here: `module`. Academic and General Training candidates sit
+ * the identical Listening paper and convert through the identical table, so the
+ * record has no exam type to store — and the validator must therefore not
+ * demand one. A test that quietly added `module: 'academic'` would let a
+ * regression through on the very field this section is defined by not having.
+ */
+function makeListeningSession(
+  id: string,
+  dateISO: string,
+  overrides: Record<string, unknown> = {},
+): unknown {
+  return {
+    section: 'listening',
+    id,
+    dateISO,
+    testId: 'listening-01',
+    testTitle: 'Listening Test 1',
+    answers: { 'ls-q01': 'Lindqvist', 'ls-q07': '680' },
+    durationSec: 2400,
+    practice: false,
+    result: {
+      testId: 'listening-01',
+      raw: 30,
+      total: 40,
+      band: 7,
+      questions: [],
+      byType: [],
+      byFormat: [{ format: 'form-completion', total: 8, correct: 6, accuracy: 0.75 }],
+    },
+    ...overrides,
+  }
+}
+
+describe('v4 -> v5 migration', () => {
+  it('changes no data, because no v4 record could have been a Listening paper', () => {
+    // The rung is a version bump and nothing else. What must be proved is that
+    // a v4 store survives it byte for byte: every field of every record comes
+    // back exactly as it went in, with no stamping and no defaults invented.
+    const essay = makeSession('essay', '2026-01-01T10:00:00.000Z', {
+      task: 'task1',
+      module: 'general',
+      section: 'writing',
+    })
+    const paper = makeReadingSession('paper', '2026-01-02T10:00:00.000Z')
+    seed(4, [essay, paper])
+
+    const sessions = loadSessions()
+
+    expect(sessions).toHaveLength(2)
+    expect(sessions[0]).toEqual(essay)
+    expect(sessions[1]).toEqual(paper)
+  })
+
+  it('accepts a Listening session that carries no module', () => {
+    seed(5, [makeListeningSession('heard', '2026-01-03T10:00:00.000Z')])
+
+    const sessions = loadSessions()
+    expect(sessions).toHaveLength(1)
+
+    const listening = sessions[0]
+    if (listening.section !== 'listening') throw new Error('expected a Listening session')
+    expect(listening.result.raw).toBe(30)
+    expect(listening.result.band).toBe(7)
+    expect(listening.result.byFormat[0].format).toBe('form-completion')
+    expect(listening.answers['ls-q07']).toBe('680')
+    // The absence is the contract, not an omission in the fixture.
+    expect('module' in listening).toBe(false)
+  })
+
+  it('drops a Listening record with no per-format breakdown', () => {
+    // `byFormat` is what the whole report is built around — the coaching signal
+    // plan 011 asks for. A record without it would reach the report with
+    // nothing to break down.
+    seed(5, [
+      makeListeningSession('good', '2026-01-01T10:00:00.000Z'),
+      makeListeningSession('bad', '2026-01-02T10:00:00.000Z', {
+        result: { testId: 'listening-01', raw: 1, total: 40, band: 4, questions: [], byType: [] },
+      }),
+    ])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['good'])
+  })
+
+  it('keeps all three sections side by side', () => {
+    seed(5, [
+      makeSession('essay', '2026-01-01T10:00:00.000Z', {
+        task: 'task2',
+        module: 'academic',
+        section: 'writing',
+      }),
+      makeReadingSession('read', '2026-01-02T10:00:00.000Z'),
+      makeListeningSession('heard', '2026-01-03T10:00:00.000Z'),
+    ])
+
+    expect(loadSessions().map((s) => s.section)).toEqual(['writing', 'reading', 'listening'])
+  })
+})
+
+/* --------------- the whole ladder: v1 -> v5 in a SINGLE read ---------------- */
+
+describe('v1 -> v5 in a single read', () => {
+  it('climbs every rung, stamping task, then module, then section', () => {
+    // A learner who last opened the app before ANY discriminator existed and is
+    // arriving at the build where Listening shipped. Plan 001 exists because a
+    // schemaVersion bump once destroyed exactly this person's history, and each
+    // new section is another chance to do it again.
+    seed(1, [
+      makeSession('a', '2026-01-01T10:00:00.000Z'),
+      makeSession('b', '2026-01-02T10:00:00.000Z'),
+      makeSession('c', '2026-01-03T10:00:00.000Z'),
+    ])
+
+    const sessions = loadSessions()
+
+    expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c'])
+    expect(sessions.every((s) => s.section === 'writing')).toBe(true)
+    expect(sessions.every((s) => s.section === 'writing' && s.task === 'task2')).toBe(true)
+    expect(sessions.every((s) => s.section === 'writing' && s.module === 'academic')).toBe(true)
+    // The essays are intact, not merely present: the whole point of the ladder
+    // is that nothing about them changes except the fields being added.
+    expect(sessions.every((s) => s.section === 'writing' && s.essayText === 'An essay.')).toBe(true)
+
+    // One read did all four rungs. Reads stay pure: the payload is still v1.
+    const raw = JSON.parse(store.get(STORAGE_KEY) as string)
+    expect(raw.schemaVersion).toBe(1)
+    expect(raw.sessions[0].task).toBeUndefined()
+    expect(raw.sessions[0].module).toBeUndefined()
+    expect(raw.sessions[0].section).toBeUndefined()
+  })
+
+  it('rewrites a v1 store as v5 on the next save, losing nothing', () => {
+    seed(1, [
+      makeSession('a', '2026-01-01T10:00:00.000Z'),
+      makeSession('b', '2026-01-02T10:00:00.000Z'),
+    ])
+
+    saveSession(newRecord('c', '2026-01-04T10:00:00.000Z'))
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['a', 'b', 'c'])
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(5)
+  })
+
+  it('lets a v1 store gain a Listening session without losing an essay', () => {
+    seed(1, [makeSession('old', '2026-01-01T10:00:00.000Z')])
+
+    saveSession(makeListeningSession('heard', '2026-01-05T10:00:00.000Z') as never)
+
+    const sessions = loadSessions()
+    expect(sessions.map((s) => s.id)).toEqual(['old', 'heard'])
+    expect(sessions.map((s) => s.section)).toEqual(['writing', 'listening'])
+  })
+
+  it('imports a v1 export and a v5 export alike', () => {
+    importData(
+      JSON.stringify({
+        schemaVersion: 1,
+        sessions: [makeSession('x', '2026-03-01T10:00:00.000Z')],
+      }),
+    )
+    expect(loadSessions()[0].section).toBe('writing')
+
+    importData(
+      JSON.stringify({
+        schemaVersion: 5,
+        sessions: [
+          makeSession('y', '2026-03-02T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+          makeListeningSession('z', '2026-03-03T10:00:00.000Z'),
+        ],
+      }),
+    )
+    expect(loadSessions().map((s) => s.section)).toEqual(['writing', 'listening'])
+  })
 })
 
 /* -------------------- the plan-001 guarantee, at v4 -------------------------- */
 
 describe('an unrecognised future version is backed up, never destroyed', () => {
   it('backs up the very NEXT version rather than guessing at it', () => {
-    // 99 is an obvious stranger; 5 is the dangerous one, because it is what a
-    // learner gets by opening a newer build of this same app on another device
-    // and then coming back. It must be treated exactly as cautiously.
+    // 99 is an obvious stranger; the NEXT version is the dangerous one, because
+    // it is what a learner gets by opening a newer build of this same app on
+    // another device and then coming back. It must be treated exactly as
+    // cautiously. This case tracks SCHEMA_VERSION + 1 and was re-pointed from 5
+    // to 6 when Listening made 5 a version this build understands — the
+    // assertion is unchanged, only the boundary moved.
     const payload = {
-      schemaVersion: 5,
+      schemaVersion: 6,
       sessions: [
         makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
       ],
@@ -372,12 +573,12 @@ describe('an unrecognised future version is backed up, never destroyed', () => {
     expect(keys).toHaveLength(1)
     expect(JSON.parse(store.get(keys[0]) as string)).toEqual(payload)
 
-    // The live key moved on, but the v5 data is recoverable by hand.
+    // The live key moved on, but the v6 data is recoverable by hand.
     expect(loadSessions().map((s) => s.id)).toEqual(['new'])
   })
 
-  it('refuses to import a v5 export rather than dropping its unknown fields', () => {
-    const json = JSON.stringify({ schemaVersion: 5, sessions: [] })
+  it('refuses to import a v6 export rather than dropping its unknown fields', () => {
+    const json = JSON.stringify({ schemaVersion: 6, sessions: [] })
     expect(() => importData(json)).toThrow(/newer version/i)
   })
 })

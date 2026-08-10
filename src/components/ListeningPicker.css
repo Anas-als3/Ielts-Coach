@@ -1,0 +1,243 @@
+/* Listening section front door. Tokens from DESIGN.md; no --marking-red here —
+   nothing on this screen is an error. */
+
+.lsp {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.lsp-title {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.lsp-lead {
+  margin-top: 6px;
+  max-width: 66ch;
+  color: var(--ink-soft);
+}
+
+/* The one-paper fact, set as a quiet statement rather than a warning: nothing
+   is wrong, there is simply no choice to make. */
+.lsp-same {
+  margin-top: 10px;
+  max-width: 66ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.lsp-exact {
+  margin-top: 10px;
+  max-width: 66ch;
+  padding-left: 12px;
+  border-left: 3px solid var(--ok-green);
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.55;
+}
+
+/* ---------------------------------------------------------------- audio */
+.lsp-audio {
+  padding: 16px 20px;
+}
+
+.lsp-audio-notice {
+  margin-top: 8px;
+  max-width: 72ch;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.lsp-audio-why {
+  margin-top: 10px;
+  max-width: 72ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------- tests */
+.lsp-tests {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lsp-test {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+}
+
+.lsp-test-body {
+  min-width: 0;
+}
+
+.lsp-test-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Neither button ever wraps: "Sit under exam / conditions" over two lines reads
+   as a broken control rather than a deliberate one. */
+.lsp-test-actions .btn {
+  white-space: nowrap;
+  justify-content: center;
+}
+
+.lsp-test-title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.lsp-test-meta {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.lsp-formats {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lsp-formats li {
+  padding: 2px 8px;
+  border: 1px solid var(--rule-line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.lsp-format-count {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lsp-empty {
+  padding: 18px 20px;
+  max-width: 70ch;
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------- modes */
+.lsp-modes {
+  padding: 16px 20px;
+}
+
+.lsp-mode-list {
+  margin: 10px 0 0;
+  max-width: 72ch;
+}
+
+.lsp-mode-list dt {
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.lsp-mode-list dt:first-child {
+  margin-top: 0;
+}
+
+.lsp-mode-list dd {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* -------------------------------------------------------------- history */
+.lsp-history {
+  padding: 16px 20px;
+}
+
+.lsp-history-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.lsp-history-row {
+  display: grid;
+  grid-template-columns: 46px 58px minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule-line);
+  font-size: 13.5px;
+}
+
+.lsp-history-row:first-child {
+  border-top: none;
+}
+
+.lsp-history-band {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--exam-navy);
+}
+
+.lsp-history-raw,
+.lsp-history-date {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.lsp-history-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A practice run is labelled in the list itself, so two rows with the same band
+   are never silently the same achievement. */
+.lsp-history-practice {
+  color: var(--marking-amber);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .lsp-test {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .lsp-test-actions {
+    flex-direction: row;
+  }
+
+  .lsp-test-actions .btn {
+    flex: 1;
+  }
+
+  .lsp-history-row {
+    grid-template-columns: 46px 58px minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+
+  .lsp-history-date {
+    display: none;
+  }
+}

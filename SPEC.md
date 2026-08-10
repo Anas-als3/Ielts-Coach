@@ -42,9 +42,11 @@ Consequences pinned here so no module re-derives them:
 - **`TASK_CONSTANTS` is NOT keyed by module.** General Training Task 1 allows the same 20 minutes and
   the same 150-word minimum as Academic Task 1; Task 2 is 40 minutes and 250 words in both. Only the
   task differs, never the clock.
-- **Storage is schemaVersion 4.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
+- **Storage is schemaVersion 5.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
   because Academic was the only exam the app supported; the v3 → v4 rung stamps `section: 'writing'`,
-  because Reading did not exist before it.
+  because Reading did not exist before it; the v4 → v5 rung changes **no data at all** — it only adds
+  `'listening'` to the `section` union, and no v4 record could have been a Listening paper. See
+  "Persistence" below.
 - **The error profile is scoped by TASK and MODULE.** `categoryAppliesTo(category, task, module)` —
   `module` is optional and defaults to `'academic'`. It had to grow that dimension because Academic
   Task 1 (a chart description) and General Training Task 1 (a letter) share the id `'task1'` and share
@@ -55,6 +57,12 @@ Consequences pinned here so no module re-derives them:
   the picker, and the band comes from the paper's OWN module, not from the topbar toggle. The two
   exams' Reading papers are structured differently and converted by different tables; offering the
   wrong one reports a band that is simply not the learner's.
+- **Listening is module-scoped NOWHERE, and that is enforced by absence.** There is no
+  `listeningTestsForModule`, no `module` on `ListeningTest`, none on `ListeningResult`, none on
+  `ListeningSessionRecord`, and no exam-type toggle on any Listening screen. Both exams sit the
+  identical paper and convert through the identical table, so every one of those would be a field no
+  caller could legitimately read — and the first caller to read one anyway would show a learner a
+  distinction the exam does not make. The Listening picker states the fact in one sentence instead.
 
 ## Canonical constants (single source of truth — no module invents its own)
 
@@ -220,33 +228,49 @@ criterion (`info` is advisory per the severity model and never blocks a reward).
 
 ### `profile/` (store.ts + profile.ts)
 localStorage key `ielts-coach.v1` (opaque; the version lives in the payload) →
-`{ schemaVersion: 4, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
+`{ schemaVersion: 5, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
 discarded: v1 → v2 stamps `task: 'task2'` on every record, v2 → v3 stamps `module: 'academic'`,
-v3 → v4 stamps `section: 'writing'`. The rungs are cumulative and apply in sequence, so a v1 store
-gains ALL THREE fields in one read; never reorder or collapse them. Anything this build cannot
-migrate (corrupt, or a newer version — including v5, the version a newer build of this same app
-would write) is copied to `ielts-coach.backup.<ISO timestamp>` before the live key is replaced —
-a schemaVersion bump must never destroy a learner's history. Cap 200 sessions
+v3 → v4 stamps `section: 'writing'`, v4 → v5 **changes no data**. The rungs are cumulative and apply
+in sequence, so a v1 store gains all three fields in one read; never reorder or collapse them.
+
+The v4 → v5 rung being a no-op is the correct call, not a gap, and it is written out rather than
+folded away so the ladder still reads one line per version. A rung exists to repair records that
+predate a field; no v4 record can be a Listening session, because Listening did not exist, so every
+stored record is already valid v5 data as it stands and any rung would have to be a no-op or a lie.
+What the bump buys is the VALIDATOR — `looksLikeSession` now admits section `'listening'`, and
+`importData` now knows a v5 export is readable while still refusing a v6 one — and both of those key
+off `SCHEMA_VERSION`, not off a rung.
+
+Anything this build cannot migrate (corrupt, or a newer version — including v6, the version a newer
+build of this same app would write) is copied to `ielts-coach.backup.<ISO timestamp>` before the live
+key is replaced — a schemaVersion bump must never destroy a learner's history. Cap 200 sessions
 (drop oldest). `computeProfile`: per category, per-100-words rate per session; EWMA α = 0.35; trend from
 least-squares slope over last 6 sessions (improving < −0.05, worsening > 0.05); focusCategories = top 3 by
 EWMA × severity weight (error 3, warning 2, info 1), only when ≥ 2 sessions. `computeTrends`: per-session
 counts + per100Words for every category that ever fired. Export = JSON download of the whole store;
 import validates schemaVersion and replaces (confirm() before overwrite).
 
-**`SessionRecord` is a discriminated union on `section`** (schemaVersion 4): `WritingSessionRecord`
-carries the essay and its `Analysis`; `ReadingSessionRecord` carries `testId`, `testTitle`, the raw
-`answers` and a `ReadingResult`. A union rather than one record with every writing field made
-optional, because `analysis?` and `essayText?` would then propagate through the report, the dashboard
-and the profile, which read those fields on nearly every line. `isReadingSession` / `isWritingSession`
-in `types.ts` are the only narrowing anyone should use; both default a MISSING `section` to writing,
-so a record from a build between versions counts exactly as it did before Reading existed.
+**`SessionRecord` is a discriminated union on `section`** (three members at schemaVersion 5):
+`WritingSessionRecord` carries the essay and its `Analysis`; `ReadingSessionRecord` carries `testId`,
+`testTitle`, the raw `answers`, a `ReadingResult` and its `module`; `ListeningSessionRecord` carries
+the same minus `module` (there is none) plus `practice`. A union rather than one record with every
+writing field made optional, because `analysis?` and `essayText?` would then propagate through the
+report, the dashboard and the profile, which read those fields on nearly every line.
 
-**Both `computeProfile` and `computeTrends` drop Reading sessions before any arithmetic.** A Reading
-paper produces no `IssueCategory` at all, so to rate maths it is indistinguishable from a flawless
-essay: five Reading papers would pull every writing error rate towards zero and drag a real weakness
-out of the focus list. It is dropped from `totalSessions` too, which gates the focus list — a learner
-is not two sessions into their writing practice because they sat two Reading papers.
-`tests/profile-scoping.test.ts` pins it.
+`isReadingSession` / `isListeningSession` / `isWritingSession` in `types.ts` are the only narrowing
+anyone should use. The two answer-key guards test `=== 'reading'` / `=== 'listening'`; the writing
+guard names both explicitly and falls through, so all three agree that a MISSING `section` is writing
+and a record from a build between versions counts exactly as it did before Reading existed. **The
+writing guard grows one line per answer-key section that ships**, and forgetting that line is exactly
+how the dilution below would return.
+
+**Both `computeProfile` and `computeTrends` drop Reading AND Listening sessions before any
+arithmetic.** Neither produces any `IssueCategory`, so to rate maths each is indistinguishable from a
+flawless essay: five answer-key papers would pull every writing error rate towards zero and drag a
+real weakness out of the focus list. They are dropped from `totalSessions` too, which gates the focus
+list — a learner is not two sessions into their writing practice because they sat two Reading papers.
+`tests/profile-scoping.test.ts` pins it for both, and for Listening asserts the entire profile object
+is byte-identical with and without the papers.
 
 ### `prompts/bank.ts`
 40 prompts (8 per question type), realistic Task 2 wording, topics spread across education, technology,
@@ -866,6 +890,227 @@ drill the wrong thing.
 `--marking-red` appears in the Reading UI only in the report, where a wrong answer against a published
 key genuinely is an examiner's-pen error. In the runner an over-length answer is **amber**: it is a
 warning while the paper is open and becomes an error only once it is marked.
+
+## Listening (one paper, both exams)
+
+Reading's sibling: an answer key, a raw score out of 40, and a published conversion table. Marked by
+the SAME function Reading marks with — `src/marking/markAnswerKey.ts`, with Listening's table injected
+— so there is no second definition anywhere of what "over the word limit" means. **The band is exact,
+not an estimate**, and the report says so for the same reason Reading's does.
+
+**Identical in Academic and General Training.** Same sections, same timing, same paper, one conversion
+table. See "Modules" above for the list of fields that deliberately do not exist because of it.
+
+30 minutes of recording and answering, then **10 minutes** more. Four sections of ten questions,
+rising in difficulty: (1) a two-speaker everyday transaction, (2) an everyday monologue, (3) an
+educational conversation of up to four speakers, (4) an academic lecture.
+
+### The audio decision — CANONICAL
+
+Plan 011 offered three options and refused to let code be written before one was chosen. The choice
+is **option B: browser speech synthesis (`window.speechSynthesis`), with option C — a fixed-pace
+transcript reveal — as the fallback wherever no usable voice exists.** Recorded here as canonical;
+`src/listening/speech.ts` and `src/listening/index.ts` carry the same reasoning next to the code.
+
+- `speechSynthesis` is a **built-in browser API, not a runtime dependency**. It adds no bundled bytes
+  and the app's stated "nothing beyond React" property survives intact, which no other option manages.
+- It **works offline**, like the rest of the app.
+- **Option A (bundled recordings) was rejected on size**: roughly 25–30 MB per test against a 371 kB
+  app. That is not a trade-off, it is a different product. It would also need voice actors or licensed
+  recordings, and the exam's four accents mean four of them.
+- **Option C alone was rejected as too weak** — it is a reading exercise with a clock on it — but is
+  exactly right as a fallback, because the alternative on a browser with no voice is silence.
+
+**The cost, stated plainly because the UI must state it too.** A synthetic voice is *not* the real
+exam. The real test uses actors recorded in a studio with British, Australian, North American and New
+Zealand accents, and accents are part of what it examines. This practice trains the question types and
+note-taking; it does not train accents.
+
+Two exported constants carry that honesty so it cannot quietly go missing:
+
+| Constant | Shown when | Says |
+|---|---|---|
+| `SYNTHETIC_VOICE_NOTICE` | a voice exists (`SpeechSynthesisDriver`) | the voice is the browser's, not a recording, and names the four real accents |
+| `TRANSCRIPT_FALLBACK_NOTICE` | no voice exists (`TranscriptPaceDriver`) | the transcript is being revealed at speaking pace and this is a reading exercise |
+
+`noticeFor(driver.kind)` picks between them. One of the two is on screen the whole time a Listening
+paper is open, and again on the picker before the learner commits 40 minutes. The runner shows the
+transcript text **only** under the fallback driver: printing the script while a voice speaks would be
+subtitling, and a subtitled listening test is a reading test.
+
+`SpeechDriver` is an interface so the runner can be tested without a speech engine. `FakeSpeechDriver`
+uses no timers, no globals and no randomness. **No test may depend on a real `speechSynthesis`** —
+jsdom has none, and where one exists it is famously inconsistent across platforms.
+
+### The conversion table — CANONICAL DATA
+
+**One table, not two.** In `src/listening/bandTable.ts`, restated here; if IELTS revises it those two
+places change together and nothing else does. `tests/listening-bands.test.ts` walks all 41 raw scores.
+
+| Band | Raw score /40 |
+|---|---|
+| 9.0 | 39–40 |
+| 8.5 | 37–38 |
+| 8.0 | 35–36 |
+| 7.5 | 32–34 |
+| 7.0 | 30–31 |
+| 6.5 | 26–29 |
+| 6.0 | 23–25 |
+| 5.5 | 18–22 |
+| 5.0 | 16–17 |
+| 4.5 | 13–15 |
+| 4.0 | 11–12 |
+
+The shape is genuinely different from Reading's, not a copy with the numbers nudged: Listening's 7.0
+needs 30 (as Academic Reading does) but its 6.0 needs only 23 and its 5.5 band is five marks wide.
+Deriving one table from the other would be wrong at nearly every boundary.
+
+`listeningRawToBand(raw)` takes **no module argument**. It is total: the raw score is clamped to 0–40
+and rounded, a non-finite input is treated as 0, and a score below the lowest printed row returns that
+row's band — the FLOOR, not an extrapolation, exactly as Reading's does and for the same reason.
+
+Verified against three independent published reproductions before it was committed: IDP IELTS India (a
+co-owner of the test), ieltstutors.org and edubenchmark.com. The only disagreement is the bottom row,
+which the latter two give as 10–12 → 4.0. It is **not observable through this function**: 10 correct
+falls below the lowest row either way and the floor returns 4.0 under both readings. The co-owner's
+figure is what is stored.
+
+### Marking rules
+
+Every leniency and every refusal is `markAnswerKey`'s, unchanged — see "Marking rules" under Reading
+for the full list. Listening supplies only the conversion table. `src/listening/mark.ts` contains no
+marking logic at all, which is the point: duplicating the marker would have meant two definitions of
+the word limit and the two would eventually have disagreed.
+
+Two pieces of impedance matching happen in that adapter and nowhere else:
+
+- `MarkableTest` structurally requires a `module`. A placeholder goes in and is **stripped back off**
+  the result, so the meaningless field never reaches a caller who might branch on it.
+- `byFormat` is computed in the adapter rather than in the shared marker, because `ListeningFormat` is
+  a Listening concept and the marker must stay ignorant of both sections' vocabularies.
+
+No partial credit and no penalty for a wrong answer, so a guess always beats a blank.
+
+### Question formats — the `format` / `type` split
+
+**`type` says how a string is compared; `format` says how the item is presented and reported.** They
+are deliberately different axes, and getting them confused is the one modelling mistake this section
+can make.
+
+| `format` | Marking `type` | Widget | Reported as |
+|---|---|---|---|
+| `form-completion` | `completion` | text input + printed limit | Form completion |
+| `note-completion` | `completion` | text input + printed limit | Note completion |
+| `table-completion` | `completion` | text input + printed limit | Table completion |
+| `short-answer` | `completion` | text input + printed limit | Short answer |
+| `multiple-choice` | `multiple-choice` | radio group, printed A–D | Multiple choice |
+| `matching` | `multiple-choice` | select over a shared bank | Matching |
+| `map-labelling` | `multiple-choice` | select over a shared bank | Plan / map labelling |
+
+Matching and plan/map labelling **mark as multiple choice** because that is exactly what they are once
+the paper is off the desk: pick one entry from a shared bank. Splitting them at the marking layer would
+mean a second copy of the marker for no behavioural difference.
+
+But they must not be *reported* as multiple choice. A type-keyed breakdown on the authored paper prints
+one row reading "multiple choice 6/23" and buries the fact that the learner loses plan labelling and
+nothing else. **The report therefore breaks down by `byFormat`, never by `byType`** — three rows, not
+one — and the runner renders by `format` too, via `LISTENING_FORMAT_META[...].widget` so the mapping is
+one table rather than a switch a new format could fall through.
+
+Selections store the option **TEXT, never its letter**, as Reading's multiple choice does, so marking
+can never depend on the order a bank happens to be printed in.
+
+Plan/map labelling describes each position **in words** rather than pointing at an image, because the
+app ships no images. The printed instruction says so.
+
+`ListeningQuestionGroup` carries the printed instruction and heading, and the groups **tile 1–40** —
+`tests/listening-marking.test.ts` fails if they do not. The instruction belongs to the GROUP here, not
+to the format as Reading's does, because the same note-completion format takes different word limits in
+different blocks of one paper.
+
+### The play-once rule
+
+**The recording plays once, in order, and never again.** It is owned by `ListeningPlayer`
+(`src/listening/player.ts`) — headless, no timers, no DOM — so it survives any rewrite of the UI and is
+tested without one. Sections play 1, 2, 3, 4; there is no skipping ahead to the lecture, because the
+difficulty curve is the point of the paper. A refusal is a **returned value, not a thrown error**:
+pressing play on a spent section is an ordinary thing for a learner to try, and the UI's job is to
+explain the rule.
+
+A section counts as heard only on `'completed'`. A cancelled or impossible playback leaves it open —
+punishing a learner for a browser that would not speak would be the wrong rule enforced correctly.
+
+**Practice mode** (`practice: true`) lifts both rules, explicitly and visibly. It is chosen on the
+picker BEFORE the clock starts, never mid-paper: a learner who could switch it on the moment they
+missed an answer would have no exam-condition score left. `ListeningSessionRecord.practice` carries the
+flag, and the runner toolbar, the history list and the report all label it — a band earned with replays
+is not comparable with one earned in a single pass, and the report says so above the number.
+
+### Timing, and the transfer window — KEPT
+
+30:00 for the recording and answering, then **10:00 more**. The second period is entered when the
+recording ends — the last section finishing — or when the 30 minutes expire, whichever comes first,
+which is what the real exam does: the extra time starts when the audio stops, not at a fixed point on
+the clock. When it expires the paper is submitted as it stands.
+
+The window is **kept rather than dropped, and the UI says exactly what it is and is not**: on a screen
+there is no answer sheet to copy onto, so nothing is being transferred, and the banner says so and
+notes that the computer-delivered test gives 2 minutes here instead of 10. What the period is worth in
+a screen-based app is the ENDING — a learner who rehearses a 30-minute Listening and then sits the
+paper test has practised the wrong shape of finish. The clock derives from a wall-clock deadline, not
+from tick counting, for the same reason as the writing exam: browsers throttle intervals in hidden tabs.
+
+### Content and licensing
+
+`src/listening/tests/` — one complete paper, four sections, 40 questions, full transcripts with speaker
+labels, accent hints and pause cues, each section carrying a source and licence. Plan 011 says to
+validate the format before authoring more, and that is where it stands.
+
+**No text is reproduced from any IELTS publisher.** Real recordings, transcripts and question sets are
+University of Cambridge (UCLES) copyright and cannot ship in an outward-facing app; the FORMAT is not
+copyrightable, so the paper follows the real structure with every word written from scratch. Places,
+people, prices and telephone details are invented.
+
+### UI
+
+- **`ListeningPicker`** — every paper (there is no per-module list), the audio notice up front, the
+  format breakdown per paper, the two ways to sit it told apart in as many words, and past results with
+  practice runs labelled. Two start buttons rather than a toggle, so the choice is made once,
+  deliberately, before the clock.
+- **`ListeningRunner`** — split pane, **player left and questions right**, each scrolling
+  independently; section tabs with a live answered count and a dot for a section already heard;
+  30:00 → 10:00 countdown reusing `Timer` on the navy toolbar. The player names the speakers and their
+  intended accents, states the rule when it refuses a replay, and shows who is speaking without showing
+  what they say. Answers live in component state and are persisted **on submit only** — a half-finished
+  paper is not a session. Sitting a paper clears the desk exactly as Reading does, and more sharply:
+  the recording plays once, so a learner who navigated away mid-section would lose it for good.
+- **`ListeningReport`** — band + raw score, "This band is exact, not an estimate", the published row
+  that produced it, how many more correct answers the next band needed, per-**format** accuracy weakest
+  first, and every question against the key with **where the answer went past in the recording** — the
+  single most useful line on the screen for Listening, because a learner who cannot replay the audio
+  has no other way to find out what they missed.
+
+Formats with fewer than 3 questions rank last however badly they went, as Reading's types do.
+
+`--marking-red` appears in the Listening UI only in the report. In the runner an over-length answer is
+**amber**, and so is the notice refusing a replay: the app enforcing the exam's own rule is not the
+learner making a mistake.
+
+### Persistence
+
+`ListeningSessionRecord` is a third member of the `SessionRecord` union, discriminated on `section`.
+It carries `answers`, the marking `result`, `durationSec` and `practice` — and **no `module`**.
+
+**A Listening paper produces no `IssueCategory`, so `computeProfile` and `computeTrends` drop it**
+before any arithmetic runs, exactly as they drop a Reading paper. Counting one as a writing session
+with zero issues would read as a flawless essay and pull every error rate the learner is working on
+towards zero. The single guard is `isWritingSession` in `types.ts`, which names every answer-key
+section explicitly rather than inferring — forgetting that one line is precisely how the dilution would
+return. `tests/profile-scoping.test.ts` asserts the WHOLE profile object is byte-identical with and
+without five Listening papers.
+
+Listening results are not on the Progress page for the same reason Reading's are not: the dashboard is
+a writing view. They live in their own history list in the Listening section.
 
 ## False positives (2026-08-10)
 

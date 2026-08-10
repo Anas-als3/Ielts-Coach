@@ -1,0 +1,579 @@
+/* Listening answer sheet — player left, questions right, one clock above both.
+   Tokens only (DESIGN.md); --marking-red never appears here, because nothing in
+   an unmarked paper is an error yet. An over-length answer is a WARNING while
+   the paper is open and becomes an error only in the report. */
+
+.lr {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* --------------------------------------------------------------- toolbar */
+/* Navy, continuing the cleared-desk topbar directly above it into one exam
+   bar — and required, not merely tidy: `Timer` draws white digits over a white
+   progress track, because it was built for the navy exam chrome. */
+.lr-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 20px 12px;
+  background: var(--exam-navy);
+  color: #fff;
+}
+
+/* The navy outline token is invisible on navy; focus must stay visible here. */
+.lr-toolbar button:focus-visible,
+.lr-toolbar [tabindex]:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.lr-toolbar .btn {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.lr-toolbar .btn:hover {
+  border-color: #fff;
+}
+
+/* Reversed out: the primary action has to be the brightest thing on the bar. */
+.lr-toolbar .btn-primary {
+  background: #fff;
+  border-color: #fff;
+  color: var(--exam-navy);
+}
+
+.lr-toolbar .btn-primary:hover {
+  background: #e6eaf2;
+  border-color: #e6eaf2;
+}
+
+.lr-toolbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lr-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lr-test-title {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Practice mode is never quiet: a replayed paper's band is not comparable, and
+   the learner must be able to see which kind of attempt they are in. */
+.lr-practice-flag {
+  color: #f0c987;
+}
+
+.lr-progress {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.lr-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.lr-phase {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+
+/* Section tabs: the paper's own sections, with a live answered count and a dot
+   for a section already heard. */
+.lr-tabs {
+  display: flex;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.lr-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.lr-tab:hover {
+  color: #fff;
+}
+
+.lr-tab.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.lr-tab-count {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.lr-tab-played {
+  font-size: 8px;
+  opacity: 0.8;
+}
+
+/* ------------------------------------------------------ transfer banner */
+.lr-transfer-banner {
+  padding: 9px 20px;
+  background: var(--wash-blue);
+  border-bottom: 1px solid var(--rule-line);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+/* ----------------------------------------------------------------- panes */
+.lr-panes {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+}
+
+.lr-pane {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 60px;
+}
+
+.lr-pane-player {
+  border-right: 1px solid var(--rule-line);
+  background: var(--sheet);
+}
+
+.lr-pane-questions {
+  background: var(--paper);
+}
+
+/* ---------------------------------------------------------------- player */
+.lr-player {
+  max-width: 58ch;
+  margin: 0 auto;
+}
+
+.lr-section-eyebrow {
+  margin-bottom: 8px;
+}
+
+.lr-rubric {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.lr-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.lr-play:disabled,
+.lr-stop:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lr-transport-state {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+/* The play-once rule, said out loud where it is being applied. Amber, not red:
+   the app refusing a replay is the exam working correctly, not the learner
+   making a mistake. */
+.lr-blocked {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-left: 3px solid var(--marking-amber);
+  background: var(--wash-amber);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.lr-speakers {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.lr-speakers li {
+  padding: 2px 0;
+}
+
+.lr-speaker-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lr-speaker-accent {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* The stage. Deliberately tall and mostly empty under a real voice: there is
+   nothing to look at while you listen, which is the point. */
+.lr-stage {
+  margin-top: 16px;
+  padding: 14px 16px;
+  min-height: 140px;
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.lr-stage-idle {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.lr-stage-speaking {
+  font-size: 15px;
+}
+
+.lr-stage-hint {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.lr-cues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lr-cue {
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.55;
+  opacity: 0.55;
+}
+
+.lr-cue-now {
+  opacity: 1;
+}
+
+.lr-cue-speaker {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+}
+
+/* The honesty half of the audio decision. It is a permanent fixture of the
+   screen, not a dismissible toast: a synthetic voice presented without the
+   caveat misrepresents how close this practice is to the exam. */
+.lr-notice {
+  margin-top: 16px;
+  padding-left: 12px;
+  border-left: 3px solid var(--exam-navy);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.lr-source {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule-line);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------- questions */
+.lr-group + .lr-group {
+  margin-top: 30px;
+}
+
+.lr-group-head {
+  margin-bottom: 12px;
+}
+
+.lr-group-range {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.lr-group-instruction {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* The printed heading of a form, a plan or a note block — set as the paper
+   sets it, in small caps above the items it governs. */
+.lr-group-heading {
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.lr-bank {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.lr-bank-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 14px;
+}
+
+.lr-bank-list li {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+  line-height: 1.45;
+}
+
+.lr-bank-id {
+  flex: none;
+  min-width: 2.5ch;
+  color: var(--ink-soft);
+  font-size: 12px;
+  padding-top: 2px;
+}
+
+.lr-q-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lr-q {
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  background: var(--sheet);
+  padding: 12px 14px;
+  margin: 0;
+}
+
+/* fieldset needs its browser defaults cleared before the card above applies */
+fieldset.lr-q {
+  min-width: 0;
+}
+
+.lr-q-prompt {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+/* A <legend> sits IN the fieldset's top border by default, cutting the card's
+   outline in half. Floating it makes it behave as an ordinary block while
+   staying a real legend, which is what names the radio group for a screen
+   reader — the reason these are fieldsets rather than divs. */
+legend.lr-q-prompt {
+  float: left;
+  width: 100%;
+}
+
+legend.lr-q-prompt + * {
+  clear: both;
+}
+
+.lr-qnum {
+  display: inline-block;
+  min-width: 2.4ch;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.lr-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.lr-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.lr-choice input {
+  margin: 0;
+  accent-color: var(--exam-navy);
+  cursor: pointer;
+  flex: none;
+  align-self: center;
+}
+
+.lr-choice-letter {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  flex: none;
+}
+
+.lr-completion-field {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.lr-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 6px 9px;
+}
+
+.lr-input:focus-visible {
+  outline: 2px solid var(--exam-navy);
+  outline-offset: 1px;
+}
+
+.lr-input-over {
+  border-bottom-color: var(--marking-amber);
+  background: var(--wash-amber);
+}
+
+.lr-limit {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.lr-limit-over {
+  color: var(--marking-amber);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.lr-select {
+  margin-top: 10px;
+  width: 100%;
+  max-width: 100%;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.lr-select:focus-visible {
+  outline: 2px solid var(--exam-navy);
+  outline-offset: 1px;
+}
+
+.lr-empty {
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------ responsive */
+/* Under ~900px the split pane stops being a split pane, for the reason
+   ReadingRunner.css gives at length: a grid with a definite height and
+   `min-height: 0` items lets a row size SMALLER than its content, and the left
+   pane then paints straight over the questions below it. One ordinary block
+   flow, with the whole runner as the single scroll container, cannot do that.
+   The toolbar sticks so the clock, the play button and submit stay reachable.
+
+   The player goes FIRST in the stacked order, unlike a passage, because it is
+   the thing with a button on it that must be pressed before anything below is
+   answerable. */
+@media (max-width: 900px) {
+  .lr {
+    overflow-y: auto;
+  }
+
+  .lr-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    align-items: flex-start;
+  }
+
+  .lr-panes {
+    display: block;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .lr-pane {
+    overflow-y: visible;
+    min-height: 0;
+    padding-bottom: 26px;
+  }
+
+  .lr-pane-player {
+    border-right: none;
+    border-bottom: 1px solid var(--rule-line);
+  }
+
+  .lr-player {
+    max-width: none;
+  }
+}

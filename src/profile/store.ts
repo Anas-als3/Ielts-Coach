@@ -3,14 +3,15 @@
  *
  * Store shape (key 'ielts-coach.v1' — the key is opaque, the version is in the
  * payload):
- *   { schemaVersion: 4, sessions: SessionRecord[] }
+ *   { schemaVersion: 5, sessions: SessionRecord[] }
  *
  * Versions are migrated forward on read, never discarded (see migrateSessions).
  * v1 -> v2 added SessionRecord.task; v2 -> v3 added SessionRecord.module;
- * v3 -> v4 added SessionRecord.section, the Writing/Reading discriminator. The
- * rungs apply in sequence, so a v1 store arriving at this build gains all three
- * fields in a SINGLE read. Anything this build cannot migrate is copied to a
- * timestamped 'ielts-coach.backup.<iso>' key before being replaced.
+ * v3 -> v4 added SessionRecord.section, the Writing/Reading discriminator;
+ * v4 -> v5 added the 'listening' member of that discriminator. The rungs apply
+ * in sequence, so a v1 store arriving at this build gains every field in a
+ * SINGLE read. Anything this build cannot migrate is copied to a timestamped
+ * 'ielts-coach.backup.<iso>' key before being replaced.
  *
  * All reads tolerate missing/corrupt data (return empty rather than throw).
  * All writes are wrapped in try/catch so a full or unavailable localStorage
@@ -20,7 +21,7 @@
 import type { SessionRecord } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 5
 /** Lowest stored version this build knows how to migrate forward from. */
 const MIN_MIGRATABLE_VERSION = 1
 /**
@@ -61,12 +62,39 @@ function looksLikeReadingSession(value: Record<string, unknown>): boolean {
 }
 
 /**
+ * Shape check for a stored LISTENING session.
+ *
+ * The Reading checks plus `byFormat`, which is the field the Listening report
+ * is actually built around — per-format accuracy is the coaching signal, and a
+ * record missing it would reach the report with nothing to break down.
+ *
+ * It does NOT require `module`, because a Listening session does not have one:
+ * both exams sit the same paper. It does not require `practice` either, so a
+ * record hand-written before that flag existed still loads; the report treats a
+ * missing flag as an exam-condition run, which is what every record predating
+ * the flag would have been.
+ */
+function looksLikeListeningSession(value: Record<string, unknown>): boolean {
+  if (typeof value.testId !== 'string') return false
+  if (!isRecordObject(value.answers)) return false
+  const result = value.result
+  if (!isRecordObject(result)) return false
+  if (typeof result.raw !== 'number' || typeof result.total !== 'number') return false
+  if (typeof result.band !== 'number') return false
+  return (
+    Array.isArray(result.questions) &&
+    Array.isArray(result.byType) &&
+    Array.isArray(result.byFormat)
+  )
+}
+
+/**
  * Shape check for a stored session.
  *
  * A Writing session needs id, dateISO, essayText and a complete analysis
- * (issues, structure, paragraphs, stats and band); a Reading session needs its
- * answers and its marking result. Either way a partial or hand-edited record
- * never reaches a report screen.
+ * (issues, structure, paragraphs, stats and band); a Reading or Listening
+ * session needs its answers and its marking result. Either way a partial or
+ * hand-edited record never reaches a report screen.
  *
  * `section` is optional ON THE WIRE, because pre-v4 records predate the field
  * and the migration stamps it — but present-but-unrecognised is still a reject,
@@ -75,12 +103,21 @@ function looksLikeReadingSession(value: Record<string, unknown>): boolean {
 function looksLikeSession(value: unknown): value is SessionRecord {
   if (!isRecordObject(value)) return false
   if (typeof value.id !== 'string' || typeof value.dateISO !== 'string') return false
-  if (value.section !== undefined && value.section !== 'writing' && value.section !== 'reading') {
+  if (
+    value.section !== undefined &&
+    value.section !== 'writing' &&
+    value.section !== 'reading' &&
+    value.section !== 'listening'
+  ) {
     return false
   }
-  // A Reading session has no essay and no Analysis, so it is validated against
-  // its own shape and returns before the writing checks below.
+  // A Reading or Listening session has no essay and no Analysis, so each is
+  // validated against its own shape and returns before the writing checks
+  // below. A record claiming a section whose shape it does not have — an essay
+  // labelled 'listening', say — fails there and is dropped, which is the
+  // behaviour an unknown section value had before this section existed.
   if (value.section === 'reading') return looksLikeReadingSession(value)
+  if (value.section === 'listening') return looksLikeListeningSession(value)
   if (typeof value.essayText !== 'string') return false
   // `task` is optional on the wire: v1 records predate the field and the
   // migration stamps it. Present-but-wrong is still a reject.
@@ -115,7 +152,7 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
  *
  * A user can arrive from ANY older version, so the steps are cumulative and
  * **must never be reordered or collapsed**. A v1 store reaching this build
- * climbs all three rungs in a single read and comes out with `task`, `module`
+ * climbs all four rungs in a single read and comes out with `task`, `module`
  * and `section` all stamped; `tests/store.test.ts` pins that chain end to end.
  *
  * Plan 001 exists because a schemaVersion bump once destroyed every saved
@@ -150,6 +187,25 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
   if (version === 3) {
     out = out.map((s) => (s.section === undefined ? { ...s, section: 'writing' } : s))
     version = 4
+  }
+
+  // v4 -> v5: `section` gained the value 'listening'. THERE IS NO DATA CHANGE,
+  // and that is the correct call rather than a gap.
+  //
+  // A migration rung exists to repair records that predate a field. No v4
+  // record can be a Listening session — Listening did not exist — so every
+  // stored record is already valid v5 data as it stands, and any rung here
+  // would have to be a no-op or a lie. What the version bump buys is the
+  // VALIDATOR: `looksLikeSession` now admits section 'listening', and
+  // `importData` now knows a v5 export is readable while still refusing a v6
+  // one. Both of those are keyed off SCHEMA_VERSION, not off a rung.
+  //
+  // The rung stays written out rather than folded into the one above so the
+  // ladder still reads as one line per version. The next person adding a
+  // section copies this shape, and a data-carrying v5 -> v6 lands below it
+  // without anyone having to work out where v5 went.
+  if (version === 4) {
+    version = 5
   }
 
   return out as unknown as SessionRecord[]
