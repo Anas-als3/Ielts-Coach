@@ -87,6 +87,39 @@ export const READING_BAND_TABLES: Record<ReadingModule, readonly ReadingBandRow[
   general: GENERAL_READING_BANDS,
 }
 
+/**
+ * The table for a module, for callers that cannot prove the module is one.
+ *
+ * `READING_BAND_TABLES[module]` is a total lookup only while `module` really is
+ * a `ReadingModule`. Values arriving from localStorage or from an imported file
+ * are `unknown` no matter what the type says, and a stored record carrying
+ * `module: 'speaking'` used to return `undefined` here, throw "table is not
+ * iterable" out of a `for...of` inside a render, and take the WHOLE app down
+ * behind the error boundary — a total blank screen because one saved record was
+ * mistyped.
+ *
+ * Falls back to ACADEMIC, which is the same default every other unknown-module
+ * path in this codebase picks: the v2 -> v3 migration stamps `academic` on
+ * records that predate the field, and `categoryAppliesTo` reads a missing module
+ * as Academic. Returning the floor band instead would be worse than a possibly
+ * wrong table — it would report a confident 4.0 to a learner who may have
+ * scored 39, and a band that low is exactly the number someone acts on.
+ *
+ * It warns rather than falling back in silence, because a wrong table is a
+ * band out by up to a whole point and that must be visible to whoever is
+ * looking. `src/profile/store.ts` now rejects such a record on read, so this is
+ * the second line of defence and should never fire in a healthy build.
+ */
+export function readingBandTable(module: ReadingModule): readonly ReadingBandRow[] {
+  const table = READING_BAND_TABLES[module]
+  if (table !== undefined) return table
+  console.warn(
+    `IELTS Coach: unknown Reading module "${String(module)}" — ` +
+      'scoring it with the Academic table. The band shown may not be the one for this exam.',
+  )
+  return ACADEMIC_READING_BANDS
+}
+
 /** Highest raw score obtainable — every IELTS Reading paper is 40 questions. */
 export const READING_MAX_RAW = 40
 
@@ -102,11 +135,13 @@ export const READING_MAX_RAW = 40
  *
  * The raw score is clamped to 0–40 and rounded, so a caller cannot produce a
  * band from a count it could not have scored. A non-finite input is treated
- * as 0.
+ * as 0. An unrecognised MODULE is scored with the Academic table rather than
+ * throwing — see `readingBandTable` for why this function must be total in its
+ * second argument as well as its first.
  *
  * @param raw Correct answers out of 40.
  * @param module Which exam's table to use.
- * @returns A band in 0.5 steps. Never NaN, never undefined.
+ * @returns A band in 0.5 steps. Never NaN, never undefined, never throws.
  *
  * @example
  * rawToBand(30, 'academic') // 7.0
@@ -114,7 +149,7 @@ export const READING_MAX_RAW = 40
  * rawToBand(3, 'academic')  // 4.0 — the floor band, not an extrapolation
  */
 export function rawToBand(raw: number, module: ReadingModule): number {
-  const table = READING_BAND_TABLES[module]
+  const table = readingBandTable(module)
   const safe = Number.isFinite(raw) ? Math.round(raw) : 0
   const clamped = Math.max(0, Math.min(READING_MAX_RAW, safe))
 

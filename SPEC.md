@@ -233,6 +233,13 @@ discarded: v1 → v2 stamps `task: 'task2'` on every record, v2 → v3 stamps `m
 v3 → v4 stamps `section: 'writing'`, v4 → v5 **changes no data**. The rungs are cumulative and apply
 in sequence, so a v1 store gains all three fields in one read; never reorder or collapse them.
 
+Each rung tests `version < N`, **never `version === N − 1`**. The stored version is validated as a
+RANGE, so a fractional or otherwise unexpected value (`2.5`, from a half-written or hand-edited
+payload) has to climb every rung above it. On `===` it matched none of them, ran zero steps, and was
+then stamped 5 for good — leaving `task`, `module` and `section` undefined on every record it held.
+The stamps are already conditional on the field being absent, so a rung a record does not need is a
+no-op rather than an overwrite.
+
 The v4 → v5 rung being a no-op is the correct call, not a gap, and it is written out rather than
 folded away so the ladder still reads one line per version. A rung exists to repair records that
 predate a field; no v4 record can be a Listening session, because Listening did not exist, so every
@@ -241,14 +248,35 @@ What the bump buys is the VALIDATOR — `looksLikeSession` now admits section `'
 `importData` now knows a v5 export is readable while still refusing a v6 one — and both of those key
 off `SCHEMA_VERSION`, not off a rung.
 
-Anything this build cannot migrate (corrupt, or a newer version — including v6, the version a newer
-build of this same app would write) is copied to `ielts-coach.backup.<ISO timestamp>` before the live
-key is replaced — a schemaVersion bump must never destroy a learner's history. Cap 200 sessions
-(drop oldest). `computeProfile`: per category, per-100-words rate per session; EWMA α = 0.35; trend from
+**Nothing leaves without a copy.** Data is copied to `ielts-coach.backup.<ISO timestamp>` on all four
+paths that lose sight of it, not just the loud ones: (1) the payload will not parse or names a
+version this build cannot migrate — including v6, the version a newer build of this same app would
+write; (2) SOME records fail validation and are filtered out on read, which is the LIKELIER
+corruption by far (one record truncated by an interrupted write) and used to be dropped in silence,
+with the next save persisting the loss; (3) `importData` replaces the store; (4) never twice — a
+byte-identical copy already on disk is the backup, and one per read would fill the quota holding the
+essays. A schemaVersion bump must never destroy a learner's history, and neither must a single bad
+record.
+
+**Cap 200 sessions PER SECTION** (drop that section's oldest), never 200 across the store. A global
+cap made the sections compete for one budget and Writing always lost: 20 essays plus 190 Reading
+papers deleted 10 essays, which inverts the whole purpose of the union — the `isWritingSession`
+guards exist so answer-key papers cannot DILUTE the writing profile, and a section-blind cap let them
+DELETE it. Sitting an answer-key paper must never cost a learner an essay. Records are ordered for
+that cap by parsed INSTANT, not by the text of `dateISO`: an imported file may carry an offset
+(`23:00+05:00` is three hours before `20:00Z` and sorts after it as text), and list order is what
+"oldest" means here.
+
+`computeProfile`: per category, per-100-words rate per session; EWMA α = 0.35; trend from
 least-squares slope over last 6 sessions (improving < −0.05, worsening > 0.05); focusCategories = top 3 by
-EWMA × severity weight (error 3, warning 2, info 1), only when ≥ 2 sessions. `computeTrends`: per-session
-counts + per100Words for every category that ever fired. Export = JSON download of the whole store;
-import validates schemaVersion and replaces (confirm() before overwrite).
+EWMA × severity weight (error 3, warning 2, info 1), only when ≥ 2 sessions. Those five constants are
+canonical and `tests/profile-scoping.test.ts` pins each one by behaviour: every one of them survived
+being mutated with the suite green, and the focus list is the app's main coaching signal.
+`computeTrends`: per-session counts + per100Words for every category that ever fired. Export = JSON
+download of the whole store; import validates schemaVersion, backs the existing store up, then
+replaces (confirm() before overwrite). Import also deduplicates by `id` exactly as `saveSession`
+does: two records sharing an id collide as React keys and `deleteSession(id)` removes BOTH, so
+deleting an essay could silently take a Reading paper with it.
 
 **`SessionRecord` is a discriminated union on `section`** (three members at schemaVersion 5):
 `WritingSessionRecord` carries the essay and its `Analysis`; `ReadingSessionRecord` carries `testId`,
@@ -258,11 +286,24 @@ writing field made optional, because `analysis?` and `essayText?` would then pro
 report, the dashboard and the profile, which read those fields on nearly every line.
 
 `isReadingSession` / `isListeningSession` / `isWritingSession` in `types.ts` are the only narrowing
-anyone should use. The two answer-key guards test `=== 'reading'` / `=== 'listening'`; the writing
-guard names both explicitly and falls through, so all three agree that a MISSING `section` is writing
-and a record from a build between versions counts exactly as it did before Reading existed. **The
-writing guard grows one line per answer-key section that ships**, and forgetting that line is exactly
-how the dilution below would return.
+anyone should use. The two answer-key guards test `=== 'reading'` / `=== 'listening'`. **The writing
+guard is an exhaustive `switch` with a `never` default**, and that is a hard requirement rather than
+a style: TypeScript never checks that a type predicate's BODY proves its predicate, so the old
+fallthrough (`!== 'reading' && !== 'listening'`) would have compiled at exit 0 while calling the
+fourth section an essay — inflating `totalSessions` and flipping a real weakness from `flat` to
+`improving`, so the Dashboard congratulates a learner for fixing something they have not. With the
+switch, forgetting the line is a BUILD failure whichever half is forgotten: a new `SessionRecord`
+variant that is not in `SessionSection` fails to assign, and a new `SessionSection` member that is
+not handled narrows the default away from `never`. A MISSING `section` still counts as writing (it
+predates every section, so it can only be an essay); a present-but-UNRECOGNISED value counts as an
+answer key, because a value from a newer build is far likelier to be one than an essay.
+
+Validation on read is per record, and a Reading record's `module` is REQUIRED rather than
+optional-but-not-wrong: it is the KEY of the `READING_BAND_TABLES` lookup in both `rawToBand` and the
+report, so `module: 'speaking'` used to index to `undefined`, throw out of a render, and blank the
+whole app behind the error boundary. Reading shipped at v4, after `module` arrived at v3, so no
+legitimate Reading record can lack it. `rawToBand` is total in that argument too — an unknown module
+falls back to the Academic table with a console warning, never a throw.
 
 **Both `computeProfile` and `computeTrends` drop Reading AND Listening sessions before any
 arithmetic.** Neither produces any `IssueCategory`, so to rate maths each is indistinguishable from a

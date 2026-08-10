@@ -10,15 +10,27 @@
  * v3 -> v4 added SessionRecord.section, the Writing/Reading discriminator;
  * v4 -> v5 added the 'listening' member of that discriminator. The rungs apply
  * in sequence, so a v1 store arriving at this build gains every field in a
- * SINGLE read. Anything this build cannot migrate is copied to a timestamped
- * 'ielts-coach.backup.<iso>' key before being replaced.
+ * SINGLE read.
+ *
+ * ANY data this build is about to lose sight of is copied to a timestamped
+ * 'ielts-coach.backup.<iso>' key first, and that promise is now literal rather
+ * than approximate. It covers all four ways data leaves:
+ *   1. the payload will not parse, or names a version we cannot migrate;
+ *   2. SOME of its records fail validation and are filtered out (the likelier
+ *      case by far — one truncated record from a partial write — and the case
+ *      that used to vanish in silence);
+ *   3. an import replaces the whole store;
+ *   4. (not a loss, but the same rule) nothing is ever backed up twice: a
+ *      byte-identical copy already on disk is a backup, and writing a second
+ *      one per read would fill the quota that holds the learner's essays.
  *
  * All reads tolerate missing/corrupt data (return empty rather than throw).
  * All writes are wrapped in try/catch so a full or unavailable localStorage
  * never crashes the app — we warn on the console and keep going.
  */
 
-import type { SessionRecord } from '../types'
+import type { SessionRecord, SessionSection } from '../types'
+import { isWritingSession } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
 const SCHEMA_VERSION = 5
@@ -30,7 +42,23 @@ const MIN_MIGRATABLE_VERSION = 1
  * hand from devtools rather than silently destroyed.
  */
 const BACKUP_KEY_PREFIX = 'ielts-coach.backup.'
-const MAX_SESSIONS = 200
+/**
+ * Retention limit, applied PER SECTION rather than across the whole store.
+ *
+ * A single global cap made the sections compete for one budget, and the loser
+ * was always Writing: sitting 190 Reading papers permanently deleted the
+ * learner's 10 oldest essays. That inverts the entire point of the
+ * `isWritingSession` guards — they exist so answer-key papers cannot DILUTE the
+ * writing profile, and a section-blind cap let those same papers DELETE it.
+ * An essay is also the most expensive thing in the app to replace: 40 minutes
+ * of writing plus its analysis, against a Reading paper that can be re-sat.
+ *
+ * Per section, the limit only ever evicts like for like — Reading practice
+ * pushes out old Reading practice — so no learner can lose work in one section
+ * by practising another. The worst case grows from 200 records to 3 x 200, and
+ * `writeStore` already survives a full quota by warning rather than throwing.
+ */
+const MAX_SESSIONS_PER_SECTION = 200
 const EXPORT_FILENAME = 'ielts-coach-data.json'
 
 interface StoreShape {
@@ -50,8 +78,25 @@ function isRecordObject(value: unknown): value is Record<string, unknown> {
  * Deliberately structural rather than exhaustive — it checks the fields the
  * report actually reads and not every leaf of every question result, matching
  * how `looksLikeSession` treats an Analysis.
+ *
+ * `module` is checked here and, unlike on the writing path, it is REQUIRED
+ * rather than optional-but-not-wrong. Two separate reasons, and both are about
+ * a crash rather than about tidiness:
+ *
+ *  - It is the KEY of a lookup, not a label. `rawToBand` and the report's own
+ *    `bandRowFor` both index `READING_BAND_TABLES[module]`; a record stored
+ *    with `module: 'speaking'` or with no module at all used to sail through
+ *    this check and then hand `undefined` to a `for...of`, throwing "table is
+ *    not iterable" out of a render and blanking the WHOLE app behind the error
+ *    boundary. Dropping one unreadable paper is a far smaller loss than that.
+ *  - Nothing legitimate can be missing it. Reading shipped at schemaVersion 4,
+ *    a version AFTER `module` was added at v3, so unlike a writing record there
+ *    is no era of Reading data that predates the field and no migration rung to
+ *    stamp it. A Reading record without a valid module was hand-edited or
+ *    half-written, and is exactly what this validator exists to catch.
  */
 function looksLikeReadingSession(value: Record<string, unknown>): boolean {
+  if (value.module !== 'academic' && value.module !== 'general') return false
   if (typeof value.testId !== 'string') return false
   if (!isRecordObject(value.answers)) return false
   const result = value.result
@@ -136,14 +181,63 @@ function looksLikeSession(value: unknown): value is SessionRecord {
   return isRecordObject(band.byCriterion) && isRecordObject(band.rationale) && typeof band.overall === 'number'
 }
 
-/** Ascending by dateISO (oldest first). ISO-8601 strings sort correctly as text. */
+/**
+ * Ascending by INSTANT (oldest first).
+ *
+ * Compared as parsed times rather than as text, because "ISO-8601 sorts
+ * correctly as text" is only true while every string is in the same zone. This
+ * app writes `toISOString()`, which is always UTC — but an IMPORTED file need
+ * not be, and `2026-01-01T23:00:00+05:00` (18:00Z) sorts AFTER
+ * `2026-01-01T20:00:00Z` as text while falling three hours before it in time.
+ * A mis-ordered list is not cosmetic here: the list order is what `capSessions`
+ * calls "oldest", so text order decides which record gets deleted.
+ *
+ * Unparseable dates sort last and are compared to each other as text. They
+ * cannot be placed on the timeline at all, and the end of the list is where the
+ * cap cannot reach them — when in doubt, keep the learner's record.
+ *
+ * Equal instants return 0, so `Array.prototype.sort`, which is stable, leaves
+ * them in the order they arrived.
+ */
 function byDateAscending(a: SessionRecord, b: SessionRecord): number {
+  const ta = Date.parse(a.dateISO)
+  const tb = Date.parse(b.dateISO)
+  const aValid = Number.isFinite(ta)
+  const bValid = Number.isFinite(tb)
+  if (aValid && bValid) return ta - tb
+  if (aValid) return -1
+  if (bValid) return 1
   return a.dateISO.localeCompare(b.dateISO)
 }
 
-/** Keep at most MAX_SESSIONS, dropping the oldest (list must already be sorted ascending). */
+/**
+ * Keep at most MAX_SESSIONS_PER_SECTION of EACH section, dropping that
+ * section's oldest (the list must already be sorted ascending).
+ *
+ * Walked newest-first so the survivors are the most recent per section, then
+ * reversed to restore ascending order. The alternative — one global cap — meant
+ * a learner who sat a run of answer-key papers had their oldest ESSAYS deleted
+ * to make room, which no amount of Reading practice should ever cost them.
+ *
+ * A record whose `section` is absent counts as Writing, via the same
+ * `isWritingSession` guard the profile uses, so the cap and the profile can
+ * never disagree about what a pre-v4 record is.
+ */
 function capSessions(sessions: SessionRecord[]): SessionRecord[] {
-  return sessions.length > MAX_SESSIONS ? sessions.slice(sessions.length - MAX_SESSIONS) : sessions
+  // Nothing can be over a per-section cap while the whole list is under it.
+  if (sessions.length <= MAX_SESSIONS_PER_SECTION) return sessions
+
+  const keptPerSection = new Map<SessionSection, number>()
+  const kept: SessionRecord[] = []
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    const session = sessions[i]
+    const section: SessionSection = isWritingSession(session) ? 'writing' : session.section
+    const n = (keptPerSection.get(section) ?? 0) + 1
+    keptPerSection.set(section, n)
+    if (n <= MAX_SESSIONS_PER_SECTION) kept.push(session)
+  }
+  kept.reverse()
+  return kept
 }
 
 /**
@@ -154,6 +248,16 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
  * **must never be reordered or collapsed**. A v1 store reaching this build
  * climbs all four rungs in a single read and comes out with `task`, `module`
  * and `section` all stamped; `tests/store.test.ts` pins that chain end to end.
+ *
+ * Each rung tests `version < N`, NOT `version === N - 1`, and that is the whole
+ * difference between a ladder and a lucky guess. `readStore` admits any version
+ * in the RANGE [1, SCHEMA_VERSION], so `2.5` — a half-written store, a build
+ * that shipped a fractional version, a hand-edited payload — reached here and
+ * matched no `===` rung at all: zero steps ran, the store was stamped 5 on the
+ * next write, and every record kept `task`, `module` and `section` undefined
+ * forever. With `<`, anything below a rung climbs it. The stamps are already
+ * conditional on the field being absent, so climbing a rung a record did not
+ * need is a no-op rather than an overwrite.
  *
  * Plan 001 exists because a schemaVersion bump once destroyed every saved
  * session. Adding a rung is cheap; skipping one is not recoverable.
@@ -169,14 +273,14 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
   // v1 -> v2: the `task` discriminator was added. Everything written before v2
   // was IELTS Academic Writing Task 2, because that was the only task the app
   // supported.
-  if (version === 1) {
+  if (version < 2) {
     out = out.map((s) => (s.task === undefined ? { ...s, task: 'task2' } : s))
     version = 2
   }
 
   // v2 -> v3: the `module` discriminator was added. Everything written before
   // v3 was IELTS Academic, because that was the only exam the app supported.
-  if (version === 2) {
+  if (version < 3) {
     out = out.map((s) => (s.module === undefined ? { ...s, module: 'academic' } : s))
     version = 3
   }
@@ -184,7 +288,7 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
   // v3 -> v4: the `section` discriminator was added. Everything written before
   // v4 was a WRITING session, because Reading did not exist — so a stored
   // record without the field can only be an essay, a chart answer or a letter.
-  if (version === 3) {
+  if (version < 4) {
     out = out.map((s) => (s.section === undefined ? { ...s, section: 'writing' } : s))
     version = 4
   }
@@ -204,7 +308,7 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
   // ladder still reads as one line per version. The next person adding a
   // section copies this shape, and a data-carrying v5 -> v6 lands below it
   // without anyone having to work out where v5 went.
-  if (version === 4) {
+  if (version < 5) {
     version = 5
   }
 
@@ -212,21 +316,67 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
 }
 
 /**
- * Copy the raw stored string to a timestamped backup key. Used before this
- * build overwrites data it could not parse or could not migrate, so nothing is
- * ever destroyed without a recoverable copy. Best-effort: a failure here is
- * warned about and never blocks the write that follows.
+ * Is this exact payload already sitting in a backup key?
+ *
+ * Backing up is triggered by READS, and a read is pure — it does not repair the
+ * live key — so the same damaged payload is seen again on every single read.
+ * Without this check one truncated record would mint a fresh backup per render,
+ * and the quota those copies eat is the same quota holding the essays we are
+ * trying to protect. A byte-identical copy IS the backup; a second one is not a
+ * second safety net.
  */
-function backupRaw(raw: string): void {
+function hasIdenticalBackup(raw: string): boolean {
+  const storage = window.localStorage
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    if (key === null || !key.startsWith(BACKUP_KEY_PREFIX)) continue
+    if (storage.getItem(key) === raw) return true
+  }
+  return false
+}
+
+/**
+ * Copy the raw stored string to a timestamped backup key. Used whenever this
+ * build is about to lose sight of stored data — because it could not parse it,
+ * could not migrate it, had to drop some of its records, or is replacing it
+ * with an import — so nothing is ever destroyed without a recoverable copy.
+ *
+ * Best-effort: a failure here is warned about and never blocks the read or
+ * write that follows. Losing the backup is bad; refusing to load the app
+ * because the backup failed would be worse.
+ *
+ * @param reason Learner-facing sentence naming what happened, so the console
+ *   line says which of the four cases fired rather than always claiming the
+ *   whole store was unreadable.
+ */
+function backupRaw(raw: string, reason: string): void {
   try {
+    if (hasIdenticalBackup(raw)) return
     const key = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
     window.localStorage.setItem(key, raw)
     console.warn(
-      'IELTS Coach: saved data could not be read by this version. ' +
-        `A copy was kept at localStorage key "${key}" before it was replaced.`,
+      `IELTS Coach: ${reason} ` +
+        `A copy of the data as it was stored was kept at localStorage key "${key}".`,
     )
   } catch (err) {
-    console.warn('IELTS Coach: could not back up unreadable saved data before replacing it.', err)
+    console.warn('IELTS Coach: could not back up saved data before replacing it.', err)
+  }
+}
+
+/**
+ * Back up whatever is in the live key right now, before a caller overwrites it.
+ *
+ * Used by `importData`, which REPLACES the store outright: an import is the one
+ * destructive action a learner can trigger by hand, from a file picker, with no
+ * undo — and, unlike every other path here, the data it destroys was perfectly
+ * readable. A missing key means a first run, and there is nothing to keep.
+ */
+function backupCurrentStore(reason: string): void {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (raw !== null) backupRaw(raw, reason)
+  } catch (err) {
+    console.warn('IELTS Coach: could not back up saved data before replacing it.', err)
   }
 }
 
@@ -236,6 +386,8 @@ function backupRaw(raw: string): void {
  * - Missing key → null (a first run, nothing to back up).
  * - Corrupt JSON, wrong shape, or a version this build cannot migrate → the raw
  *   string is backed up to a timestamped key, then null is returned.
+ * - A known older version, but SOME records fail validation → the raw string is
+ *   backed up too, and the records that did validate are returned.
  * - A known older version → migrated forward and returned.
  *
  * Never throws.
@@ -254,22 +406,37 @@ function readStore(): StoreShape | null {
   try {
     parsed = JSON.parse(raw)
   } catch {
-    backupRaw(raw)
+    backupRaw(raw, 'your saved data could not be read by this version of the app.')
     return null
   }
   if (!isRecordObject(parsed) || !Array.isArray(parsed.sessions)) {
-    backupRaw(raw)
+    backupRaw(raw, 'your saved data was not in the shape this version of the app expects.')
     return null
   }
 
   const version = parsed.schemaVersion
   if (typeof version !== 'number' || version < MIN_MIGRATABLE_VERSION || version > SCHEMA_VERSION) {
     // Older than we can migrate, or newer than we understand — do not guess.
-    backupRaw(raw)
+    backupRaw(raw, 'your saved data was written by a version of the app this one cannot read.')
     return null
   }
 
   const valid = parsed.sessions.filter(looksLikeSession)
+  if (valid.length !== parsed.sessions.length) {
+    // PER-RECORD rejection, and the reason this branch exists. The whole-store
+    // failures above are the loud, rare cases; a single record damaged by a
+    // write that was interrupted — a closed tab, a full disk — is the common
+    // one, and it used to disappear here without a copy and without a word.
+    // The next write persists the filtered list, so by then the only remaining
+    // copy of that session is this backup. `importData` refuses the entire file
+    // over one bad record; a read cannot be that strict without locking a
+    // learner out of their history, so it keeps what it can AND keeps the rest.
+    backupRaw(
+      raw,
+      `${parsed.sessions.length - valid.length} of your ${parsed.sessions.length} saved sessions ` +
+        'could not be read by this version of the app and were left out.',
+    )
+  }
   return {
     schemaVersion: SCHEMA_VERSION,
     sessions: migrateSessions(valid, version),
@@ -332,6 +499,16 @@ export function exportData(): void {
  * Validate an exported JSON string and REPLACE the store with it.
  * Throws an Error with a learner-facing message when the input is not valid
  * IELTS Coach data — callers should catch and show the message.
+ *
+ * The existing store is copied to a backup key first. This is the only
+ * destructive action in the app a learner reaches through a file picker: one
+ * wrong file — last month's export, a sibling's — and a whole history of essays
+ * is gone, with no undo anywhere in the UI. Every other path in this file backs
+ * up before it clobbers; the one that clobbers on purpose has the least excuse
+ * not to.
+ *
+ * The backup is taken AFTER validation, so a file that is going to be rejected
+ * never mints a backup of data nothing was going to touch.
  */
 export function importData(json: string): void {
   let parsed: unknown
@@ -375,8 +552,16 @@ export function importData(json: string): void {
     }
   }
 
-  const sessions = migrateSessions((incoming as SessionRecord[]).slice(), version).sort(
-    byDateAscending,
-  )
+  // Deduplicate by id, last occurrence winning — the same rule `saveSession`
+  // applies when it filters the id it is about to push. Two records sharing an
+  // id are not two sessions: they collide as React keys in the history list,
+  // and `deleteSession(id)` removes BOTH, so deleting an essay can silently
+  // take a Reading paper with it. A file can carry them (it may have been
+  // hand-merged from two exports); the store must not.
+  const deduplicated = new Map<string, SessionRecord>()
+  for (const session of incoming as SessionRecord[]) deduplicated.set(session.id, session)
+
+  const sessions = migrateSessions(Array.from(deduplicated.values()), version).sort(byDateAscending)
+  backupCurrentStore('your saved sessions were replaced by an imported file.')
   writeStore(capSessions(sessions))
 }
