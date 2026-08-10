@@ -25,7 +25,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
-import { LISTENING_TEST_01 } from '../../src/listening/tests'
+import { LISTENING_TEST_01, LISTENING_TESTS } from '../../src/listening/tests'
 import { FakeSpeechDriver, TranscriptPaceDriver } from '../../src/listening/speech'
 import type { ListeningQuestion } from '../../src/listening/types'
 import { LISTENING_FORMAT_META } from '../../src/meta'
@@ -53,6 +53,16 @@ function transcriptDriver(): TranscriptPaceDriver {
 
 function navLink(name: string): HTMLElement {
   return within(document.querySelector('.nav') as HTMLElement).getByText(name)
+}
+
+/**
+ * The picker card for one paper. The picker lists EVERY authored paper and
+ * each card carries its own "Sit under exam conditions" / "Practice mode"
+ * pair, so any query for those buttons must be scoped to a card — an unscoped
+ * `getByRole` matched exactly one element only while one paper existed.
+ */
+function paperCard(title: string): HTMLElement {
+  return screen.getByRole('heading', { name: title }).closest('.lsp-test') as HTMLElement
 }
 
 function sectionTab(name: string): HTMLElement {
@@ -100,11 +110,11 @@ async function answerCorrectly(user: User, question: ListeningQuestion): Promise
   await answer(user, question, question.answers[0])
 }
 
-/** Open the Listening section and start the paper under the given conditions. */
+/** Open the Listening section and start TEST 1 under the given conditions. */
 async function startPaper(user: User, mode: 'exam' | 'practice' = 'exam'): Promise<void> {
   await user.click(navLink('Listening'))
   await user.click(
-    screen.getByRole('button', {
+    within(paperCard(LISTENING_TEST_01.title)).getByRole('button', {
       name: mode === 'exam' ? 'Sit under exam conditions' : 'Practice mode',
     }),
   )
@@ -129,14 +139,22 @@ async function play(user: User): Promise<void> {
 /* ------------------------------ the front door ------------------------------ */
 
 describe('the Listening section front door', () => {
-  it('is reachable and lists the one paper', async () => {
+  it('is reachable and lists every authored paper', async () => {
     const user = userEvent.setup()
     renderApp()
 
     await user.click(navLink('Listening'))
 
     expect(screen.getByRole('heading', { name: 'Listening', level: 1 })).toBeInTheDocument()
-    expect(screen.getByText(LISTENING_TEST_01.title)).toBeInTheDocument()
+    // Every registered paper gets a card with its own pair of start buttons —
+    // not just the first: a paper that registers but does not render is
+    // content nobody can sit.
+    for (const test of LISTENING_TESTS) {
+      expect(within(paperCard(test.title)).getByText(test.title)).toBeInTheDocument()
+    }
+    expect(screen.getAllByRole('button', { name: 'Sit under exam conditions' })).toHaveLength(
+      LISTENING_TESTS.length,
+    )
   })
 
   it('offers NO exam type, because Listening is identical in both exams', async () => {
@@ -430,9 +448,10 @@ describe('sitting a Listening paper', () => {
 
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(confirmSpy.mock.calls[0][0]).toMatch(/will not be saved/i)
-    expect(
-      screen.getByRole('button', { name: 'Sit under exam conditions' }),
-    ).toBeInTheDocument()
+    // Back on the picker: one start button per authored paper, and no history.
+    expect(screen.getAllByRole('button', { name: 'Sit under exam conditions' })).toHaveLength(
+      LISTENING_TESTS.length,
+    )
     expect(screen.queryByText(/Your Listening results/i)).not.toBeInTheDocument()
   })
 })
