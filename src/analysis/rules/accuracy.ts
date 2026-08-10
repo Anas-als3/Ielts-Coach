@@ -613,6 +613,23 @@ const ING_PRECEDING_SKIP = new Set([
   'those', 'anyone', 'everyone', 'someone',
 ])
 
+/**
+ * A modal takes the BARE infinitive, so the verb after one is never the place
+ * subject-verb agreement shows up. "Working from home can reduce commuting
+ * costs" is correct English, and the rule was answering it with "can reduces".
+ *
+ * The same holds for a negated auxiliary ("does not reduce") and for the verbs
+ * that themselves govern a bare infinitive ("helps reduce", "let it happen") —
+ * in every one of them the agreement, if any, sits on the word BEFORE, which
+ * this rule is not looking at.
+ *
+ * Tested against the span between the -ing word and the matched verb, so a
+ * gerund subject governing the verb directly ("Working from home reduce costs")
+ * is still caught.
+ */
+const MODAL_BEFORE_VERB_RE =
+  /\b(can|could|may|might|must|shall|should|will|would|do|does|did|to|help|helps|helped|let|lets|make|makes|made)\b(\s+(not|never))?\s+$/i
+
 /** B1: singular determiner + (up to two words) + plural noun. */
 const SINGULAR_DET_PLURAL_RE =
   /\b(a|an|one|each|every|another)\s+((?:\w+\s+){0,2})(women|men|children|people|persons|criminals|killers|prisoners|students|employees|citizens|teachers|workers|parents|years|skills)\b/gi
@@ -640,6 +657,10 @@ function agreement(doc: TokenizedDoc, out: Issue[]): void {
       const beforeMatch = /([A-Za-zÀ-ɏ'’-]+)\s*$/.exec(s.text.slice(0, idx))
       const prevWord = beforeMatch?.[1]?.toLowerCase()
       if (prevWord && (ING_PRECEDING_SKIP.has(prevWord) || prevWord.endsWith('s'))) continue
+      // The verb has to be the one the gerund subject governs. A modal or a
+      // bare-infinitive verb in between means it governs this one instead.
+      const between = m[0].slice(m[1].length, m[0].length - m[2].length)
+      if (MODAL_BEFORE_VERB_RE.test(between)) continue
       const verb = m[2].toLowerCase()
       out.push(
         makeIssue(
