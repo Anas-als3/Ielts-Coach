@@ -295,7 +295,22 @@ export default function App({
   }, [taskConstants.examDurationSec, examState])
 
   useEffect(() => {
-    if (examState === 'running' && examSecondsLeft === 0) handleSubmit()
+    if (examState !== 'running' || examSecondsLeft !== 0) return
+    if (countWords(essayTextRef.current) === 0) {
+      // An examiner does not mark a blank script. Submitting here would put a
+      // Band-4-floor session into the history and the error profile for an
+      // essay that was never written — the manual paths already refuse this
+      // (the keyboard guard above, the disabled submit button), and expiry
+      // was the one path that did not.
+      examDeadlineRef.current = null
+      setExamState('idle')
+      setExamSecondsLeft(taskConstants.examDurationSec)
+      setClockNotice(
+        'Time is up. A blank answer sheet is never submitted — nothing was added to your history.',
+      )
+      return
+    }
+    handleSubmit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examSecondsLeft, examState])
 
