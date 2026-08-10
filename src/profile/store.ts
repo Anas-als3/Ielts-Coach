@@ -29,7 +29,7 @@
  * never crashes the app — we warn on the console and keep going.
  */
 
-import type { SaveResult, SessionRecord, SessionSection } from '../types'
+import type { Criterion, SaveResult, SessionRecord, SessionSection } from '../types'
 import { isWritingSession } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
@@ -83,6 +83,16 @@ interface StoreShape {
 function isRecordObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
+
+/**
+ * Every `Criterion`, derived from a totality-checked record rather than a
+ * hard-coded array of four strings. Adding a member to `Criterion` without
+ * adding it to `CRITERION_PRESENT` is a COMPILE failure, so `looksLikeSession`
+ * below cannot silently keep checking only the original four keys once a
+ * fifth criterion exists.
+ */
+const CRITERION_PRESENT: Record<Criterion, true> = { TR: true, CC: true, LR: true, GRA: true }
+const CRITERIA = Object.keys(CRITERION_PRESENT) as Criterion[]
 
 /**
  * Shape check for a stored READING session: the answer sheet and a complete
@@ -192,7 +202,21 @@ function looksLikeSession(value: unknown): value is SessionRecord {
   if (!isRecordObject(a.stats) || typeof (a.stats as Record<string, unknown>).wordCount !== 'number') return false
   const band = a.band
   if (!isRecordObject(band)) return false
-  return isRecordObject(band.byCriterion) && isRecordObject(band.rationale) && typeof band.overall === 'number'
+  if (!isRecordObject(band.byCriterion) || !isRecordObject(band.rationale)) return false
+  if (typeof band.overall !== 'number') return false
+  // `byCriterion` must carry all four criteria as finite numbers.
+  //
+  // `isRecordObject(band.byCriterion)` alone accepted `{}`, and the report
+  // then read `undefined` through `clampBand`, which floored a non-finite
+  // value to 4 — so an imported record rendered a confident "Task Response
+  // 4.0" with a filled bar and a matching aria-label for a band the record
+  // does not contain. `src/reading/bandTable.ts:104-106` states this
+  // project's policy on exactly this: a band that low is exactly the number
+  // someone acts on.
+  const byCriterion = band.byCriterion
+  return CRITERIA.every(
+    (c) => typeof byCriterion[c] === 'number' && Number.isFinite(byCriterion[c]),
+  )
 }
 
 /**
@@ -361,7 +385,7 @@ function hasIdenticalBackup(raw: string): boolean {
  * broke it.
  *
  * The suffix is a counter rather than a random salt so the keys still sort by
- * age as text, which is what the pruning added later relies on.
+ * age as text, which is what the pruning in `pruneBackups` relies on.
  */
 function nextBackupKey(): string {
   const stamp = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
@@ -372,10 +396,10 @@ function nextBackupKey(): string {
   // the read or write that triggered it would be worse.
   const BOUND = 1000
   // Zero-padded to BOUND's own width: an UNPADDED counter sorts "-10" before
-  // "-9" as text, which would let a pruning step (added later) evict a NEWER
-  // same-millisecond backup while keeping an older one — the exact ordering
-  // bug this suffix scheme exists to avoid. Padding keeps every suffix in
-  // this function's range the same length, so text order stays numeric order.
+  // "-9" as text, which would make `pruneBackups` evict a NEWER same-
+  // millisecond backup while keeping an older one — the exact ordering bug
+  // this suffix scheme exists to avoid. Padding keeps every suffix in this
+  // function's range the same length, so text order stays numeric order.
   const width = String(BOUND).length
   for (let i = 1; i <= BOUND; i++) {
     const key = `${stamp}-${String(i).padStart(width, '0')}`

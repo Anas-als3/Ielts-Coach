@@ -1226,3 +1226,42 @@ describe('016-c: saveSession reports whether the write persisted', () => {
     expect(result?.ok).toBe(false)
   })
 })
+
+/* -------------------- 016-e: byCriterion must be complete -------------------- */
+
+/** A writing record whose `analysis.band.byCriterion` is `byCriterion`. */
+function withByCriterion(byCriterion: Record<string, unknown>): unknown {
+  const record = makeSession('bad', '2026-01-01T10:00:00.000Z', {
+    task: 'task2',
+    section: 'writing',
+  }) as { analysis: { band: { byCriterion: Record<string, unknown> } } }
+  record.analysis.band.byCriterion = byCriterion
+  return record
+}
+
+describe('016-e: an imported or stored record must carry all four criteria', () => {
+  it('drops a record whose byCriterion is empty, and backs it up first', () => {
+    seed(5, [withByCriterion({})])
+
+    expect(loadSessions()).toEqual([])
+    expect(backupKeys()).toHaveLength(1)
+  })
+
+  it('drops a record whose byCriterion has a null criterion', () => {
+    seed(5, [withByCriterion({ TR: 7, CC: 7, LR: null, GRA: 7 })])
+
+    expect(loadSessions()).toEqual([])
+  })
+
+  it('rejects the same incomplete byCriterion on import', () => {
+    expect(() =>
+      importData(JSON.stringify({ schemaVersion: 5, sessions: [withByCriterion({})] })),
+    ).toThrow()
+  })
+
+  it('still loads a complete record', () => {
+    seed(5, [makeSession('good', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['good'])
+  })
+})
