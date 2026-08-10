@@ -27,6 +27,7 @@
  * whenever they switch away.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ListeningRunnerProps } from '../types'
 import type {
   ListeningAnswers,
@@ -52,6 +53,21 @@ const TRANSFER_SECONDS = LISTENING_TRANSFER_MINUTES * 60
 
 /** Bank entries are printed A, B, C … — the letter is display only. */
 const OPTION_LETTERS = 'ABCDEFGHIJ'
+
+/**
+ * The section tabs are a real ARIA tab pattern, for the reason `ReadingRunner`
+ * gives at the same place: `role="tab"` alone announces "tab, selected" and
+ * names nothing that changed, which is what WCAG 4.1.2 asks for.
+ *
+ * One panel element whose label follows the selection, again for the reason the
+ * Reading runner gives: only the active section is mounted, and an
+ * `aria-controls` pointing at an absent element names nothing.
+ */
+const PANEL_ID = 'lr-panel'
+
+function tabId(index: number): string {
+  return `lr-tab-${index}`
+}
 
 /**
  * Which clock is running.
@@ -469,6 +485,8 @@ export default function ListeningRunner({
   // must never move the deadline.
   const startedAtRef = useRef<number>(Date.now())
   const deadlineRef = useRef<number>(Date.now() + TEST_SECONDS * 1000)
+  // The tab buttons, so arrow-key navigation can move focus with the selection.
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const phaseRef = useRef<Phase>('test')
   const submittedRef = useRef(false)
   const answersRef = useRef(answers)
@@ -607,6 +625,26 @@ export default function ListeningRunner({
     if (go) onExit()
   }
 
+  /**
+   * Arrow keys move between sections, and focus moves with the selection — the
+   * same keyboard contract the Reading runner documents. Moving tabs never
+   * starts or stops a recording: only the play button does that, so a learner
+   * arrowing along the strip to check an answer count cannot lose audio.
+   */
+  function handleTabKeys(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    const count = test.sections.length
+    if (count === 0) return
+    let next: number | null = null
+    if (event.key === 'ArrowRight') next = (activeSection + 1) % count
+    else if (event.key === 'ArrowLeft') next = (activeSection - 1 + count) % count
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = count - 1
+    if (next === null) return
+    event.preventDefault()
+    setActiveSection(next)
+    tabRefs.current[next]?.focus()
+  }
+
   const section = test.sections[activeSection]
   const totalSeconds = phase === 'transfer' ? TRANSFER_SECONDS : TEST_SECONDS
 
@@ -618,14 +656,26 @@ export default function ListeningRunner({
             {test.title}
             {practice && <span className="lr-practice-flag"> · practice mode</span>}
           </p>
-          <div className="lr-tabs" role="tablist" aria-label="Listening sections">
+          <div
+            className="lr-tabs"
+            role="tablist"
+            aria-label="Listening sections"
+            onKeyDown={handleTabKeys}
+          >
             {test.sections.map((s, i) => {
               const done = questionsBySection[i].filter((q) => isAnswered(answers, q.id)).length
               return (
                 <button
                   key={s.id}
+                  ref={(el) => {
+                    tabRefs.current[i] = el
+                  }}
+                  id={tabId(i)}
                   role="tab"
                   aria-selected={i === activeSection}
+                  aria-controls={PANEL_ID}
+                  // Roving tabindex: the strip is one tab stop, the arrows choose.
+                  tabIndex={i === activeSection ? 0 : -1}
                   className={i === activeSection ? 'lr-tab active' : 'lr-tab'}
                   onClick={() => setActiveSection(i)}
                 >
@@ -678,7 +728,14 @@ export default function ListeningRunner({
         </p>
       )}
 
-      <div className="lr-panes">
+      {/* Both panes change when a tab is chosen — the player AND its
+          questions — so the panel is the pair, not one of them. */}
+      <div
+        className="lr-panes"
+        role="tabpanel"
+        id={PANEL_ID}
+        aria-labelledby={tabId(activeSection)}
+      >
         <div className="lr-pane lr-pane-player">
           {section !== undefined && (
             <PlayerPane

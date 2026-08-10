@@ -42,7 +42,22 @@ Type:
 Layout (Coach Mode): three zones — Structure Rail (left, 220px) · essay sheet (center, max 68ch) ·
 feedback panel (right, 320px). Exam Mode: centered sheet only. Radius 6px, shadows barely-there
 (`0 1px 3px rgba(28,37,54,.08)`). Quality floor: keyboard focus always visible, responsive to
-~900px (panels stack), reduced motion respected.
+~900px (panels stack) and no sideways scrolling at any width, reduced motion respected.
+
+## State is never carried by colour alone
+
+The navy fill marks the live tab, the chosen exam, the current section. None of it reaches a
+learner using a screen reader, so every one of those states is also stated in the accessibility
+tree — WCAG 2.1 4.1.2, Level A. Three rules, and a new control picks one of them:
+
+- **Segmented toggles** (`.mode-btn` inside a `role="group"`) carry `aria-pressed`. They act the
+  instant they are pressed rather than holding a value for a form, and each stays its own tab stop;
+  that is a toggle button, not a radio group.
+- **Tab strips** are the whole ARIA pattern or none of it: each `role="tab"` has an `id` and an
+  `aria-controls` naming a `role="tabpanel"` that carries `aria-labelledby` back. Only the chosen
+  tab's content is mounted, so there is ONE panel element whose label follows the selection. The
+  strip is one tab stop with a roving `tabindex`; ←/→/Home/End move within it and focus follows.
+- **Navigation** takes `aria-current="page"`. It moves the learner; it is not a pressed state.
 
 Copy voice: plain verbs, sentence case, specific ("Your position is missing from the introduction —
 state your opinion in one sentence"), never scolding, never vague. Errors explain the fix.

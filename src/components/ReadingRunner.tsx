@@ -18,6 +18,7 @@
  * whenever they switch away.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ReadingRunnerProps } from '../types'
 import type {
   CompletionQuestion,
@@ -44,12 +45,45 @@ const YNNG_CHOICES = ['YES', 'NO', 'NOT GIVEN']
 const OPTION_LETTERS = 'ABCDEFGH'
 
 /**
- * A printed block of questions: a run of CONSECUTIVE questions sharing a type.
+ * The passage tabs are a real ARIA tab pattern, not three buttons that look
+ * like tabs.
+ *
+ * `role="tab"` on its own announces "tab, selected" and names nothing that
+ * changed — WCAG 4.1.2 wants the relationship to be programmatically
+ * determinable, so each tab points at the panel it controls and the panel names
+ * the tab that labels it.
+ *
+ * There is ONE panel element, whose label follows the selection, rather than one
+ * panel per passage. The runner keeps only the active passage mounted — a
+ * 2,200-word passage per tab is not free — and an `aria-controls` pointing at an
+ * element that is not in the document names nothing at all, which is the defect
+ * this is fixing rather than a fix for it.
+ */
+const PANEL_ID = 'rr-panel'
+
+function tabId(index: number): string {
+  return `rr-tab-${index}`
+}
+
+/**
+ * A printed block of questions: a run of CONSECUTIVE questions sharing a type
+ * AND a word limit.
  *
  * Real papers print one instruction above each such run ("Choose the correct
  * letter, A, B, C or D. Questions 23–26"), not one above every question, and
  * grouping is what lets a shared heading bank be printed once for the set that
  * uses it.
+ *
+ * The word limit is part of that printed instruction, so it is part of what
+ * defines the run. Grouping on the type ALONE let a completion run that changed
+ * limit mid-way print one rubric — the first question's — above inputs that
+ * carry a different limit in their own hint, and a learner who trusts the
+ * heading over the input loses a mark they had earned. The General Training
+ * paper already has such a run (questions 11–20 are 2, 2, 2, 2, 3, 3, 3, 3, 3,
+ * 3); today it is saved only by the two halves landing in different passage
+ * panes, which is one `passageIndex` edit away from a contradiction. Splitting
+ * the run instead prints two instructions over two blocks, exactly as the paper
+ * does, and makes the contradiction unrepresentable rather than unlikely.
  */
 interface QuestionGroup {
   key: string
@@ -57,14 +91,38 @@ interface QuestionGroup {
   questions: ReadingQuestion[]
 }
 
-function groupByType(questions: ReadingQuestion[]): QuestionGroup[] {
+/** The printed word limit a question imposes, or null when its type has none. */
+function wordLimitOf(question: ReadingQuestion): number | null {
+  return question.type === 'completion' ? question.maxWords : null
+}
+
+function groupQuestions(questions: ReadingQuestion[]): QuestionGroup[] {
   const groups: QuestionGroup[] = []
   for (const question of questions) {
     const last = groups[groups.length - 1]
-    if (last !== undefined && last.type === question.type) last.questions.push(question)
+    const continuesRun =
+      last !== undefined &&
+      last.type === question.type &&
+      wordLimitOf(last.questions[last.questions.length - 1]) === wordLimitOf(question)
+    if (continuesRun) last.questions.push(question)
     else groups.push({ key: question.id, type: question.type, questions: [question] })
   }
   return groups
+}
+
+/**
+ * The limit to print above a group, or null to print none.
+ *
+ * Derived from EVERY question in the group rather than from its first, so the
+ * rubric cannot state a limit that any input below it contradicts. `groupQuestions`
+ * already guarantees a group is unanimous; this is the second lock, and the
+ * failure mode it chooses is silence — an input always prints its own limit, so
+ * a missing heading costs a learner nothing, while a wrong one costs a mark.
+ */
+function sharedWordLimit(group: QuestionGroup): number | null {
+  const limit = wordLimitOf(group.questions[0])
+  if (limit === null) return null
+  return group.questions.every((question) => wordLimitOf(question) === limit) ? limit : null
 }
 
 /** "Questions 23–26", or "Question 23" when a group holds one. */
@@ -83,7 +141,12 @@ function isAnswered(answers: ReadingAnswers, id: string): boolean {
 
 function PassagePane({ passage }: { passage: ReadingPassage }) {
   return (
-    <article className="rr-passage" aria-label={passage.heading}>
+    // Focusable on purpose. The pane around this article is a scroll container
+    // holding nothing focusable — pure prose — so without a tab stop a
+    // keyboard-only learner could not scroll the passage at all and would be
+    // answering questions about text they cannot reach (WCAG 2.1.1). The
+    // article already carries the section's name, so the stop announces itself.
+    <article className="rr-passage" aria-label={passage.heading} tabIndex={0}>
       <p className="eyebrow rr-passage-eyebrow">{passage.heading}</p>
       {passage.texts.map((text, i) => (
         // General Training Section 1 prints two or three short texts where an
@@ -318,7 +381,7 @@ function GroupBlock({
   // Every question in a matching-headings set shares one bank, so it is printed
   // once above the set exactly as the paper prints it.
   const headings = first.type === 'matching-headings' ? first.headings : null
-  const limit = first.type === 'completion' ? first.maxWords : null
+  const limit = sharedWordLimit(group)
 
   return (
     <section className="rr-group" aria-label={groupRangeLabel(group)}>
@@ -369,6 +432,8 @@ export default function ReadingRunner({ test, onSubmit, onExit }: ReadingRunnerP
   // Set once, on mount: the clock starts when the paper opens, and a re-render
   // must never move the deadline.
   const deadlineRef = useRef<number>(Date.now() + TOTAL_SECONDS * 1000)
+  // The tab buttons, so arrow-key navigation can move focus with the selection.
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const submittedRef = useRef(false)
   const answersRef = useRef(answers)
   answersRef.current = answers
@@ -378,7 +443,7 @@ export default function ReadingRunner({ test, onSubmit, onExit }: ReadingRunnerP
     [test],
   )
   const groups = useMemo(
-    () => groupByType(questionsByPassage[activePassage] ?? []),
+    () => groupQuestions(questionsByPassage[activePassage] ?? []),
     [questionsByPassage, activePassage],
   )
   const answeredCount = useMemo(
@@ -440,6 +505,30 @@ export default function ReadingRunner({ test, onSubmit, onExit }: ReadingRunnerP
     if (go) onExit()
   }
 
+  /**
+   * Arrow keys move between passages, and focus moves with the selection.
+   *
+   * A tab strip is ONE tab stop, not one per tab: the roving `tabIndex` below
+   * takes the unselected tabs out of the Tab order, so without these keys a
+   * keyboard user who Tabbed onto the strip could never reach passage 2. Home
+   * and End jump to the ends, per the ARIA authoring practices. Selection
+   * follows focus because the panel is already rendered — there is nothing to
+   * load, so making the learner press Enter as well would only cost a keystroke.
+   */
+  function handleTabKeys(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    const count = test.passages.length
+    if (count === 0) return
+    let next: number | null = null
+    if (event.key === 'ArrowRight') next = (activePassage + 1) % count
+    else if (event.key === 'ArrowLeft') next = (activePassage - 1 + count) % count
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = count - 1
+    if (next === null) return
+    event.preventDefault()
+    setActivePassage(next)
+    tabRefs.current[next]?.focus()
+  }
+
   const passage = test.passages[activePassage]
 
   return (
@@ -447,14 +536,28 @@ export default function ReadingRunner({ test, onSubmit, onExit }: ReadingRunnerP
       <header className="rr-toolbar">
         <div className="rr-toolbar-left">
           <p className="eyebrow rr-test-title">{test.title}</p>
-          <div className="rr-tabs" role="tablist" aria-label="Reading passages">
+          <div
+            className="rr-tabs"
+            role="tablist"
+            aria-label="Reading passages"
+            onKeyDown={handleTabKeys}
+          >
             {test.passages.map((p, i) => {
               const done = questionsByPassage[i].filter((q) => isAnswered(answers, q.id)).length
               return (
                 <button
                   key={p.id}
+                  ref={(el) => {
+                    tabRefs.current[i] = el
+                  }}
+                  id={tabId(i)}
                   role="tab"
                   aria-selected={i === activePassage}
+                  aria-controls={PANEL_ID}
+                  // Roving tabindex: the strip is one tab stop and the arrow
+                  // keys choose within it, so Tab reaches the paper rather than
+                  // walking every passage first.
+                  tabIndex={i === activePassage ? 0 : -1}
                   className={i === activePassage ? 'rr-tab active' : 'rr-tab'}
                   onClick={() => setActivePassage(i)}
                 >
@@ -481,7 +584,14 @@ export default function ReadingRunner({ test, onSubmit, onExit }: ReadingRunnerP
         </div>
       </header>
 
-      <div className="rr-panes">
+      {/* Both panes change when a tab is chosen — the passage AND its
+          questions — so the panel is the pair, not one of them. */}
+      <div
+        className="rr-panes"
+        role="tabpanel"
+        id={PANEL_ID}
+        aria-labelledby={tabId(activePassage)}
+      >
         <div className="rr-pane rr-pane-passage">
           {passage !== undefined && <PassagePane passage={passage} />}
         </div>

@@ -14,6 +14,13 @@
   border-bottom: 1px solid var(--rule-line);
   background: var(--sheet);
   transition: background 400ms ease, color 400ms ease;
+  /* The writing desk's right-hand controls are 573px of word count, three
+     toggles and a submit button. Without wrapping they held the page open at
+     975px and every viewport below that scrolled SIDEWAYS — two-dimensional
+     scrolling, which WCAG 1.4.10 Reflow (AA) exists to prevent, and which the
+     quality floor in DESIGN.md ("responsive to ~900px") already ruled out.
+     They wrap onto a second row instead; nothing moves above 975px. */
+  flex-wrap: wrap;
 }
 
 .topbar-left,
@@ -21,6 +28,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .brand {
@@ -147,6 +155,20 @@
 }
 
 .panel-zone > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The tab panel the coach tabs name. It is a wrapper, never a surface: the
+   feedback panel, cheat sheet and model answer each own their own scrolling,
+   so this must pass the height it is given straight through or they lose it. */
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-body > * {
   flex: 1;
   min-height: 0;
 }
