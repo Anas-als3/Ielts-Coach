@@ -8,6 +8,7 @@ import type {
   Issue,
   IssueCategory,
   LetterPromptSpec,
+  LibrarySelection,
   ListeningSessionRecord,
   Module,
   Prefs,
@@ -49,6 +50,7 @@ import Dashboard from './components/Dashboard'
 import PromptPicker from './components/PromptPicker'
 import CheatSheet from './components/CheatSheet'
 import ModelAnswer from './components/ModelAnswer'
+import ModelLibrary from './components/ModelLibrary'
 import ReadingRunner from './components/ReadingRunner'
 import ReadingReport from './components/ReadingReport'
 import ReadingPicker from './components/ReadingPicker'
@@ -56,7 +58,7 @@ import ListeningRunner from './components/ListeningRunner'
 import ListeningReport from './components/ListeningReport'
 import ListeningPicker from './components/ListeningPicker'
 
-type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening'
+type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening' | 'library'
 type ExamState = 'idle' | 'running'
 type PanelTab = 'feedback' | 'cheatsheet' | 'model'
 /** Where the learner is inside the Reading section: choosing, sitting, reviewing. */
@@ -528,6 +530,56 @@ export default function App({
   }
 
   /**
+   * Puts a prompt chosen in the library on the writing desk, blank. Not
+   * `startNewEssay(prompt)`: its `nextPrompt` only reaches the Task 2 slot —
+   * letters and charts there are re-randomised. Not `handleRedraft`: it
+   * restores a session's essay text, and practising starts blank.
+   *
+   * The library's nav link is hidden whenever `mode === 'exam' && view ===
+   * 'write'` (the same `deskCleared` gate that hides Progress), so this can
+   * only ever run from coach mode — but a coach-mode essay in progress is
+   * still real work, so discarding it asks the same consent
+   * `switchTask`/`switchModule` ask before clearing one, and clears the draft
+   * explicitly for the same reason those two do: left to the debounced
+   * persistence effect, a reload in the gap would re-offer the very essay the
+   * learner just agreed to drop.
+   */
+  function handlePractiseFromLibrary(sel: LibrarySelection) {
+    if (countWords(essayText) > 0) {
+      const leave = window.confirm(
+        'Practising this prompt clears the answer sheet and discards the essay in progress. Continue?',
+      )
+      if (!leave) return
+    }
+    submittingRef.current = false
+    examDeadlineRef.current = null
+    if (sel.kind === 'letter') {
+      // Letters exist only in General Training; the desk must show that exam.
+      setTask('task1')
+      setModule('general')
+      setLetterPrompt(sel.prompt)
+    } else if (sel.kind === 'chart') {
+      setTask('task1')
+      setModule('academic')
+      setTask1Prompt(sel.prompt)
+    } else {
+      setTask('task2')
+      // None of the 40 is General-only (bank.ts tagging rule), so Academic is
+      // always a safe home for a prompt the current exam does not ask.
+      if (!suitsModule(sel.prompt, module)) setModule('academic')
+      setPrompt(sel.prompt)
+    }
+    setEssayText('')
+    clearDraft()
+    draftTextRef.current = ''
+    setFocusIssueId(null)
+    setExamState('idle')
+    setExamSecondsLeft(TASK_CONSTANTS[sel.kind === 'task2' ? 'task2' : 'task1'].examDurationSec)
+    setMode('coach')
+    setView('write')
+  }
+
+  /**
    * Applies an offered draft — called only from the restore card, never on
    * mount. `pendingDraft` holds the offer until this or `discardDraft` runs,
    * so the learner always decides.
@@ -962,6 +1014,13 @@ export default function App({
                 onClick={openListening}
               >
                 Listening
+              </button>
+              <button
+                className={view === 'library' ? 'nav-link active' : 'nav-link'}
+                aria-current={view === 'library' ? 'page' : undefined}
+                onClick={() => setView('library')}
+              >
+                Models
               </button>
               <button
                 className={view === 'dashboard' ? 'nav-link active' : 'nav-link'}
@@ -1530,6 +1589,12 @@ export default function App({
             module={module}
             onSwitchModule={switchModule}
           />
+        </main>
+      )}
+
+      {view === 'library' && (
+        <main className="page">
+          <ModelLibrary onPractise={handlePractiseFromLibrary} />
         </main>
       )}
     </div>
