@@ -1,0 +1,126 @@
+/* Model-answer library — the "Models" nav view. Every class is prefixed .mlib- */
+
+.mlib-root {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.mlib-root h2 {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+
+.mlib-intro {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 62ch;
+}
+
+.mlib-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mlib-group h3 {
+  font-family: var(--font-serif);
+  font-size: 17px;
+}
+
+.mlib-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mlib-entry {
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  background: var(--sheet);
+  overflow: hidden;
+}
+
+.mlib-entry-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlib-entry-header:hover {
+  background: var(--wash-blue);
+}
+
+.mlib-entry-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+}
+
+.mlib-entry-id {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.mlib-entry-meta {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.mlib-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--rule-line);
+  border-radius: 999px;
+  background: var(--sheet);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.mlib-badge-exact {
+  border-color: var(--ok-green);
+  color: var(--ok-green);
+}
+
+.mlib-entry-text {
+  font-family: var(--font-serif);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+/* The open entry's worked answer and its practise button. */
+.mlib-panel {
+  border-top: 1px solid var(--rule-line);
+  padding: 4px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mlib-practise {
+  align-self: flex-start;
+}
+
+@media (max-width: 980px) {
+  .mlib-badge {
+    margin-left: 0;
+  }
+}

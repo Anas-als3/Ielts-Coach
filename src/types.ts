@@ -836,6 +836,17 @@ export interface ChartProps {
   caption?: string;
 }
 
+/** What the learner picked in the library, carried to the writing desk. */
+export type LibrarySelection =
+  | { kind: 'task2'; prompt: PromptSpec }
+  | { kind: 'chart'; prompt: Task1PromptSpec }
+  | { kind: 'letter'; prompt: LetterPromptSpec };
+
+export interface ModelLibraryProps {
+  /** Put this question on the writing desk and switch to the write view. */
+  onPractise: (selection: LibrarySelection) => void;
+}
+
 /* ------------------------------ reading component props --------------------- */
 
 export interface ReadingRunnerProps {
