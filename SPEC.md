@@ -1043,6 +1043,19 @@ the learner's forms out **by hand** for the keys most exposed to this — the mo
 the ferry time — precisely so that deleting an alternate fails a test instead of silently costing a
 learner a mark.
 
+Those by-hand blocks are excellent for the three papers that exist and worth nothing to a paper that
+does not. `src/marking/keyLint.ts` generates the **numbers**, **units** and **times** classes from the
+table above and asks the real marker, via `markAnswerKey`, whether the key already accepts each
+candidate it proposes — never guessing at equivalence itself, and never called from
+`markAnswerKey.ts`, for the reason the marker's own header gives: a transform the item-writer cannot
+see is a rule nobody can audit. `tests/answer-key-lint.test.ts` runs it over every completion question
+of every registered paper, so a new paper inherits this check instead of needing a new hand-written
+block. **The spelling-and-hyphenation class is not generated** and remains the item-writer's
+judgement — `metres/meters` is a lookup and `cross-dating / cross dating / crossdating` is a decision
+about one compound, not a function of the answer string, and guessing there would make the app accept
+what the real exam rejects. A clean run of the linter therefore does not mean a complete key; the
+by-hand blocks and a human read stay the acceptance test for new content.
+
 ### Question types (v1 — the six that cover ~80% of a real paper)
 
 `ReadingQuestion` is a discriminated union on `type`, modelled on how `Task1Chart` handles `kind`.
