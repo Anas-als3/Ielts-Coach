@@ -134,6 +134,13 @@ export default function App({
    * can quietly time out while they are reading their report.
    */
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null)
+  /**
+   * A non-urgent notice about the exam clock: set when a restored draft's exam
+   * expired while the tab was closed, or when the running clock hits zero on a
+   * blank sheet. `role="status"`, not `role="alert"` like `saveFailureMessage`
+   * above — nothing was lost here, so this is not a warning.
+   */
+  const [clockNotice, setClockNotice] = useState<string | null>(null)
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null)
   const [examState, setExamState] = useState<ExamState>('idle')
   const [examSecondsLeft, setExamSecondsLeft] = useState(TASK_CONSTANTS.task2.examDurationSec)
@@ -448,6 +455,73 @@ export default function App({
     setMode('coach')
     setExamState('idle')
     setView('write')
+  }
+
+  /**
+   * Applies an offered draft — called only from the restore card, never on
+   * mount. `pendingDraft` holds the offer until this or `discardDraft` runs,
+   * so the learner always decides.
+   */
+  function restoreDraft(draft: WritingDraft): void {
+    submittingRef.current = false
+    setTask(draft.task)
+    setModule(draft.module)
+    // Same three-branch lookup as `handleRedraft`: a `promptId` no bank
+    // contains leaves the current slot untouched — the text still restores.
+    if (draft.task === 'task1' && draft.module === 'general') {
+      const letter = LETTER_PROMPTS.find((x) => x.id === draft.promptId)
+      if (letter) setLetterPrompt(letter)
+    } else if (draft.task === 'task1') {
+      const t1 = TASK1_PROMPTS.find((x) => x.id === draft.promptId)
+      if (t1) setTask1Prompt(t1)
+    } else {
+      setPrompt(PROMPTS.find((x) => x.id === draft.promptId) ?? null)
+    }
+    setEssayText(draft.essayText)
+    setFocusIssueId(null)
+    if (
+      draft.mode === 'exam' &&
+      draft.examDeadlineEpochMs !== null &&
+      !isExamDraftExpired(draft, Date.now())
+    ) {
+      // The clock lost no time while the tab was closed — that is the point of
+      // persisting the absolute deadline rather than the seconds left.
+      pacingRef.current = []
+      pasteAttemptsRef.current = 0
+      examDeadlineRef.current = draft.examDeadlineEpochMs
+      setMode('exam')
+      setExamState('running')
+      setExamSecondsLeft(Math.max(0, Math.round((draft.examDeadlineEpochMs - Date.now()) / 1000)))
+    } else {
+      // Coach, exam-idle, or an expired exam. Never auto-submit on mount:
+      // submitting is an act the learner performs, and an app that marks an
+      // essay nobody handed in is hostile. Restoring into COACH — which IS
+      // exam-idle, `examState` is 'idle' — is forced by the UI itself: in exam
+      // mode + idle the editor is not rendered (the "Start the clock" card
+      // shows instead), so the restored text would be invisible, and starting
+      // the clock over a pre-filled sheet is a head start the real exam does
+      // not allow.
+      examDeadlineRef.current = null
+      setMode('coach')
+      setExamState('idle')
+      setExamSecondsLeft(TASK_CONSTANTS[draft.task].examDurationSec)
+      if (isExamDraftExpired(draft, Date.now())) {
+        setClockNotice(
+          'The exam clock ran out while you were away. Your essay was kept — review it here and submit when you are ready.',
+        )
+      }
+    }
+    setPendingDraft(null)
+    setView('write')
+    // No `clearDraft()` here: the debounced persistence effect re-saves within
+    // 400ms anyway, and clearing first would open a window where a crash loses
+    // the essay twice.
+  }
+
+  function discardDraft(): void {
+    clearDraft()
+    draftTextRef.current = ''
+    setPendingDraft(null)
   }
 
   function switchTask(next: TaskKind) {
@@ -927,6 +1001,28 @@ export default function App({
           )}
 
           <section className="sheet-zone">
+            {clockNotice !== null && (
+              <div className="card" role="status">
+                <p>{clockNotice}</p>
+                <button className="btn" onClick={() => setClockNotice(null)}>
+                  Dismiss
+                </button>
+              </div>
+            )}
+            {pendingDraft !== null && (
+              <div className="card" role="status">
+                <p>
+                  You have an unfinished draft from earlier ({countWords(pendingDraft.essayText)}{' '}
+                  words).
+                </p>
+                <button className="btn btn-primary" onClick={() => restoreDraft(pendingDraft)}>
+                  Restore draft
+                </button>
+                <button className="btn" onClick={discardDraft}>
+                  Discard draft
+                </button>
+              </div>
+            )}
             {isLetter ? (
               <>
                 {!inExam && (
@@ -1034,6 +1130,10 @@ export default function App({
                       submittingRef.current = false
                       examDeadlineRef.current = Date.now() + taskConstants.examDurationSec * 1000
                       setExamState('running')
+                      // A notice from an earlier draft (e.g. "the clock ran
+                      // out while you were away") must not survive into a
+                      // freshly started exam.
+                      setClockNotice(null)
                     }}
                   >
                     Start the clock
