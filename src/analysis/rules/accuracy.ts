@@ -271,6 +271,74 @@ const NOT_A_MODIFIER = new Set([
 ])
 
 /**
+ * Nouns in COUNTABLE that are MASS nouns in their commonest IELTS sense.
+ *
+ * "reduce crime", "commit crime", "save time", "leave home" all take no article
+ * on the bare reading, and the rule told learners otherwise — worse, it told
+ * one to write "a reduce crime", because the leftward walk had crossed the verb
+ * and quoted it back as part of the noun phrase.
+ *
+ * They stay in COUNTABLE because "a crime was committed" and "a better way" are
+ * equally valid, so the escape is CONTEXTUAL: it applies only where the noun is
+ * the bare direct object of a verb, which is exactly the mass reading. A bare
+ * "…to shop" or "…lost job" is untouched, because those nouns are not here.
+ *
+ * The cost is a real one and worth naming: "protect environment" and "find way"
+ * are errors this now stays silent about. That is the trade the module's own
+ * policy asks for — a false positive costs more than a miss.
+ */
+const MASS_SENSE = new Set(['crime', 'time', 'future', 'world', 'environment', 'home', 'way', 'government'])
+
+/**
+ * Verbs the walk can CROSS. `WALK_VERBS` holds the ones that STOP it, so by
+ * construction a crossed verb is never in that set — yet crossing one is the
+ * clearest possible evidence that the span is no longer a noun phrase.
+ *
+ * Two uses, both of which only ever make the rule quieter: a crossed verb
+ * blocks the flag entirely on a `MASS_SENSE` noun ("Governments … reduce
+ * crime"), and everywhere else it shrinks the quoted span back to the bare noun
+ * so the suggestion cannot be "a reduce crime".
+ */
+const WALK_CROSSABLE_VERBS = new Set([
+  'reduce', 'reduces', 'reducing', 'prevent', 'prevents', 'preventing', 'fight', 'fights',
+  'fighting', 'tackle', 'tackles', 'tackling', 'combat', 'combats', 'protect', 'protects',
+  'protecting', 'save', 'saves', 'saving', 'waste', 'wastes', 'wasting', 'improve', 'improves',
+  'improving', 'increase', 'increases', 'increasing', 'destroy', 'destroys', 'destroying',
+  'avoid', 'avoids', 'avoiding', 'reach', 'reaches', 'reaching', 'affect', 'affects', 'affecting',
+  'support', 'supports', 'supporting', 'control', 'controls', 'controlling', 'enter', 'enters',
+  'entering', 'join', 'joins', 'joining', 'help', 'helps', 'helping', 'stop', 'stops', 'stopping',
+  'change', 'changes', 'changing', 'solve', 'solves', 'solving', 'shape', 'shapes', 'shaping',
+  'harm', 'harms', 'harming', 'damage', 'damages', 'damaging', 'ignore', 'ignores', 'ignoring',
+  'punish', 'punishes', 'punishing', 'deter', 'deters', 'deterring', 'run', 'runs', 'running',
+  'leave', 'leaves', 'leaving', 'visit', 'visits', 'visiting', 'shape', 'reform', 'reforms',
+])
+
+/**
+ * Words after which the next token can only be a VERB. Modals and `do` take a
+ * bare infinitive, so this reaches verbs `WALK_CROSSABLE_VERBS` cannot list,
+ * without a dictionary.
+ *
+ * `to` is deliberately absent: it is an infinitive marker in "act to reduce
+ * crime" but a plain preposition in "due to new prison system", and treating it
+ * as a verb signal would shrink that suggestion from 'a new prison system' to
+ * 'a system' — a real loss for a real error.
+ */
+const VERB_ONLY_AFTER = new Set([
+  'can', 'could', 'may', 'might', 'must', 'shall', 'should', 'will', 'would', 'do', 'does',
+  'did', 'not', 'never',
+])
+
+/**
+ * Does the word at `k` look like a VERB rather than a modifier? Either it is a
+ * known crossable verb, or the word in front of it admits nothing else.
+ */
+function isVerbToken(words: readonly Token[], k: number, first: number): boolean {
+  const lower = words[k].lower
+  if (WALK_CROSSABLE_VERBS.has(lower) || WALK_VERBS.has(lower)) return true
+  return k > first && VERB_ONLY_AFTER.has(words[k - 1].lower)
+}
+
+/**
  * Nominal suffixes. A word carrying one of these is a noun, which makes a
  * COUNTABLE word sitting directly in front of it a MODIFIER rather than the
  * head — 'job satisfaction', 'time management', 'job opportunities' need no
@@ -357,6 +425,7 @@ function articles(doc: TokenizedDoc, out: Issue[]): void {
       // whole clauses and reports a noun phrase that was never there.
       let j = i
       let flagged = false
+      let stoppedAtVerb = false
       for (;;) {
         if (j === first) {
           flagged = true // sentence start reached with no determiner
@@ -371,6 +440,7 @@ function articles(doc: TokenizedDoc, out: Issue[]): void {
         if (DETERMINERS.has(left.lower)) break // determiner found — correct as written
         if (WALK_PREPOSITIONS.has(left.lower) || WALK_VERBS.has(left.lower)) {
           flagged = true
+          stoppedAtVerb = WALK_VERBS.has(left.lower)
           break
         }
         if (i - j >= MAX_MODIFIER_WALK) break // walked past any real adjective stack — stay silent
@@ -378,10 +448,21 @@ function articles(doc: TokenizedDoc, out: Issue[]): void {
       }
       if (!flagged) continue
 
-      // Only quote (and highlight) the modifiers when they can genuinely belong
-      // to the noun phrase; otherwise the noun alone is the honest span.
       const modifiers: Token[] = words.slice(j, i)
-      const usePhrase = modifiers.every((t) => !looksPlural(t.lower) && !NOT_A_MODIFIER.has(t.lower))
+      const crossedVerb = modifiers.some((_, n) => isVerbToken(words, j + n, first))
+
+      // Mass-sense escape: a MASS_SENSE noun standing as the bare object of a
+      // verb is the mass reading, which takes no article. "…act to reduce
+      // crime", "…who commit crime", "…save time" are all correct, and the rule
+      // was telling learners to write "a reduce crime".
+      if (MASS_SENSE.has(noun.lower) && (stoppedAtVerb || crossedVerb)) continue
+
+      // Only quote (and highlight) the modifiers when they can genuinely belong
+      // to the noun phrase; otherwise the noun alone is the honest span. A
+      // crossed VERB disqualifies the span the same way the walk cap does: the
+      // suggestion must never be a phrase the walk invented.
+      const usePhrase =
+        !crossedVerb && modifiers.every((t) => !looksPlural(t.lower) && !NOT_A_MODIFIER.has(t.lower))
       const spanStart = usePhrase ? words[j].start : noun.start
       const phrase = doc.text.slice(spanStart, noun.end).toLowerCase()
       const article = /^[aeiou]/.test(phrase) ? 'an' : 'a'
