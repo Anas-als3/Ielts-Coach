@@ -342,6 +342,31 @@ export default function App({
     draftTextRef.current = debouncedText
   }, [debouncedText, view, task, module, mode, examState, isLetter, letterPrompt, task1Prompt, prompt, pendingDraft])
 
+  /**
+   * Warn exactly when closing the tab would destroy something no key holds:
+   * a Reading/Listening paper mid-run (memory-only by the runners' own
+   * doctrine — 025-b), or write-view text newer than the draft on disk (the
+   * ≤400ms debounce window the draft cannot cover). Once the draft is on
+   * disk, closing the tab is SAFE, and a warning then would be a lie that
+   * teaches learners to click through warnings.
+   */
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const runnerLive =
+        (view === 'reading' && readingStage === 'running') ||
+        (view === 'listening' && listeningStage === 'running')
+      const draftStale =
+        view === 'write' &&
+        countWords(essayTextRef.current) > 0 &&
+        essayTextRef.current !== draftTextRef.current
+      if (!runnerLive && !draftStale) return
+      e.preventDefault()
+      e.returnValue = '' // legacy Chrome requires an assigned returnValue
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [view, readingStage, listeningStage])
+
   /* --------------------------------- actions -------------------------------- */
   handleSubmitRef.current = () => handleSubmit()
 
