@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react'
 import type { ChangeEvent } from 'react'
 import type { DashboardProps, IssueCategory, SessionRecord, Severity } from '../types'
-import { CATEGORY_META, QUESTION_TYPE_META } from '../meta'
+import { CATEGORY_META, MODULE_META, QUESTION_TYPE_META } from '../meta'
 import { TASK1_PROMPTS } from '../prompts/task1Bank'
 import './Dashboard.css'
 
@@ -380,6 +380,7 @@ export default function Dashboard({
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Exam</th>
                 <th>Task</th>
                 <th>Mode</th>
                 <th>Question</th>
@@ -398,6 +399,13 @@ export default function Dashboard({
                 return (
                   <tr key={s.id}>
                     <td className="mono db-td-date">{fmtDate(s.dateISO, true)}</td>
+                    <td>
+                      {/* The migration stamps 'academic' on every pre-v3 record, so
+                          the fallback only ever catches hand-edited storage. */}
+                      <span className="db-chip-q">
+                        {MODULE_META[s.module]?.short ?? MODULE_META.academic.short}
+                      </span>
+                    </td>
                     <td>
                       <span className="db-chip-q">{s.task === 'task1' ? 'Task 1' : 'Task 2'}</span>
                     </td>

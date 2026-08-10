@@ -1,8 +1,19 @@
 # IELTS Coach — Writing Task 2
 
-A single-page web app that coaches one learner through IELTS Academic Writing Task 2.
+A single-page web app that coaches one learner through IELTS Writing.
 Not a grammar checker — an **examiner's eye**: IELTS-specific structural rules plus a
 personal error profile tracked across every essay you write, so improvement is visible.
+
+## Both exams
+
+IELTS is two exams sharing a name: **Academic** for university entry, **General Training**
+for migration and work. A switch in the topbar picks yours, and every saved session records
+which exam it was written for. Task 2 is identical in both — same criteria, same 250 words,
+same 40 minutes — so the marking never changes; what changes is the questions you are offered,
+because General Training asks about everyday matters rather than abstract policy or research.
+Task 1 is where they genuinely diverge: Academic describes a chart, General Training writes a
+letter. Academic Task 1 is built; the General Training letter is not, and the app says so
+plainly rather than marking a letter with chart rules.
 
 ## Two modes
 
@@ -84,6 +95,6 @@ React 18 + TypeScript (strict) + Vite. No runtime dependencies beyond React.
 - `src/types.ts` — the shared contract; `IssueCategory` ids are stable across versions
 - `src/analysis/` — tokenizer, rule modules, band estimator, engine
 - `src/profile/` — localStorage store + profile/trend computation
-- `src/prompts/bank.ts` — 40 Task 2 prompts with coverage metadata
+- `src/prompts/bank.ts` — 40 Task 2 prompts with coverage metadata and the exam each suits
 - `src/components/` — Editor (mirror-overlay highlighting), StructureRail, FeedbackPanel,
   Timer, Report, Dashboard

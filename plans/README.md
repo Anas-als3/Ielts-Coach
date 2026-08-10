@@ -24,7 +24,7 @@ sessions on the same plan.
 | **007** | **Deflake the UI suite; grade the worked answer against its own prompt** | **P0** | S | — | DONE |
 | **006** | **Stop the engine accusing correct English — five guards + golden corpus** | **P0** | M | — | TODO |
 | 014 | Make the error profile do something — the drill loop | P1 | M | 006 | TODO |
-| 008 | Academic / General Training module switch | P1 | M | — | TODO |
+| 008 | Academic / General Training module switch | P1 | M | — | DONE |
 | 009 | General Training Task 1 — letters | P1 | L | 008 | TODO |
 | 010 | Reading — both modules, real question types, real band tables | P2 | L | 008 | TODO |
 | 013 | Full mock test mode | P2 | M | 010 | TODO |
@@ -91,7 +91,7 @@ learner's three weaknesses and the "practice" button hands them a blank essay.
 | Section | Academic | General Training | Plan |
 |---|---|---|---|
 | Writing Task 1 | ✅ charts | ❌ **letters** | 009 |
-| Writing Task 2 | ✅ | ⚠️ same engine, needs GT-appropriate prompts | 008 |
+| Writing Task 2 | ✅ | ✅ same engine, 28 of 40 prompts tagged GT-appropriate | 008 |
 | Reading | ❌ | ❌ (stricter band table) | 010 |
 | Listening | ❌ | ❌ (identical to Academic) | 011 |
 | Speaking | ❌ | ❌ (identical to Academic) | 012 |

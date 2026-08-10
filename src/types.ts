@@ -24,6 +24,13 @@ export interface PromptSpec {
   parts: string[];
   /** Content words from the prompt, lowercase — used for prompt-echo and relevance checks. */
   keywords: string[];
+  /**
+   * Which exams this prompt is appropriate for. Task 2 marking is identical in
+   * both, so most prompts suit both; abstract topics (space exploration,
+   * globalisation) are Academic-only in practice, and everyday ones suit both.
+   * Absent means both, so existing bank entries need no edit to keep working.
+   */
+  modules?: Module[];
 }
 
 /* --------------------------------- task 1 ----------------------------------- */
@@ -296,6 +303,21 @@ export type RuleFn = (doc: TokenizedDoc, prompt: PromptSpec | null, task?: TaskK
 /* ----------------------------- sessions & profile --------------------------- */
 
 /**
+ * Which IELTS exam the learner is preparing for.
+ *
+ * These are two different exams sharing a name. The differences that reach this
+ * codebase:
+ *  - Writing Task 1 is a chart description in Academic and a LETTER in General
+ *    Training — a different task with a different marking focus.
+ *  - Writing Task 2 is marked identically; only the topics differ, which is a
+ *    property of the prompt bank rather than of the engine.
+ *  - Reading uses a stricter raw-score-to-band conversion for General Training
+ *    (roughly four more correct answers for the same band).
+ *  - Listening and Speaking are identical in both.
+ */
+export type Module = 'academic' | 'general';
+
+/**
  * Which IELTS task a session belongs to. `task2` is the only value produced by
  * the current app; sessions saved before schemaVersion 2 are migrated to it.
  */
@@ -309,6 +331,8 @@ export interface SessionRecord {
   mode: WritingMode;
   /** Which IELTS task this session answered. Migrated to 'task2' for pre-v2 data. */
   task: TaskKind;
+  /** Which exam it was preparing for. Migrated to 'academic' for pre-v3 data. */
+  module: Module;
   promptId: string | null;
   promptText: string;
   questionType: QuestionType | null;

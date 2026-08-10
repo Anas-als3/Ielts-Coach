@@ -1,14 +1,35 @@
 /**
- * Prompt bank: 40 realistic IELTS Academic Writing Task 2 prompts,
- * 8 per question type, topics spread across education, technology,
- * environment, health, society, work, government, culture, transport, media.
+ * Prompt bank: 40 realistic IELTS Writing Task 2 prompts, 8 per question type,
+ * topics spread across education, technology, environment, health, society,
+ * work, government, culture, transport, media.
  *
  * Every `keywords` entry is a lowercase single content word: the content words
  * actually present in the prompt text, widened with topical synonyms, hyponyms
  * and actor nouns a good paraphrasing answer would plausibly use — the analysis
  * rules use them for prompt-echo, off-topic and question-coverage detection.
+ *
+ * ## The tagging rule for `modules`
+ *
+ * Task 2 is MARKED identically in Academic and General Training — same criteria,
+ * same 250 words, same 40 minutes. What differs is the topic: General Training
+ * asks about matters of everyday general interest, Academic is free to ask about
+ * abstract, policy and research-flavoured ones. So the tag is a statement about
+ * the QUESTION, never about the engine.
+ *
+ * Tag a prompt `['academic', 'general']` when an ordinary adult could answer it
+ * from lived experience: school, work, family, health, transport, shopping,
+ * everyday technology, the local environment.
+ *
+ * Tag it `['academic']` only when answering it well needs a specialist or
+ * theoretical frame that General Training does not ask for — economic policy,
+ * demography, redistribution and taxation theory, arts funding policy, platform
+ * and data regulation, biodiversity science, political participation,
+ * globalisation. When in doubt, tag BOTH: over-restricting the General pool
+ * silently narrows a learner's practice, which is the worse failure.
+ *
+ * 12 of the 40 are Academic-only on this rule, leaving 28 for General Training.
  */
-import type { PromptSpec } from '../types'
+import type { Module, PromptSpec } from '../types'
 
 /** Standard Task 2 instruction — every prompt text ends with this, verbatim. */
 const STANDARD =
@@ -27,6 +48,7 @@ export const PROMPTS: PromptSpec[] = [
       'Restate your position in the conclusion',
     ],
     keywords: ['university', 'education', 'free', 'students', 'financial', 'background', 'tuition', 'fees', 'scholarships', 'degree', 'graduates', 'funding', 'taxpayers', 'affordable'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'op-02',
@@ -39,6 +61,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the strongest argument from the other side',
     ],
     keywords: ['children', 'sixteen', 'smartphones', 'devices', 'damage', 'concentration', 'social', 'development', 'phones', 'screens', 'teenagers', 'addiction', 'distraction', 'apps', 'parents'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'op-03',
@@ -51,6 +74,7 @@ export const PROMPTS: PromptSpec[] = [
       'Keep one consistent position from introduction to conclusion',
     ],
     keywords: ['individuals', 'protect', 'environment', 'governments', 'companies', 'difference', 'recycling', 'pollution', 'emissions', 'climate', 'plastic', 'corporations', 'carbon'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'op-04',
@@ -63,6 +87,7 @@ export const PROMPTS: PromptSpec[] = [
       'Acknowledge what would be lost on the other side',
     ],
     keywords: ['money', 'governments', 'treating', 'illness', 'preventing', 'health', 'education', 'prevention', 'hospitals', 'doctors', 'vaccination', 'screening', 'exercise', 'disease'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'op-05',
@@ -75,6 +100,7 @@ export const PROMPTS: PromptSpec[] = [
       'Restate your view clearly in the conclusion',
     ],
     keywords: ['job', 'satisfaction', 'important', 'salary', 'choosing', 'career', 'work', 'wages', 'income', 'pay', 'fulfilment', 'motivation', 'workplace', 'passion'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'op-06',
@@ -87,6 +113,7 @@ export const PROMPTS: PromptSpec[] = [
       'Deal with one strong objection to your view',
     ],
     keywords: ['governments', 'tax', 'wealthiest', 'citizens', 'higher', 'rate', 'reduce', 'inequality', 'taxation', 'wealth', 'rich', 'poor', 'redistribution', 'revenue', 'billionaires'],
+    modules: ['academic'],
   },
   {
     id: 'op-07',
@@ -99,6 +126,7 @@ export const PROMPTS: PromptSpec[] = [
       'Consider whether a full ban is practical',
     ],
     keywords: ['advertising', 'influences', 'buy', 'young', 'children', 'banned', 'adverts', 'commercials', 'marketing', 'brands', 'toys', 'consumers', 'regulation'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'op-08',
@@ -111,6 +139,7 @@ export const PROMPTS: PromptSpec[] = [
       'Hold one position throughout the essay',
     ],
     keywords: ['governments', 'money', 'public', 'transport', 'building', 'roads', 'cars', 'buses', 'trains', 'metro', 'congestion', 'commuters', 'traffic', 'infrastructure'],
+    modules: ['academic', 'general'],
   },
 
   /* ------------------------------ discussion ------------------------------ */
@@ -125,6 +154,7 @@ export const PROMPTS: PromptSpec[] = [
       'State your own opinion clearly, not just both sides',
     ],
     keywords: ['children', 'formal', 'education', 'early', 'lessons', 'start', 'age', 'seven', 'kindergarten', 'play', 'schooling', 'pupils', 'literacy', 'childhood', 'curriculum'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'di-02',
@@ -137,6 +167,7 @@ export const PROMPTS: PromptSpec[] = [
       'Give your own verdict and support it',
     ],
     keywords: ['social', 'media', 'connected', 'share', 'ideas', 'individuals', 'isolated', 'anxious', 'networks', 'online', 'platforms', 'loneliness', 'friendship', 'communication', 'screens'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'di-03',
@@ -149,6 +180,7 @@ export const PROMPTS: PromptSpec[] = [
       'State which argument you find stronger and why',
     ],
     keywords: ['economic', 'growth', 'poverty', 'environment', 'damaging', 'slowed', 'pollution', 'emissions', 'industry', 'sustainability', 'resources', 'climate', 'factories'],
+    modules: ['academic'],
   },
   {
     id: 'di-04',
@@ -161,6 +193,7 @@ export const PROMPTS: PromptSpec[] = [
       'Give your own opinion on the balance',
     ],
     keywords: ['public', 'money', 'health', 'treating', 'ill', 'campaigns', 'promote', 'healthy', 'lifestyles', 'prevention', 'hospitals', 'exercise', 'diet', 'smoking', 'obesity', 'awareness'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'di-05',
@@ -173,6 +206,7 @@ export const PROMPTS: PromptSpec[] = [
       'State your own opinion with a clear reason',
     ],
     keywords: ['employees', 'work', 'home', 'shared', 'office', 'teamwork', 'productivity', 'remote', 'commuting', 'collaboration', 'colleagues', 'flexibility', 'meetings', 'workplace'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'di-06',
@@ -185,6 +219,7 @@ export const PROMPTS: PromptSpec[] = [
       'Give your own opinion and defend it',
     ],
     keywords: ['governments', 'fund', 'museums', 'theatres', 'orchestras', 'arts', 'ticket', 'sales', 'private', 'donations', 'culture', 'subsidies', 'artists', 'galleries', 'concerts', 'heritage', 'audiences'],
+    modules: ['academic'],
   },
   {
     id: 'di-07',
@@ -197,6 +232,7 @@ export const PROMPTS: PromptSpec[] = [
       'State your own opinion on what works best',
     ],
     keywords: ['prison', 'sentences', 'crime', 'education', 'community', 'programmes', 'prevent', 'reoffending', 'offenders', 'punishment', 'rehabilitation', 'custody', 'deterrent', 'criminals', 'jail', 'justice'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'di-08',
@@ -209,6 +245,7 @@ export const PROMPTS: PromptSpec[] = [
       'Give your own opinion and justify it',
     ],
     keywords: ['private', 'cars', 'banned', 'busy', 'city', 'centres', 'drivers', 'travel', 'pollution', 'congestion', 'pedestrians', 'cycling', 'buses', 'emissions', 'parking'],
+    modules: ['academic', 'general'],
   },
 
   /* --------------------------- problem / solution -------------------------- */
@@ -223,6 +260,7 @@ export const PROMPTS: PromptSpec[] = [
       'Connect each measure to a problem it solves',
     ],
     keywords: ['household', 'rubbish', 'plastic', 'waste', 'grows', 'reduce', 'produce', 'recycling', 'landfill', 'pollution', 'packaging', 'litter', 'bins', 'disposal'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ps-02',
@@ -235,6 +273,7 @@ export const PROMPTS: PromptSpec[] = [
       'Show how your measures would ease the problems',
     ],
     keywords: ['traffic', 'congestion', 'cities', 'severe', 'commuters', 'crowded', 'roads', 'governments', 'cars', 'vehicles', 'transport', 'buses', 'pollution', 'tolls', 'cycling'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ps-03',
@@ -246,6 +285,7 @@ export const PROMPTS: PromptSpec[] = [
       'Suggest measures schools or governments could take',
     ],
     keywords: ['young', 'school', 'read', 'write', 'numbers', 'basic', 'skills', 'literacy', 'numeracy', 'illiteracy', 'teachers', 'pupils', 'education', 'employment'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ps-04',
@@ -258,6 +298,7 @@ export const PROMPTS: PromptSpec[] = [
       'Link each measure to the problem it addresses',
     ],
     keywords: ['obesity', 'rising', 'children', 'adults', 'pressure', 'health', 'services', 'tackle', 'overweight', 'diet', 'exercise', 'junk', 'sugar', 'weight', 'fitness'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ps-05',
@@ -269,6 +310,7 @@ export const PROMPTS: PromptSpec[] = [
       'Propose measures governments could take',
     ],
     keywords: ['cities', 'cost', 'housing', 'risen', 'incomes', 'families', 'afford', 'home', 'affordable', 'governments', 'rent', 'prices', 'mortgages', 'property', 'apartments', 'homelessness', 'landlords', 'construction'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ps-06',
@@ -281,6 +323,7 @@ export const PROMPTS: PromptSpec[] = [
       'Suggest what governments could add',
     ],
     keywords: ['employees', 'stress', 'work', 'balance', 'jobs', 'family', 'employers', 'governments', 'burnout', 'overtime', 'wellbeing', 'anxiety', 'workload', 'flexibility', 'exhaustion'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ps-07',
@@ -292,6 +335,7 @@ export const PROMPTS: PromptSpec[] = [
       'Propose measures to protect privacy',
     ],
     keywords: ['personal', 'information', 'collected', 'stored', 'online', 'protect', 'privacy', 'data', 'surveillance', 'hacking', 'breaches', 'companies', 'security', 'consent', 'regulation'],
+    modules: ['academic'],
   },
   {
     id: 'ps-08',
@@ -304,6 +348,7 @@ export const PROMPTS: PromptSpec[] = [
       'Consider who should act: platforms, governments or readers',
     ],
     keywords: ['false', 'misleading', 'stories', 'internet', 'shared', 'accurate', 'reporting', 'spread', 'information', 'misinformation', 'disinformation', 'fake', 'news', 'platforms', 'journalists', 'verification'],
+    modules: ['academic'],
   },
 
   /* ---------------------- advantages / disadvantages ----------------------- */
@@ -318,6 +363,7 @@ export const PROMPTS: PromptSpec[] = [
       'Give a clear verdict on which side outweighs the other',
     ],
     keywords: ['university', 'students', 'degree', 'studying', 'abroad', 'trend', 'overseas', 'international', 'culture', 'language', 'homesickness', 'tuition', 'exchange'],
+    modules: ['academic'],
   },
   {
     id: 'ad-02',
@@ -330,6 +376,7 @@ export const PROMPTS: PromptSpec[] = [
       'State whether the advantages outweigh the disadvantages',
     ],
     keywords: ['machines', 'computer', 'programs', 'jobs', 'people', 'development', 'automation', 'robots', 'technology', 'unemployment', 'workers', 'efficiency', 'retraining', 'factories'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ad-03',
@@ -342,6 +389,7 @@ export const PROMPTS: PromptSpec[] = [
       'Deliver a weighed verdict',
     ],
     keywords: ['international', 'tourism', 'income', 'countries', 'regions', 'mass', 'places', 'visitors', 'tourists', 'travellers', 'hotels', 'economy', 'heritage', 'overcrowding', 'jobs'],
+    modules: ['academic'],
   },
   {
     id: 'ad-04',
@@ -354,6 +402,7 @@ export const PROMPTS: PromptSpec[] = [
       'Say clearly which side outweighs the other',
     ],
     keywords: ['medicine', 'living', 'conditions', 'countries', 'longer', 'ageing', 'population', 'elderly', 'retirement', 'pensions', 'lifespan', 'healthcare', 'workforce', 'longevity'],
+    modules: ['academic'],
   },
   {
     id: 'ad-05',
@@ -366,6 +415,7 @@ export const PROMPTS: PromptSpec[] = [
       'Give a verdict on the balance',
     ],
     keywords: ['workplaces', 'employees', 'phone', 'calls', 'emails', 'working', 'hours', 'availability', 'overtime', 'burnout', 'boundaries', 'rest', 'messages', 'technology', 'leisure'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ad-06',
@@ -378,6 +428,7 @@ export const PROMPTS: PromptSpec[] = [
       'State whether the advantages outweigh the disadvantages',
     ],
     keywords: ['airlines', 'flying', 'affordable', 'millions', 'travel', 'air', 'cheap', 'flights', 'aviation', 'planes', 'tourism', 'emissions', 'holidays', 'budget', 'airports', 'carbon'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ad-07',
@@ -390,6 +441,7 @@ export const PROMPTS: PromptSpec[] = [
       'Give a clear verdict',
     ],
     keywords: ['children', 'free', 'time', 'watching', 'streaming', 'online', 'videos', 'entertainment', 'television', 'screens', 'shows', 'cartoons', 'educational', 'exercise', 'attention', 'platforms'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'ad-08',
@@ -402,6 +454,7 @@ export const PROMPTS: PromptSpec[] = [
       'State which side outweighs the other',
     ],
     keywords: ['people', 'leaving', 'countryside', 'live', 'work', 'cities', 'movement', 'urbanisation', 'migration', 'rural', 'urban', 'jobs', 'villages', 'opportunities', 'overcrowding'],
+    modules: ['academic'],
   },
 
   /* ----------------------------- double question --------------------------- */
@@ -415,6 +468,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: how to encourage more into the profession',
     ],
     keywords: ['school', 'leavers', 'choosing', 'train', 'teachers', 'encourage', 'profession', 'teaching', 'salaries', 'classrooms', 'workload', 'respect', 'pay', 'recruitment', 'status'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'dq-02',
@@ -426,6 +480,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: judge whether it is positive or negative',
     ],
     keywords: ['children', 'playing', 'games', 'screens', 'outside', 'change', 'development', 'gaming', 'outdoor', 'exercise', 'technology', 'obesity', 'parents', 'devices'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'dq-03',
@@ -437,6 +492,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: propose ways to protect them',
     ],
     keywords: ['species', 'plants', 'animals', 'disappearing', 'loss', 'protect', 'endangered', 'extinction', 'habitat', 'biodiversity', 'wildlife', 'conservation', 'deforestation', 'hunting', 'pollution'],
+    modules: ['academic'],
   },
   {
     id: 'dq-04',
@@ -448,6 +504,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: describe the effects on individuals and society',
     ],
     keywords: ['sleeping', 'generation', 'effects', 'lack', 'sleep', 'individuals', 'society', 'rest', 'tired', 'insomnia', 'bedtime', 'fatigue', 'screens', 'health', 'productivity'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'dq-05',
@@ -459,6 +516,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: how to change the situation',
     ],
     keywords: ['young', 'careers', 'skilled', 'trades', 'plumbing', 'carpentry', 'electrical', 'work', 'apprenticeships', 'vocational', 'plumbers', 'electricians', 'builders', 'university', 'manual', 'wages'],
+    modules: ['academic', 'general'],
   },
   {
     id: 'dq-06',
@@ -470,6 +528,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: how to keep them alive',
     ],
     keywords: ['traditional', 'festivals', 'customs', 'popular', 'traditions', 'alive', 'globalisation', 'heritage', 'celebrations', 'ceremonies', 'generations', 'identity', 'rituals'],
+    modules: ['academic'],
   },
   {
     id: 'dq-07',
@@ -481,6 +540,7 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: propose ways to raise participation',
     ],
     keywords: ['people', 'vote', 'elections', 'falling', 'governments', 'encourage', 'participation', 'voters', 'turnout', 'democracy', 'politicians', 'apathy', 'ballot', 'campaigns'],
+    modules: ['academic'],
   },
   {
     id: 'dq-08',
@@ -492,11 +552,33 @@ export const PROMPTS: PromptSpec[] = [
       'Answer the second question: judge whether it is positive or negative',
     ],
     keywords: ['news', 'social', 'media', 'newspapers', 'television', 'change', 'development', 'journalism', 'platforms', 'online', 'misinformation', 'articles', 'broadcasters', 'feeds', 'digital'],
+    modules: ['academic', 'general'],
   },
 ]
 
-/** A uniformly random prompt from the bank. */
-export function randomPrompt(): PromptSpec {
-  const index = Math.floor(Math.random() * PROMPTS.length)
-  return PROMPTS[index] ?? PROMPTS[0]
+/**
+ * Is this prompt one the given exam would ask? An absent `modules` means both,
+ * so a prompt added without the tag stays visible everywhere rather than
+ * silently vanishing from one exam.
+ */
+export function suitsModule(prompt: PromptSpec, module: Module): boolean {
+  return prompt.modules === undefined || prompt.modules.includes(module)
+}
+
+/** The prompts one exam would ask, in bank order. */
+export function promptsForModule(module: Module): PromptSpec[] {
+  return PROMPTS.filter((p) => suitsModule(p, module))
+}
+
+/**
+ * A uniformly random prompt from the bank, restricted to one exam's pool when a
+ * module is given. The pool is never empty — every question type keeps General
+ * Training entries — but the fallback guards a future mis-tagging rather than
+ * handing back `undefined`.
+ */
+export function randomPrompt(module?: Module): PromptSpec {
+  const pool = module ? promptsForModule(module) : PROMPTS
+  const from = pool.length > 0 ? pool : PROMPTS
+  const index = Math.floor(Math.random() * from.length)
+  return from[index] ?? from[0]
 }

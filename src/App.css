@@ -273,9 +273,37 @@
   }
 }
 
-/* Task switcher — same shell as the mode toggle, sat beside it. */
+/* Exam-type and task switchers — same shell as the mode toggle, sat beside it.
+   Exam type comes first because it is the outer choice: it decides what Task 1
+   even is. */
+.module-toggle,
 .task-toggle {
   margin-right: 4px;
+}
+
+/* The honest gap: General Training Task 1 is a letter, and the letter engine is
+   not built. Shaped like .exam-start so it reads as a considered state of the
+   app rather than an error. */
+.not-built {
+  padding: 40px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.not-built h2 {
+  font-family: var(--font-serif);
+}
+
+.not-built p {
+  max-width: 52ch;
+  color: var(--ink-soft);
+}
+
+.not-built .eyebrow {
+  color: var(--ink-soft);
 }
 
 /* Task 1 question picker: twelve prompts need a plain select, not a filter UI. */

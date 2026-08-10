@@ -5,11 +5,46 @@ Contracts live in `src/types.ts` and `src/meta.ts` — code against them exactly
 
 ## Product
 
-Single-page React+TS app, one learner, IELTS Academic Writing Task 2 only. Pure client-side,
+Single-page React+TS app, one learner, IELTS Writing — Academic Task 1 and Task 2, plus General
+Training Task 2 (General Training Task 1 is plan 009). Pure client-side,
 localStorage persistence, deterministic rule-based analysis (regex + word lists + arithmetic —
 no LLM, no server). Two modes: **Coach** (live inline feedback + structure rail + feedback panel)
 and **Exam** (40:00 countdown, zero feedback, paste blocked, full report at submit).
 The moat: IELTS-specific structural rules + a personal error profile tracked across sessions.
+
+## Modules (Academic / General Training)
+
+IELTS is TWO exams sharing a name. `Module = 'academic' | 'general'` lives in `types.ts` beside
+`TaskKind` and is chosen from a topbar switcher; `MODULE_META` in `meta.ts` holds the learner-facing
+names. What actually differs:
+
+| Section | Academic | General Training |
+|---|---|---|
+| Writing Task 1 | Describe a chart, graph, table or process | **Write a letter** (formal / semi-formal / informal) |
+| Writing Task 2 | Essay. Same criteria, same 250 words, same 40 min | Essay. **Same marking**, everyday topics rather than abstract ones |
+| Reading | 3 long academic passages | 3 sections: short workplace/social texts, work texts, one long general-interest text |
+| Reading band conversion | 30/40 → band 7.0 | **34–35/40 → band 7.0** — GT needs ~4 more correct for the same band |
+| Listening | Identical | Identical |
+| Speaking | Identical | Identical |
+
+Consequences pinned here so no module re-derives them:
+
+- **Task 2 analysis is module-blind.** Same criteria, same estimator, same rules. The ONLY
+  module-dependent thing is which questions are offered, which is a property of `prompts/bank.ts`
+  (`PromptSpec.modules`, absent = both). 12 of the 40 are Academic-only — abstract policy, demography,
+  regulation, biodiversity, globalisation — leaving 28 for General Training. `promptsForModule` filters
+  the picker; `App.tsx` passes the filtered list, so `PromptPicker` knows nothing about modules.
+- **`TASK_CONSTANTS` is NOT keyed by module.** General Training Task 1 allows the same 20 minutes and
+  the same 150-word minimum as Academic Task 1; Task 2 is 40 minutes and 250 words in both. Only the
+  task differs, never the clock.
+- **Storage is schemaVersion 3.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
+  because Academic was the only exam the app supported.
+- **The error profile is not module-scoped.** `categoryAppliesTo` scopes categories by TASK. When letter-
+  only categories arrive with plan 009 they will need the same treatment by module; today the sets
+  would be empty.
+- **General Training Task 1 is not built.** Selecting General + Task 1 renders an honest "letters are
+  not ready yet" card in place of the chart, editor, rail and coach panel — never a disabled button.
+  The letter engine is specified in plan 009.
 
 ## Canonical constants (single source of truth — no module invents its own)
 
@@ -166,8 +201,10 @@ criterion (`info` is advisory per the severity model and never blocks a reward).
 
 ### `profile/` (store.ts + profile.ts)
 localStorage key `ielts-coach.v1` (opaque; the version lives in the payload) →
-`{ schemaVersion: 2, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
-discarded: v1 → v2 stamps `task: 'task2'` on every record. Anything this build cannot migrate (corrupt,
+`{ schemaVersion: 3, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
+discarded: v1 → v2 stamps `task: 'task2'` on every record, v2 → v3 stamps `module: 'academic'`. The
+rungs are cumulative and apply in sequence, so a v1 store gains BOTH fields in one read; never reorder
+or collapse them. Anything this build cannot migrate (corrupt,
 or a newer version) is copied to `ielts-coach.backup.<ISO timestamp>` before the live key is replaced —
 a schemaVersion bump must never destroy a learner's history. Cap 200 sessions
 (drop oldest). `computeProfile`: per category, per-100-words rate per session; EWMA α = 0.35; trend from
@@ -181,7 +218,12 @@ import validates schemaVersion and replaces (confirm() before overwrite).
 environment, health, society, work, government, culture. Each with honest `parts` (checklist phrasing)
 and `keywords` (lowercase content words, 6–12 per prompt). Standard instruction text ends every prompt:
 "Give reasons for your answer and include any relevant examples from your own knowledge or experience.
-Write at least 250 words." Export `PROMPTS: PromptSpec[]` and `randomPrompt(): PromptSpec`.
+Write at least 250 words." Each also carries `modules: Module[]` — the exams that would ask it. The
+tagging rule is documented in the file header: both exams unless answering well needs a specialist or
+theoretical frame (economic policy, demography, taxation theory, arts funding, platform regulation,
+biodiversity science, political participation, globalisation), and BOTH when in doubt. Exports
+`PROMPTS: PromptSpec[]`, `randomPrompt(module?): PromptSpec`, `promptsForModule(module)` and
+`suitsModule(prompt, module)`.
 
 ## Exam mode specifics
 Paste/drop blocked in the editor when `blockPaste` (count attempts via `onPasteBlocked`; report shows

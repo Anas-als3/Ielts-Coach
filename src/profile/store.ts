@@ -3,11 +3,13 @@
  *
  * Store shape (key 'ielts-coach.v1' — the key is opaque, the version is in the
  * payload):
- *   { schemaVersion: 2, sessions: SessionRecord[] }
+ *   { schemaVersion: 3, sessions: SessionRecord[] }
  *
  * Versions are migrated forward on read, never discarded (see migrateSessions).
- * v1 -> v2 added SessionRecord.task. Anything this build cannot migrate is
- * copied to a timestamped 'ielts-coach.backup.<iso>' key before being replaced.
+ * v1 -> v2 added SessionRecord.task; v2 -> v3 added SessionRecord.module. The
+ * rungs apply in sequence, so a v1 store arriving at this build gains both
+ * fields in a single read. Anything this build cannot migrate is copied to a
+ * timestamped 'ielts-coach.backup.<iso>' key before being replaced.
  *
  * All reads tolerate missing/corrupt data (return empty rather than throw).
  * All writes are wrapped in try/catch so a full or unavailable localStorage
@@ -17,7 +19,7 @@
 import type { SessionRecord } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 /** Lowest stored version this build knows how to migrate forward from. */
 const MIN_MIGRATABLE_VERSION = 1
 /**
@@ -50,6 +52,9 @@ function looksLikeSession(value: unknown): value is SessionRecord {
   // `task` is optional on the wire: v1 records predate the field and the
   // migration stamps it. Present-but-wrong is still a reject.
   if (value.task !== undefined && value.task !== 'task1' && value.task !== 'task2') return false
+  // `module` is optional on the wire: pre-v3 records predate the field and the
+  // migration stamps it. Present-but-wrong is still a reject.
+  if (value.module !== undefined && value.module !== 'academic' && value.module !== 'general') return false
   const a = value.analysis
   if (!isRecordObject(a)) return false
   if (!Array.isArray(a.issues) || !a.issues.every(isRecordObject)) return false
@@ -88,6 +93,13 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
   if (version === 1) {
     out = out.map((s) => (s.task === undefined ? { ...s, task: 'task2' as const } : s))
     version = 2
+  }
+
+  // v2 -> v3: the `module` discriminator was added. Everything written before
+  // v3 was IELTS Academic, because that was the only exam the app supported.
+  if (version === 2) {
+    out = out.map((s) => (s.module === undefined ? { ...s, module: 'academic' as const } : s))
+    version = 3
   }
 
   return out

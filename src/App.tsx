@@ -4,17 +4,18 @@ import type {
   AppProps,
   Issue,
   IssueCategory,
+  Module,
   PromptSpec,
   SessionRecord,
   Task1PromptSpec,
   TaskKind,
   WritingMode,
 } from './types'
-import { TASK_CONSTANTS } from './meta'
+import { MODULE_META, TASK_CONSTANTS } from './meta'
 import { analyzeEssay, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
 import { computeProfile, computeTrends } from './profile/profile'
-import { PROMPTS, randomPrompt } from './prompts/bank'
+import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import Chart from './components/Chart'
 import Editor from './components/Editor'
@@ -49,6 +50,9 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
   const [view, setView] = useState<View>('write')
   const [mode, setMode] = useState<WritingMode>('coach')
   const [task, setTask] = useState<TaskKind>('task2')
+  // Academic is the default because it is the exam the app was built for and the
+  // only one whose Task 1 exists; General Training is opt-in until plan 009.
+  const [module, setModule] = useState<Module>('academic')
   const [prompt, setPrompt] = useState<PromptSpec | null>(() => initialPrompt ?? randomPrompt())
   // Two prompt slots rather than one union: switching task and switching back
   // should return the learner to the question they were already looking at.
@@ -71,6 +75,10 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
   const handleSubmitRef = useRef<() => void>(() => {})
 
   const taskConstants = TASK_CONSTANTS[task]
+  // Task 2 is marked identically in both exams, so the only module-dependent
+  // thing here is WHICH questions are offered: abstract topics are not asked of
+  // General Training candidates.
+  const modulePrompts = useMemo(() => promptsForModule(module), [module])
   const debouncedText = useDebounced(essayText, 400)
   const analysis = useMemo(() => {
     if (mode !== 'coach') return null
@@ -181,6 +189,7 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
       dateISO: new Date().toISOString(),
       mode,
       task,
+      module,
       promptId: activeSpec?.id ?? null,
       promptText: activeSpec?.text ?? '',
       questionType: task === 'task1' ? null : prompt?.type ?? null,
@@ -206,7 +215,9 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
     submittingRef.current = false
     examDeadlineRef.current = null
     if (task === 'task1') setTask1Prompt(randomTask1Prompt())
-    else setPrompt(nextPrompt ?? randomPrompt())
+    // Draw from the active exam's pool: a General Training learner asked to
+    // write about globalisation theory has been handed the wrong exam.
+    else setPrompt(nextPrompt ?? randomPrompt(module))
     setEssayText('')
     setFocusIssueId(null)
     setExamState('idle')
@@ -219,6 +230,9 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
     submittingRef.current = false
     examDeadlineRef.current = null
     setTask(session.task)
+    // Redrafting must reopen the exam the essay was written for, or the picker
+    // would not list the very prompt being redrafted.
+    setModule(session.module)
     if (session.task === 'task1') {
       const t1 = TASK1_PROMPTS.find((x) => x.id === session.promptId)
       if (t1) setTask1Prompt(t1)
@@ -250,6 +264,29 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
     setFocusIssueId(null)
     // The cheat sheet is Task 2 only, so that tab cannot survive the switch.
     if (next === 'task1' && panelTab === 'cheatsheet') setPanelTab('feedback')
+  }
+
+  function switchModule(next: Module) {
+    if (next === module) return
+    if (mode === 'exam' && examState === 'running') {
+      const leave = window.confirm(
+        'The exam clock is running. Switch exam type and abandon this attempt?',
+      )
+      if (!leave) return
+    }
+    submittingRef.current = false
+    examDeadlineRef.current = null
+    setModule(next)
+    // Task 1 is a different task in the two exams, so an answer written for one
+    // cannot be marked against the other.
+    setEssayText('')
+    setExamState('idle')
+    setFocusIssueId(null)
+    // A prompt the new exam does not ask disappears from the picker, so leaving
+    // it selected would strand the learner on a question they cannot see listed.
+    // Prompts that suit both exams — the majority — survive the switch, which is
+    // why the seeded test prompt stays put and the UI suite stays deterministic.
+    setPrompt((current) => (current && suitsModule(current, next) ? current : randomPrompt(next)))
   }
 
   function switchMode(next: WritingMode) {
@@ -295,6 +332,14 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
   const inExam = mode === 'exam' && view === 'write'
   const inlineIssues =
     mode === 'coach' && analysis ? analysis.issues.filter((i) => i.start != null) : []
+  /**
+   * General Training Task 1 is a letter, and the letter rules are plan 009. The
+   * chart engine would happily mark a letter and produce a confident band for
+   * it, so the app says the honest thing instead of running the wrong exam. The
+   * General button is NOT disabled: a learner is entitled to see what their exam
+   * contains and which parts are ready.
+   */
+  const generalTask1Unbuilt = module === 'general' && task === 'task1'
 
   return (
     <div className={`app${inExam ? ' app-exam' : ''}`}>
@@ -339,6 +384,22 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
                 running={examState === 'running'}
               />
             )}
+            <div className="mode-toggle module-toggle" role="group" aria-label="IELTS exam type">
+              <button
+                className={module === 'academic' ? 'mode-btn active' : 'mode-btn'}
+                onClick={() => switchModule('academic')}
+                title={MODULE_META.academic.blurb}
+              >
+                Academic
+              </button>
+              <button
+                className={module === 'general' ? 'mode-btn active' : 'mode-btn'}
+                onClick={() => switchModule('general')}
+                title={MODULE_META.general.blurb}
+              >
+                General
+              </button>
+            </div>
             <div className="mode-toggle task-toggle" role="group" aria-label="IELTS task">
               <button
                 className={task === 'task1' ? 'mode-btn active' : 'mode-btn'}
@@ -367,7 +428,9 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
                 Exam
               </button>
             </div>
-            {(mode === 'coach' || examState === 'running') && (
+            {/* Nothing to submit while the General Training letter sheet does not
+                exist — a greyed-out "Finish & review" would only look broken. */}
+            {(mode === 'coach' || examState === 'running') && !generalTask1Unbuilt && (
               <button
                 className="btn btn-primary"
                 onClick={handleSubmit}
@@ -383,7 +446,11 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
 
       {view === 'write' && (
         <main className="workspace">
-          {mode === 'coach' && (
+          {/* The rail and the coach panel describe an answer sheet. With no sheet
+              on the desk they would show an empty Task 1 checklist and a model
+              CHART answer next to a card that just said letters do not exist
+              yet — so they stand down with the editor. */}
+          {mode === 'coach' && !generalTask1Unbuilt && (
             <aside className="rail-zone">
               <StructureRail
                 checks={analysis?.structure ?? []}
@@ -395,97 +462,118 @@ export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}
           )}
 
           <section className="sheet-zone">
-            {task === 'task1' ? (
-              <>
-                {!inExam && (
-                  <div className="t1-picker card">
-                    <label className="eyebrow" htmlFor="t1-select">
-                      Task 1 question
-                    </label>
-                    <select
-                      id="t1-select"
-                      className="t1-select"
-                      value={task1Prompt.id}
-                      onChange={(e) => {
-                        const next = TASK1_PROMPTS.find((p) => p.id === e.target.value)
-                        if (next) setTask1Prompt(next)
-                      }}
-                    >
-                      {TASK1_PROMPTS.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.chart.kind} · {p.chart.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {/* The chart IS the question, so exam mode must show it too. */}
-                <div className="exam-prompt card">
-                  <p className="eyebrow">Task 1 · write at least {taskConstants.minWords} words</p>
-                  <p className="exam-prompt-text">{task1Prompt.text}</p>
-                  <Chart chart={task1Prompt.chart} />
-                </div>
-              </>
-            ) : (
-              <>
-                {!inExam && (
-                  <PromptPicker prompts={PROMPTS} current={prompt} onPick={(p) => setPrompt(p)} />
-                )}
-                {inExam && prompt && (
-                  <div className="exam-prompt card">
-                    <p className="eyebrow">
-                      Task 2 · write at least {taskConstants.minWords} words
-                    </p>
-                    <p className="exam-prompt-text">{prompt.text}</p>
-                  </div>
-                )}
-              </>
-            )}
-
-            {inExam && examState === 'idle' ? (
-              <div className="exam-start card">
-                <h2>Exam conditions</h2>
+            {generalTask1Unbuilt ? (
+              <div className="not-built card">
+                <p className="eyebrow">General Training · Task 1</p>
+                <h2>Letters are not ready yet</h2>
                 <p>
-                  {Math.round(taskConstants.examDurationSec / 60)} minutes, no feedback, no
-                  highlights. The full report appears when you submit — exactly like the real thing.
+                  General Training Task 1 asks you to write a letter, not to describe a chart. That
+                  needs its own marking rules, so it is being built separately. Task 2 is marked
+                  identically in both exams and is ready to use now.
                 </p>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    pacingRef.current = []
-                    pasteAttemptsRef.current = 0
-                    submittingRef.current = false
-                    examDeadlineRef.current = Date.now() + taskConstants.examDurationSec * 1000
-                    setExamState('running')
-                  }}
-                >
-                  Start the clock
+                <button className="btn btn-primary" onClick={() => switchTask('task2')}>
+                  Go to Task 2
                 </button>
               </div>
             ) : (
-              <Editor
-                text={essayText}
-                onChange={setEssayText}
-                issues={inlineIssues}
-                placeholder={
-                  mode === 'coach'
-                    ? task === 'task1'
-                      ? 'Read the chart first: what is the overall pattern? Open by rewording the title.'
-                      : 'Plan first: position, two main ideas, examples. Then write.'
-                    : undefined
-                }
-                focusIssueId={focusIssueId}
-                blockPaste={inExam}
-                onPasteBlocked={() => {
-                  pasteAttemptsRef.current += 1
-                }}
-                spellCheckEnabled={mode === 'coach'}
-                showHighlights={mode === 'coach' && debouncedText === essayText}
-              />
+              <>
+              {task === 'task1' ? (
+                <>
+                  {!inExam && (
+                    <div className="t1-picker card">
+                      <label className="eyebrow" htmlFor="t1-select">
+                        Task 1 question
+                      </label>
+                      <select
+                        id="t1-select"
+                        className="t1-select"
+                        value={task1Prompt.id}
+                        onChange={(e) => {
+                          const next = TASK1_PROMPTS.find((p) => p.id === e.target.value)
+                          if (next) setTask1Prompt(next)
+                        }}
+                      >
+                        {TASK1_PROMPTS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.chart.kind} · {p.chart.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {/* The chart IS the question, so exam mode must show it too. */}
+                  <div className="exam-prompt card">
+                    <p className="eyebrow">Task 1 · write at least {taskConstants.minWords} words</p>
+                    <p className="exam-prompt-text">{task1Prompt.text}</p>
+                    <Chart chart={task1Prompt.chart} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {!inExam && (
+                    <PromptPicker
+                      prompts={modulePrompts}
+                      current={prompt}
+                      onPick={(p) => setPrompt(p)}
+                    />
+                  )}
+                  {inExam && prompt && (
+                    <div className="exam-prompt card">
+                      <p className="eyebrow">
+                        Task 2 · write at least {taskConstants.minWords} words
+                      </p>
+                      <p className="exam-prompt-text">{prompt.text}</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {inExam && examState === 'idle' ? (
+                <div className="exam-start card">
+                  <h2>Exam conditions</h2>
+                  <p>
+                    {Math.round(taskConstants.examDurationSec / 60)} minutes, no feedback, no
+                    highlights. The full report appears when you submit — exactly like the real thing.
+                  </p>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      pacingRef.current = []
+                      pasteAttemptsRef.current = 0
+                      submittingRef.current = false
+                      examDeadlineRef.current = Date.now() + taskConstants.examDurationSec * 1000
+                      setExamState('running')
+                    }}
+                  >
+                    Start the clock
+                  </button>
+                </div>
+              ) : (
+                <Editor
+                  text={essayText}
+                  onChange={setEssayText}
+                  issues={inlineIssues}
+                  placeholder={
+                    mode === 'coach'
+                      ? task === 'task1'
+                        ? 'Read the chart first: what is the overall pattern? Open by rewording the title.'
+                        : 'Plan first: position, two main ideas, examples. Then write.'
+                      : undefined
+                  }
+                  focusIssueId={focusIssueId}
+                  blockPaste={inExam}
+                  onPasteBlocked={() => {
+                    pasteAttemptsRef.current += 1
+                  }}
+                  spellCheckEnabled={mode === 'coach'}
+                  showHighlights={mode === 'coach' && debouncedText === essayText}
+                />
+              )}
+              </>
             )}
           </section>
 
-          {mode === 'coach' && (
+          {mode === 'coach' && !generalTask1Unbuilt && (
             <aside className="panel-zone">
               {/* The cheat sheet is Task 2 content. Rather than show a tab that
                   teaches the wrong task, Task 1 gets the feedback panel alone

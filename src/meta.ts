@@ -1,4 +1,18 @@
-import type { Criterion, IssueCategory, QuestionType, TaskKind } from './types'
+import type { Criterion, IssueCategory, Module, QuestionType, TaskKind } from './types'
+
+/** Learner-facing names and the one-line difference that matters. */
+export const MODULE_META: Record<Module, { label: string; short: string; blurb: string }> = {
+  academic: {
+    label: 'Academic',
+    short: 'Academic',
+    blurb: 'For university entry. Task 1 describes a chart or process.',
+  },
+  general: {
+    label: 'General Training',
+    short: 'General',
+    blurb: 'For migration and work. Task 1 is a letter.',
+  },
+}
 
 /** Display metadata for the four IELTS band criteria. Task 2 wording is the default. */
 export const CRITERION_META: Record<Criterion, { label: string; short: string }> = {
@@ -147,6 +161,13 @@ export const QUESTION_TYPE_META: Record<QuestionType, { label: string; mustAddre
 /**
  * Per-task exam constants. Task 2 keeps its original values so existing
  * behaviour is unchanged; Task 1 is 20 minutes and 150 words.
+ *
+ * NOT keyed by module, and that was checked rather than assumed: General
+ * Training Task 1 (the letter) allows the same 20 minutes and the same 150-word
+ * minimum as Academic Task 1, and Task 2 is 40 minutes and 250 words in both
+ * exams. Only the TASK the learner is set differs, never the clock. If a future
+ * module ever differs on timing this is the table that grows a second
+ * dimension, and `App.tsx` starts reading `TASK_CONSTANTS[module][task]`.
  */
 export const TASK_CONSTANTS: Record<
   TaskKind,
