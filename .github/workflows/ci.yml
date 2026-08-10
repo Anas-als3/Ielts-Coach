@@ -49,6 +49,9 @@ jobs:
       # a green CI run mean anything.
       - run: npm ci
 
+      # Since plan 024, `tsconfig.json`'s `include` covers `tests` as well as
+      # `src`, so this step gates fixtures against the same types the app
+      # uses — no config change was needed here for the scope to widen.
       - name: Typecheck
         run: npm run typecheck
 
