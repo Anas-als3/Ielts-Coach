@@ -400,6 +400,18 @@ confrontation card ("<category>: seen in N of your last M essays"). Dashboard: s
 (date, mode, type, words, band, top issue); band trend chart (exam sessions emphasised); per-category
 trend sparklines for focusCategories; export/import buttons.
 
+**Progress is a writing view: the band trend, the error sparklines and the session table count essays
+only, deliberately** — a Reading or Listening result carries no `IssueCategory` for them to plot.
+**Export and Import act on the WHOLE store, not the writing-only list the page renders.** `exportData`
+serialises every saved session regardless of section; `importData` replaces all of them. Export is
+reachable from both the populated header and the empty state, so a learner with Reading or Listening
+history but no essays can still take a copy before importing anything over it. The import confirm counts
+every section from the whole store (`DashboardProps.allSessions`), not the writing-only `sessions` the
+page renders from — the count must match what `importData` is about to replace, or it understates what
+a wrong file destroys. The empty state's own line ("Write your first essay and your profile starts
+here.") stays unchanged because it is still accurate — this page is the writing record — and any
+Reading or Listening data is named separately, in its own line, rather than folded into that sentence.
+
 ## Cut from v1 (deliberate)
 Handwriting-pace mode · UK/US consistency · cohesion X-ray overlay · warm-up drills · dictionary
 spell-check (browser spellcheck covers Coach) · per-finding dismissal · plan-phase timer · Task 1 (see "Task 1 (v2)" below).

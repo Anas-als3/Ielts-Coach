@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react'
 import type { ChangeEvent } from 'react'
-import type { DashboardProps, IssueCategory, Severity, WritingSessionRecord } from '../types'
+import type { DashboardProps, IssueCategory, SessionRecord, Severity, WritingSessionRecord } from '../types'
+import { isListeningSession, isReadingSession, isWritingSession } from '../types'
 import { CATEGORY_META, MODULE_META, QUESTION_TYPE_META } from '../meta'
 import { TASK1_PROMPTS } from '../prompts/task1Bank'
 import { sortByDateAscending } from '../profile/chronology'
@@ -17,6 +18,33 @@ function fmtDate(iso: string, withYear = false): string {
       ? { day: 'numeric', month: 'short', year: 'numeric' }
       : { day: 'numeric', month: 'short' },
   )
+}
+
+/**
+ * Human, singular/plural-correct summary of what a session list holds, split
+ * by section — "1 essay", "1 Reading paper and 2 Listening papers", and so
+ * on. Zero-count sections are omitted entirely, so it reads correctly whether
+ * called with the writing-only list, the whole store, or anything in between.
+ *
+ * Shared by the empty-state's export line and the import confirm so the two
+ * cannot drift into naming a different count for the same store — which is
+ * exactly how this page's original bug happened.
+ */
+function describeSections(list: SessionRecord[]): string {
+  const essays = list.filter(isWritingSession).length
+  const readingPapers = list.filter(isReadingSession).length
+  const listeningPapers = list.filter(isListeningSession).length
+  const parts: string[] = []
+  if (essays > 0) parts.push(`${essays} essay${essays === 1 ? '' : 's'}`)
+  if (readingPapers > 0) {
+    parts.push(`${readingPapers} Reading paper${readingPapers === 1 ? '' : 's'}`)
+  }
+  if (listeningPapers > 0) {
+    parts.push(`${listeningPapers} Listening paper${listeningPapers === 1 ? '' : 's'}`)
+  }
+  if (parts.length === 0) return ''
+  if (parts.length === 1) return parts[0]
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
 }
 
 const SEV_RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 }
@@ -214,6 +242,7 @@ const TREND_LABEL: Record<'improving' | 'flat' | 'worsening', string> = {
 
 export default function Dashboard({
   sessions,
+  allSessions,
   profile,
   trends,
   onOpenSession,
@@ -237,8 +266,16 @@ export default function Dashboard({
     if (!file) return
     try {
       const text = await file.text()
+      // Read from `allSessions`, the WHOLE store, not the writing-only
+      // `sessions` — `importData` replaces every section, and the count here
+      // must match what it actually destroys, not just the essays this page
+      // renders. On a genuinely empty store there is nothing to name, and a
+      // first-run import is a legitimate restore, not something to scare.
+      const summary = describeSections(allSessions)
       const ok = window.confirm(
-        `Importing replaces your current history (${sessions.length} essays) with the file's contents. Continue?`,
+        summary === ''
+          ? 'Importing will restore your history from this file. Continue?'
+          : `Importing replaces your current history (${summary}) with the file's contents. Continue?`,
       )
       if (!ok) return
       onImport(text)
@@ -288,6 +325,19 @@ export default function Dashboard({
             hidden
             onChange={handleFilePicked}
           />
+          {/* Export is a dead end on a genuinely first run — there is nothing
+              to export yet. The bug this guards against is specifically that
+              Reading or Listening data EXISTS here and could not be reached. */}
+          {allSessions.length > 0 && (
+            <>
+              <p className="db-empty-line">
+                You have {describeSections(allSessions)} saved. Exporting includes them.
+              </p>
+              <button className="btn" onClick={onExport}>
+                Export data
+              </button>
+            </>
+          )}
         </div>
       </div>
     )

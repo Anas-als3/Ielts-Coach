@@ -730,6 +730,16 @@ export interface ReportProps {
 
 export interface DashboardProps {
   sessions: WritingSessionRecord[];
+  /**
+   * EVERY saved session, not only the essays in `sessions`.
+   *
+   * The page is a writing view and `sessions` stays writing-only — but two of
+   * its controls act on the WHOLE store: `onExport` writes every section to the
+   * file, and `onImport` replaces every section. Counting those from the
+   * filtered list told a learner with a complete Reading history that importing
+   * would replace "0 essays", immediately before it destroyed all of it.
+   */
+  allSessions: SessionRecord[];
   profile: ErrorProfile;
   trends: CategoryTrend[];
   onOpenSession: (id: string) => void;
