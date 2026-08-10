@@ -24,6 +24,8 @@ import type { ListeningAnswers } from './listening/types'
 import { MODULE_META, TASK_CONSTANTS } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
+import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/draft'
+import type { WritingDraft } from './profile/draft'
 import { computeProfile, computeTrends } from './profile/profile'
 import { isBefore } from './profile/chronology'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
@@ -132,6 +134,13 @@ export default function App({
    * can quietly time out while they are reading their report.
    */
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null)
+  /**
+   * A non-urgent notice about the exam clock: set when a restored draft's exam
+   * expired while the tab was closed, or when the running clock hits zero on a
+   * blank sheet. `role="status"`, not `role="alert"` like `saveFailureMessage`
+   * above — nothing was lost here, so this is not a warning.
+   */
+  const [clockNotice, setClockNotice] = useState<string | null>(null)
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null)
   const [examState, setExamState] = useState<ExamState>('idle')
   const [examSecondsLeft, setExamSecondsLeft] = useState(TASK_CONSTANTS.task2.examDurationSec)
@@ -157,6 +166,13 @@ export default function App({
   const essayTextRef = useRef(essayText)
   essayTextRef.current = essayText
   const handleSubmitRef = useRef<() => void>(() => {})
+  // The draft found at mount, held until the learner decides. NEVER applied
+  // silently: a draft is an offer, because auto-restoring would overwrite the
+  // empty sheet a learner deliberately reloaded to get.
+  const [pendingDraft, setPendingDraft] = useState<WritingDraft | null>(() => loadDraft())
+  // The exact text last written to the draft key — what beforeunload compares
+  // against to know whether closing the tab would lose anything.
+  const draftTextRef = useRef('')
 
   const taskConstants = TASK_CONSTANTS[task]
   // Task 2 is marked identically in both exams, so the only module-dependent
@@ -279,7 +295,22 @@ export default function App({
   }, [taskConstants.examDurationSec, examState])
 
   useEffect(() => {
-    if (examState === 'running' && examSecondsLeft === 0) handleSubmit()
+    if (examState !== 'running' || examSecondsLeft !== 0) return
+    if (countWords(essayTextRef.current) === 0) {
+      // An examiner does not mark a blank script. Submitting here would put a
+      // Band-4-floor session into the history and the error profile for an
+      // essay that was never written — the manual paths already refuse this
+      // (the keyboard guard above, the disabled submit button), and expiry
+      // was the one path that did not.
+      examDeadlineRef.current = null
+      setExamState('idle')
+      setExamSecondsLeft(taskConstants.examDurationSec)
+      setClockNotice(
+        'Time is up. A blank answer sheet is never submitted — nothing was added to your history.',
+      )
+      return
+    }
+    handleSubmit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examSecondsLeft, examState])
 
@@ -297,6 +328,59 @@ export default function App({
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, mode, examState])
+
+  /* ---------------------------- draft persistence ---------------------------- */
+  // Debounced off the EXISTING `debouncedText` (400ms) — no new debounce
+  // machinery. This is the whole answer to 025-a: the essay used to live only
+  // in `useState`, so a reload, crash or tab close lost it outright.
+  useEffect(() => {
+    if (view !== 'write') return
+    // While a restore offer is undecided, the effect must not run at all:
+    // essayText is '' at mount, and the zero-word branch below would delete
+    // the very draft the card is offering to restore.
+    if (pendingDraft !== null) return
+    if (countWords(debouncedText) === 0) {
+      clearDraft()
+      draftTextRef.current = ''
+      return
+    }
+    const activeSpec = isLetter ? letterPrompt : task === 'task1' ? task1Prompt : prompt
+    saveDraft({
+      task,
+      module,
+      promptId: activeSpec?.id ?? null,
+      essayText: debouncedText,
+      mode,
+      examDeadlineEpochMs: examState === 'running' ? examDeadlineRef.current : null,
+      savedAtISO: new Date().toISOString(),
+    })
+    draftTextRef.current = debouncedText
+  }, [debouncedText, view, task, module, mode, examState, isLetter, letterPrompt, task1Prompt, prompt, pendingDraft])
+
+  /**
+   * Warn exactly when closing the tab would destroy something no key holds:
+   * a Reading/Listening paper mid-run (memory-only by the runners' own
+   * doctrine — 025-b), or write-view text newer than the draft on disk (the
+   * ≤400ms debounce window the draft cannot cover). Once the draft is on
+   * disk, closing the tab is SAFE, and a warning then would be a lie that
+   * teaches learners to click through warnings.
+   */
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const runnerLive =
+        (view === 'reading' && readingStage === 'running') ||
+        (view === 'listening' && listeningStage === 'running')
+      const draftStale =
+        view === 'write' &&
+        countWords(essayTextRef.current) > 0 &&
+        essayTextRef.current !== draftTextRef.current
+      if (!runnerLive && !draftStale) return
+      e.preventDefault()
+      e.returnValue = '' // legacy Chrome requires an assigned returnValue
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [view, readingStage, listeningStage])
 
   /* --------------------------------- actions -------------------------------- */
   handleSubmitRef.current = () => handleSubmit()
@@ -365,6 +449,11 @@ export default function App({
     setExamState('idle')
     setExamSecondsLeft(taskConstants.examDurationSec)
     examDeadlineRef.current = null
+    // Cleared HERE rather than left to the persistence effect: the view is
+    // about to become 'report', so that effect never runs again to do it, and
+    // a stale draft would offer back an essay that is already in the history.
+    clearDraft()
+    draftTextRef.current = ''
     setView('report')
     // submittingRef stays true until a new writing session starts, so a
     // double-fired timer expiry can never save the same essay twice.
@@ -408,11 +497,83 @@ export default function App({
     setView('write')
   }
 
+  /**
+   * Applies an offered draft — called only from the restore card, never on
+   * mount. `pendingDraft` holds the offer until this or `discardDraft` runs,
+   * so the learner always decides.
+   */
+  function restoreDraft(draft: WritingDraft): void {
+    submittingRef.current = false
+    setTask(draft.task)
+    setModule(draft.module)
+    // Same three-branch lookup as `handleRedraft`: a `promptId` no bank
+    // contains leaves the current slot untouched — the text still restores.
+    if (draft.task === 'task1' && draft.module === 'general') {
+      const letter = LETTER_PROMPTS.find((x) => x.id === draft.promptId)
+      if (letter) setLetterPrompt(letter)
+    } else if (draft.task === 'task1') {
+      const t1 = TASK1_PROMPTS.find((x) => x.id === draft.promptId)
+      if (t1) setTask1Prompt(t1)
+    } else {
+      setPrompt(PROMPTS.find((x) => x.id === draft.promptId) ?? null)
+    }
+    setEssayText(draft.essayText)
+    setFocusIssueId(null)
+    if (
+      draft.mode === 'exam' &&
+      draft.examDeadlineEpochMs !== null &&
+      !isExamDraftExpired(draft, Date.now())
+    ) {
+      // The clock lost no time while the tab was closed — that is the point of
+      // persisting the absolute deadline rather than the seconds left.
+      pacingRef.current = []
+      pasteAttemptsRef.current = 0
+      examDeadlineRef.current = draft.examDeadlineEpochMs
+      setMode('exam')
+      setExamState('running')
+      setExamSecondsLeft(Math.max(0, Math.round((draft.examDeadlineEpochMs - Date.now()) / 1000)))
+    } else {
+      // Coach, exam-idle, or an expired exam. Never auto-submit on mount:
+      // submitting is an act the learner performs, and an app that marks an
+      // essay nobody handed in is hostile. Restoring into COACH — which IS
+      // exam-idle, `examState` is 'idle' — is forced by the UI itself: in exam
+      // mode + idle the editor is not rendered (the "Start the clock" card
+      // shows instead), so the restored text would be invisible, and starting
+      // the clock over a pre-filled sheet is a head start the real exam does
+      // not allow.
+      examDeadlineRef.current = null
+      setMode('coach')
+      setExamState('idle')
+      setExamSecondsLeft(TASK_CONSTANTS[draft.task].examDurationSec)
+      if (isExamDraftExpired(draft, Date.now())) {
+        setClockNotice(
+          'The exam clock ran out while you were away. Your essay was kept — review it here and submit when you are ready.',
+        )
+      }
+    }
+    setPendingDraft(null)
+    setView('write')
+    // No `clearDraft()` here: the debounced persistence effect re-saves within
+    // 400ms anyway, and clearing first would open a window where a crash loses
+    // the essay twice.
+  }
+
+  function discardDraft(): void {
+    clearDraft()
+    draftTextRef.current = ''
+    setPendingDraft(null)
+  }
+
   function switchTask(next: TaskKind) {
     if (next === task) return
     if (mode === 'exam' && examState === 'running') {
       const leave = window.confirm(
         'The exam clock is running. Switch task and abandon this attempt?',
+      )
+      if (!leave) return
+    } else if (countWords(essayText) > 0) {
+      const leave = window.confirm(
+        'Switching task clears the answer sheet and discards the essay in progress. Switch anyway?',
       )
       if (!leave) return
     }
@@ -422,6 +583,11 @@ export default function App({
     // A Task 2 essay sitting in a Task 1 answer sheet would be scored against
     // the wrong rules and produce confidently wrong feedback.
     setEssayText('')
+    // Consent to clear IS the "explicit discard" the draft contract names;
+    // keeping a draft the learner just agreed to abandon would re-offer it at
+    // next launch as if the consent never happened.
+    clearDraft()
+    draftTextRef.current = ''
     setExamState('idle')
     setExamSecondsLeft(TASK_CONSTANTS[next].examDurationSec)
     setFocusIssueId(null)
@@ -437,6 +603,11 @@ export default function App({
     if (view === 'write' && mode === 'exam' && examState === 'running') {
       const leave = window.confirm(
         'The exam clock is running. Switch exam type and abandon this attempt?',
+      )
+      if (!leave) return
+    } else if (view === 'write' && countWords(essayText) > 0) {
+      const leave = window.confirm(
+        'Switching exam type clears the answer sheet and discards the essay in progress. Switch anyway?',
       )
       if (!leave) return
     }
@@ -469,6 +640,11 @@ export default function App({
     submittingRef.current = false
     examDeadlineRef.current = null
     setEssayText('')
+    // Consent to clear IS the "explicit discard" the draft contract names;
+    // keeping a draft the learner just agreed to abandon would re-offer it at
+    // next launch as if the consent never happened.
+    clearDraft()
+    draftTextRef.current = ''
     setExamState('idle')
     setFocusIssueId(null)
   }
@@ -885,6 +1061,28 @@ export default function App({
           )}
 
           <section className="sheet-zone">
+            {clockNotice !== null && (
+              <div className="card" role="status">
+                <p>{clockNotice}</p>
+                <button className="btn" onClick={() => setClockNotice(null)}>
+                  Dismiss
+                </button>
+              </div>
+            )}
+            {pendingDraft !== null && (
+              <div className="card" role="status">
+                <p>
+                  You have an unfinished draft from earlier ({countWords(pendingDraft.essayText)}{' '}
+                  words).
+                </p>
+                <button className="btn btn-primary" onClick={() => restoreDraft(pendingDraft)}>
+                  Restore draft
+                </button>
+                <button className="btn" onClick={discardDraft}>
+                  Discard draft
+                </button>
+              </div>
+            )}
             {isLetter ? (
               <>
                 {!inExam && (
@@ -992,6 +1190,10 @@ export default function App({
                       submittingRef.current = false
                       examDeadlineRef.current = Date.now() + taskConstants.examDurationSec * 1000
                       setExamState('running')
+                      // A notice from an earlier draft (e.g. "the clock ran
+                      // out while you were away") must not survive into a
+                      // freshly started exam.
+                      setClockNotice(null)
                     }}
                   >
                     Start the clock
