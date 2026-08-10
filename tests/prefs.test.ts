@@ -15,8 +15,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { daysUntil, loadPrefs, sanitizePrefs, savePrefs } from '../src/profile/prefs'
+import { buildExportJson, importData } from '../src/profile/store'
 
 const PREFS_KEY = 'ielts-coach.prefs.v1'
+const STORAGE_KEY = 'ielts-coach.v1'
 
 /**
  * Minimal in-memory localStorage on globalThis.window. The store reads
@@ -205,5 +207,94 @@ describe('daysUntil', () => {
 
   it('an unparseable date is null', () => {
     expect(daysUntil('2026-13-40', new Date(2026, 7, 10))).toBeNull()
+  })
+})
+
+/**
+ * The export/import rider (SPEC.md "Preferences"): `buildExportJson` adds a
+ * `prefs` field when non-empty, `importData` restores it AFTER the file has
+ * validated — sanitized field-by-field, same as a normal read — so prefs
+ * never rescue a bad file and a bad prefs value never poisons a good import.
+ * `tests/store.test.ts` stays untouched (016's territory); these cases drive
+ * `buildExportJson`/`importData` from `../src/profile/store` instead.
+ */
+describe('prefs ride the export additively', () => {
+  it('the export carries saved prefs', () => {
+    savePrefs({ targetOverall: 7 })
+    const parsed = JSON.parse(buildExportJson()) as { schemaVersion: number; prefs?: { targetOverall?: number } }
+    expect(parsed.schemaVersion).toBe(5)
+    expect(parsed.prefs?.targetOverall).toBe(7)
+  })
+
+  it('the export omits the field entirely when no prefs exist', () => {
+    const parsed = JSON.parse(buildExportJson()) as Record<string, unknown>
+    expect('prefs' in parsed).toBe(false)
+  })
+
+  it('export then import round-trips prefs, sessions intact', () => {
+    // A minimal record that passes `looksLikeSession` (mirrors the fixture
+    // tests/store.test.ts:58-91 uses), so "sessions intact" is checked against
+    // real session data, not just an empty array both sides agree on trivially.
+    const session = {
+      id: 's1',
+      dateISO: '2026-08-01T00:00:00.000Z',
+      mode: 'coach',
+      promptId: 'op-01',
+      promptText: 'Some prompt text.',
+      questionType: 'opinion',
+      essayText: 'An essay.',
+      durationSec: null,
+      pacing: null,
+      pasteAttempts: null,
+      analysis: {
+        issues: [],
+        paragraphs: [],
+        structure: [],
+        stats: { wordCount: 260 },
+        band: {
+          overall: 7,
+          byCriterion: { TR: 7, CC: 7, LR: 7, GRA: 7 },
+          rationale: { TR: ['ok'], CC: ['ok'], LR: ['ok'], GRA: ['ok'] },
+        },
+      },
+    }
+    store.set(STORAGE_KEY, JSON.stringify({ schemaVersion: 5, sessions: [session] }))
+    savePrefs({ targetOverall: 7, module: 'general' })
+
+    const json = buildExportJson()
+    store.clear()
+    importData(json)
+
+    expect(loadPrefs()).toEqual({ targetOverall: 7, module: 'general' })
+    const restored = JSON.parse(store.get(STORAGE_KEY) as string) as { sessions: Array<{ id: string }> }
+    expect(restored.sessions.map((s) => s.id)).toEqual(['s1'])
+  })
+
+  it('importing a file without prefs leaves the current prefs alone', () => {
+    savePrefs({ targetOverall: 7 })
+    importData(JSON.stringify({ schemaVersion: 5, sessions: [] }))
+    expect(loadPrefs()).toEqual({ targetOverall: 7 })
+  })
+
+  it("hostile prefs in an imported file don't poison the import — the file's good fields still restore", () => {
+    store.set(STORAGE_KEY, JSON.stringify({ schemaVersion: 5, sessions: [] }))
+    importData(
+      JSON.stringify({
+        schemaVersion: 5,
+        sessions: [],
+        prefs: { targetOverall: 99, examDateISO: '2026-11-07' },
+      }),
+    )
+    expect(loadPrefs()).toEqual({ examDateISO: '2026-11-07' })
+  })
+
+  it("an invalid file's prefs never rescue it — import throws and prefs are untouched", () => {
+    savePrefs({ targetOverall: 7 })
+    expect(() =>
+      importData(
+        JSON.stringify({ schemaVersion: 99, sessions: [], prefs: { targetOverall: 5 } }),
+      ),
+    ).toThrow()
+    expect(loadPrefs()).toEqual({ targetOverall: 7 })
   })
 })
