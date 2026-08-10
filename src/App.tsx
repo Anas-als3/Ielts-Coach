@@ -25,6 +25,7 @@ import { MODULE_META, TASK_CONSTANTS } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
 import { computeProfile, computeTrends } from './profile/profile'
+import { isBefore } from './profile/chronology'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
@@ -665,7 +666,11 @@ export default function App({
 
   const reportSession = writingSessions.find((s) => s.id === reportSessionId) ?? null
   const previousSession = reportSession
-    ? writingSessions.filter((s) => s.dateISO < reportSession.dateISO).slice(-1)[0] ?? null
+    // `isBefore` compares instants; `<` on the raw strings compares text, which
+    // an imported file's offset can invert. `.slice(-1)[0]` is still the most
+    // recent earlier session, because `sessions` is always `loadSessions()` and
+    // that is instant-ordered.
+    ? writingSessions.filter((s) => isBefore(s, reportSession)).slice(-1)[0] ?? null
     : null
 
   const inExam = mode === 'exam' && view === 'write'

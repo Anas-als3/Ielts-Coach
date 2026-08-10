@@ -42,6 +42,7 @@ import type {
 } from '../types'
 import { isWritingSession } from '../types'
 import { categoryAppliesTo } from '../meta'
+import { sortByDateAscending } from './chronology'
 
 const EWMA_ALPHA = 0.35
 const TREND_WINDOW = 6
@@ -84,9 +85,17 @@ function per100Words(count: number, words: number): number {
   return words > 0 ? (count / words) * 100 : 0
 }
 
-/** Oldest first. ISO-8601 date strings sort correctly as text. */
+/**
+ * Oldest first, by parsed INSTANT — see `./chronology`.
+ *
+ * This function used to sort by text, under a comment claiming ISO-8601 strings
+ * sort correctly that way. They do not once an imported file carries an offset,
+ * and the cost lands here rather than anywhere cosmetic: this one line orders
+ * BOTH exported functions, so it sets the sign of every trend slope, which
+ * lastSeenISO is read off, and the x-axis of every sparkline.
+ */
 function sortChronological(sessions: WritingSessionRecord[]): WritingSessionRecord[] {
-  return sessions.slice().sort((a, b) => a.dateISO.localeCompare(b.dateISO))
+  return sortByDateAscending(sessions)
 }
 
 /** Per-session issue counts per category, aligned with the given session order. */
