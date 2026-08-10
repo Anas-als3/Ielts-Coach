@@ -179,10 +179,121 @@ function capitalisation(doc: TokenizedDoc, out: Issue[]): void {
 const FRAGMENT_RE =
   /^(?:(?:For example|For instance|In addition|Moreover),\s+)?(If|When|Whenever|While|Because|Although|Even though|Unless|Whereas|Since|Unlike|Which)\b[^,.]*\.$/i
 
+/**
+ * Auxiliaries, modals and copulas. Each one heads a finite verb group on its
+ * own, and none of them can be anything else — no noun, no adjective.
+ */
+const FINITE_AUXILIARIES = new Set([
+  'is', 'are', 'was', 'were', 'am', 'be', 'been', 'being', 'has', 'have', 'had', 'will', 'would',
+  'can', 'could', 'may', 'might', 'must', 'shall', 'should', 'do', 'does', 'did',
+])
+
+/**
+ * Frequent lexical verbs in their base and -s forms. Curated rather than
+ * morphological because `\w+s$` matches far more plural nouns than verbs, and
+ * a plural noun read as a verb would silence a genuine fragment.
+ */
+const FINITE_LEXICAL_VERBS = new Set([
+  'accept', 'accepts', 'achieve', 'achieves', 'act', 'acts', 'add', 'adds', 'affect', 'affects',
+  'agree', 'agrees', 'aim', 'aims', 'allow', 'allows', 'appear', 'appears', 'apply', 'applies',
+  'argue', 'argues', 'avoid', 'avoids', 'become', 'becomes', 'begin', 'begins', 'believe',
+  'believes', 'benefit', 'benefits', 'bring', 'brings', 'build', 'builds', 'buy', 'buys', 'carry',
+  'carries', 'cause', 'causes', 'choose', 'chooses', 'claim', 'claims', 'come', 'comes', 'compare',
+  'compares', 'consider', 'considers', 'continue', 'continues', 'cost', 'costs', 'create',
+  'creates', 'decide', 'decides', 'depend', 'depends', 'describe', 'describes', 'destroy',
+  'destroys', 'develop', 'develops', 'disagree', 'disagrees', 'discuss', 'discusses', 'earn',
+  'earns', 'encourage', 'encourages', 'enjoy', 'enjoys', 'ensure', 'ensures', 'exist', 'exists',
+  'expect', 'expects', 'explain', 'explains', 'face', 'faces', 'fail', 'fails', 'fall', 'falls',
+  'feel', 'feels', 'find', 'finds', 'focus', 'focuses', 'follow', 'follows', 'gain', 'gains',
+  'get', 'gets', 'give', 'gives', 'go', 'goes', 'grow', 'grows', 'happen', 'happens', 'harm',
+  'harms', 'help', 'helps', 'hold', 'holds', 'improve', 'improves', 'include', 'includes',
+  'increase', 'increases', 'influence', 'influences', 'invest', 'invests', 'involve', 'involves',
+  'keep', 'keeps', 'know', 'knows', 'lack', 'lacks', 'lead', 'leads', 'learn', 'learns', 'leave',
+  'leaves', 'like', 'likes', 'limit', 'limits', 'live', 'lives', 'look', 'looks', 'lose', 'loses',
+  'make', 'makes', 'mean', 'means', 'meet', 'meets', 'move', 'moves', 'need', 'needs', 'offer',
+  'offers', 'pay', 'pays', 'perform', 'performs', 'play', 'plays', 'prefer', 'prefers', 'prevent',
+  'prevents', 'produce', 'produces', 'promote', 'promotes', 'prosper', 'prospers', 'protect',
+  'protects', 'prove', 'proves', 'provide', 'provides', 'raise', 'raises', 'reach', 'reaches',
+  'receive', 'receives', 'reduce', 'reduces', 'remain', 'remains', 'remember', 'remembers',
+  'require', 'requires', 'rise', 'rises', 'run', 'runs', 'save', 'saves', 'say', 'says', 'see',
+  'sees', 'seem', 'seems', 'sell', 'sells', 'send', 'sends', 'serve', 'serves', 'share', 'shares',
+  'show', 'shows', 'solve', 'solves', 'spend', 'spends', 'stand', 'stands', 'start', 'starts',
+  'stay', 'stays', 'stop', 'stops', 'study', 'studies', 'suffer', 'suffers', 'suggest', 'suggests',
+  'support', 'supports', 'survive', 'survives', 'take', 'takes', 'teach', 'teaches', 'tell',
+  'tells', 'tend', 'tends', 'think', 'thinks', 'threaten', 'threatens', 'travel', 'travels',
+  'treat', 'treats', 'try', 'tries', 'turn', 'turns', 'understand', 'understands', 'use', 'uses',
+  // 'view' is absent on purpose: in IELTS writing it is overwhelmingly a noun
+  // ('in my view', 'this view'), and reading it as a verb silenced the genuine
+  // fragment "While others disagree with this view."
+  'value', 'values', 'visit', 'visits', 'wait', 'waits', 'walk', 'walks', 'want',
+  'wants', 'waste', 'wastes', 'watch', 'watches', 'wear', 'wears', 'win', 'wins', 'work', 'works',
+  'worry', 'worries', 'write', 'writes',
+  // Irregular pasts, which no -ed test can reach.
+  'ate', 'became', 'began', 'bought', 'brought', 'built', 'came', 'chose', 'drove', 'fell', 'felt',
+  'fought', 'found', 'gave', 'got', 'grew', 'heard', 'held', 'kept', 'knew', 'led', 'left', 'lost',
+  'made', 'meant', 'met', 'paid', 'ran', 'rose', 'said', 'saw', 'sent', 'sold', 'sought', 'spent',
+  'spoke', 'stood', 'taught', 'thought', 'told', 'took', 'understood', 'went', 'won', 'wore',
+  'wrote',
+])
+
+/**
+ * Words ending in -ed that are NOT verb forms, so the -ed test below cannot
+ * invent a verb group out of them.
+ */
+const NOT_A_PAST_FORM = new Set([
+  'need', 'indeed', 'speed', 'succeed', 'exceed', 'proceed', 'breed', 'freed', 'greed', 'deed',
+  'feed', 'seed', 'weed', 'creed', 'steed', 'embed', 'inbred', 'hatred', 'sacred', 'bed', 'red',
+])
+
+/** Adverbials that sit INSIDE a verb group ("has recently increased", "will not act"). */
+const INSIDE_VERB_GROUP = new Set(['not', 'never', 'also', 'still', 'always', 'often', 'already'])
+
+/**
+ * How many finite verb GROUPS a sentence contains.
+ *
+ * Groups, not verbs, because "does not act" and "will get" are each ONE finite
+ * verb — counting them as two would silence a genuine fragment ("If the
+ * government does not act."). An adverb between the auxiliary and its verb
+ * keeps the group open, so "has recently increased" also counts once.
+ */
+function countFiniteVerbGroups(text: string): number {
+  const tokens = text.toLowerCase().match(/[a-zà-ɏ'’-]+/g) ?? []
+  let groups = 0
+  let inGroup = false
+  for (const token of tokens) {
+    if (INSIDE_VERB_GROUP.has(token) || (token.endsWith('ly') && token.length > 3)) continue
+    const isPastForm = token.length >= 5 && token.endsWith('ed') && !NOT_A_PAST_FORM.has(token)
+    if (!FINITE_AUXILIARIES.has(token) && !FINITE_LEXICAL_VERBS.has(token) && !isPastForm) {
+      inGroup = false
+      continue
+    }
+    if (!inGroup) groups++
+    inGroup = true
+  }
+  return groups
+}
+
+/**
+ * Did a main clause actually arrive after the subordinate opener?
+ *
+ * The rule used to ASSERT "a main clause never arrives" on the strength of a
+ * regex that had only checked for a comma — so "If a country invests in
+ * education it will prosper." was called incomplete when it plainly is not.
+ * A subordinate clause carries ONE finite verb group, so a second one is the
+ * main clause. Where the count is uncertain the arithmetic runs high, which
+ * produces silence: the safe direction for a rule that otherwise accuses
+ * correct writing.
+ */
+function hasMainClause(sentenceText: string): boolean {
+  return countFiniteVerbGroups(sentenceText) >= 2
+}
+
 function fragments(doc: TokenizedDoc, out: Issue[]): void {
   for (const s of doc.sentences) {
     const m = FRAGMENT_RE.exec(s.text)
     if (!m) continue
+    // A main clause can follow without a comma — the regex never checked.
+    if (hasMainClause(s.text)) continue
     const opener = m[1]
     out.push(
       makeIssue(
