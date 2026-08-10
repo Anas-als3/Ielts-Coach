@@ -556,16 +556,77 @@ export function isListeningSession(s: SessionRecord): s is ListeningSessionRecor
 }
 
 /**
+ * The `section` of a stored record, as the union it can actually hold.
+ *
+ * Two jobs, and the second one is the load-bearing one:
+ *
+ *  1. `section` is non-optional in every variant of `SessionRecord`, but pre-v4
+ *     stored data genuinely has no such field, so `undefined` has to be a value
+ *     the caller can handle. Comparing `s.section` to `undefined` directly is a
+ *     compile error — the types do not overlap.
+ *  2. The RETURN TYPE ANNOTATION is a barrier against control-flow analysis.
+ *     Writing `const section: SessionSection | undefined = s.section` inline
+ *     looks equivalent and is not: TypeScript narrows that const straight back
+ *     to the initialiser's three literals, so the `default` below would narrow
+ *     to `never` no matter how many members `SessionSection` grew, and the
+ *     exhaustiveness check would silently stop checking anything. A call's type
+ *     is its declared return type and nothing narrower, so the check survives.
+ *     This was verified by adding a fourth member and watching the build fail.
+ */
+function storedSection(s: SessionRecord): SessionSection | undefined {
+  return s.section;
+}
+
+/**
  * Narrow a session to the Writing variant.
  *
- * Every answer-key section must be named here explicitly. Writing is the
- * fallthrough because it is the only thing a record with no `section` can be,
- * so the list grows by one line per section that ships — and forgetting that
- * line is precisely how a Listening paper would start counting as a flawless
- * essay in the error profile. `tests/profile-scoping.test.ts` pins it.
+ * Every section is named here explicitly, in a `switch` whose `default` assigns
+ * to `never`, and that shape is the point rather than a stylistic preference.
+ *
+ * This was written as `s.section !== 'reading' && s.section !== 'listening'`.
+ * TypeScript does not check that a type predicate's BODY proves its predicate,
+ * so the day a fourth section shipped, that line would have compiled clean at
+ * exit 0 while quietly answering "yes, that Speaking test is an essay" — and
+ * the consequence is not abstract: the paper counts towards `totalSessions`,
+ * contributes zero issues over zero words to every category, and a weakness the
+ * learner still has flips from `flat` to `improving`. The Dashboard then
+ * congratulates them on fixing it. A silent wrong answer in a coaching signal
+ * is the worst failure mode in this app, and the only defence that survives a
+ * hurried patch is one the compiler enforces.
+ *
+ * With the `switch`, forgetting the line is a BUILD failure, whichever half of
+ * the change is forgotten: add a `SessionRecord` variant without extending
+ * `SessionSection` and the assignment below rejects the new literal; extend
+ * `SessionSection` without handling it here and `default` narrows to that
+ * literal, which will not assign to `never`.
+ *
+ * `undefined` keeps the documented default — a record with no `section` at all
+ * predates the field, so it can only be an essay, exactly as
+ * `isReadingSession`/`isListeningSession` assume. An unrecognised NON-empty
+ * value is the opposite case and returns false: a value this build has never
+ * heard of comes from a newer build, where new sections are overwhelmingly
+ * answer keys rather than essays, and guessing "essay" is the dilution above.
+ * `tests/profile-scoping.test.ts` pins both.
  */
 export function isWritingSession(s: SessionRecord): s is WritingSessionRecord {
-  return s.section !== 'reading' && s.section !== 'listening';
+  const section = storedSection(s);
+  switch (section) {
+    case 'reading':
+    case 'listening':
+      return false;
+    case 'writing':
+    case undefined:
+      return true;
+    default: {
+      // Unreachable while every member is handled above — and unreachable is
+      // the assertion, not a comment about it: adding a member to
+      // `SessionSection` makes `section` narrow to that member here, and a
+      // string literal does not assign to `never`.
+      const unhandledSection: never = section;
+      void unhandledSection;
+      return false;
+    }
+  }
 }
 
 export interface CategoryStat {

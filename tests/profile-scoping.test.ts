@@ -567,3 +567,224 @@ describe('a Listening session never dilutes a writing weakness', () => {
     expect(computeProfile(everything).totalSessions).toBe(3)
   })
 })
+
+/* ---------------- an unrecognised section is not an essay ------------------- */
+
+describe('the writing guard names every section explicitly', () => {
+  const ESSAYS: SessionRecord[] = [
+    session('e1', '2026-01-01T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+    session('e2', '2026-01-02T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+    session('e3', '2026-01-03T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+  ]
+
+  /** A record from a build that ships a section this one has never heard of. */
+  function unknownSection(id: string, dateISO: string): SessionRecord {
+    return { ...ESSAYS[0], id, dateISO, section: 'speaking' } as unknown as SessionRecord
+  }
+
+  it('does not count a section it has never heard of as a writing session', () => {
+    // The guard used to be written as a fallthrough — "not reading and not
+    // listening means writing" — so the FIRST unlisted section to ship counted
+    // as an essay. An answer-key paper with no issues and no words is
+    // arithmetically a flawless essay: it inflates `totalSessions` and drags
+    // every error rate towards zero.
+    const withSpeaking = [...ESSAYS, unknownSection('sp1', '2026-02-01T00:00:00Z')]
+
+    expect(computeProfile(withSpeaking).totalSessions).toBe(3)
+  })
+
+  it('leaves the whole profile byte-identical, exactly as Listening does', () => {
+    const withSpeaking = [
+      ...ESSAYS,
+      unknownSection('sp1', '2026-02-01T00:00:00Z'),
+      unknownSection('sp2', '2026-02-02T00:00:00Z'),
+      unknownSection('sp3', '2026-02-03T00:00:00Z'),
+    ]
+
+    expect(computeProfile(withSpeaking)).toEqual(computeProfile(ESSAYS))
+    expect(computeTrends(withSpeaking)).toEqual(computeTrends(ESSAYS))
+  })
+
+  it('does not report an unearned improvement in a real weakness', () => {
+    // The measured consequence, stated as the learner would see it: three
+    // answer-key papers after three faulty essays used to bend the slope
+    // downwards and flip the trend to `improving`, so the Dashboard said
+    // "fewer errors" about a fault the learner had not touched.
+    const withSpeaking = [
+      ...ESSAYS,
+      unknownSection('sp1', '2026-02-01T00:00:00Z'),
+      unknownSection('sp2', '2026-02-02T00:00:00Z'),
+      unknownSection('sp3', '2026-02-03T00:00:00Z'),
+    ]
+
+    expect(computeProfile(withSpeaking).categories['no-position']?.trend).toBe('flat')
+  })
+
+  it('still treats a record with NO section as writing', () => {
+    // The documented default, unchanged: an absent field predates every
+    // section, so it can only be an essay. Only a present-but-unknown VALUE is
+    // treated as an answer key.
+    const preV4 = ESSAYS.map((s) => {
+      const copy = { ...s } as Record<string, unknown>
+      delete copy.section
+      return copy as SessionRecord
+    })
+
+    expect(computeProfile(preV4).totalSessions).toBe(3)
+  })
+})
+
+/* --------------------- calibration: the canonical constants ----------------- */
+
+/**
+ * The numbers in `profile.ts` that SPEC.md calls canonical, pinned by
+ * behaviour.
+ *
+ * Every one of these survived being mutated with the whole suite green — EWMA
+ * alpha 0.35 -> 0.9, the trend window 6 -> 2, the recent window 5 -> 1, the
+ * focus limit 3 -> 1, and the two-session gate -> no gate — which means the
+ * focus list, the app's main coaching signal, was not tested at all. A constant
+ * nobody can change without a test failing is the only kind that stays
+ * canonical.
+ *
+ * Each case below is built so that ONE constant decides the assertion, and the
+ * comment on it says which other values it rules out.
+ */
+describe('the canonical profile constants are pinned', () => {
+  /**
+   * A session carrying `counts` issues per category over exactly 100 words, so
+   * a count reads directly as a per-100-words rate and the arithmetic below can
+   * be checked by hand.
+   */
+  function rated(
+    id: string,
+    dateISO: string,
+    counts: Partial<Record<IssueCategory, number>>,
+  ): SessionRecord {
+    const categories: IssueCategory[] = []
+    for (const [category, n] of Object.entries(counts) as Array<[IssueCategory, number]>) {
+      for (let i = 0; i < n; i++) categories.push(category)
+    }
+    return session(id, dateISO, 'task2', fakeAnalysis(categories, 100))
+  }
+
+  /** Day `n` of January 2026, so a series stays in chronological order. */
+  function day(n: number): string {
+    return `2026-01-${String(n).padStart(2, '0')}T00:00:00Z`
+  }
+
+  it('smooths with EWMA alpha 0.35, not a recency-dominated one', () => {
+    // Two faults, ranked by EWMA x severity (equal severity, so by EWMA).
+    //   comma-splice: 4, 4, 4, 0, 0  — heavy, then apparently fixed
+    //   article:      1, 1, 1, 2, 2  — mild, but getting worse
+    // At alpha 0.35 the history still counts: comma-splice 1.690 beats article
+    // 1.578, so it stays top of the focus list. The two curves cross at
+    // alpha ~= 0.3675, so ANY larger alpha (0.4, the 0.9 the mutation used)
+    // flips the order and fails this case. History is what makes the focus list
+    // a coaching signal rather than a report on the last essay.
+    const sessions = [
+      rated('s1', day(1), { 'comma-splice': 4, article: 1 }),
+      rated('s2', day(2), { 'comma-splice': 4, article: 1 }),
+      rated('s3', day(3), { 'comma-splice': 4, article: 1 }),
+      rated('s4', day(4), { article: 2 }),
+      rated('s5', day(5), { article: 2 }),
+    ]
+
+    expect(computeProfile(sessions).focusCategories).toEqual(['comma-splice', 'article'])
+  })
+
+  it('reads the trend over the last 6 sessions', () => {
+    // Rates: 0, 0, 6, 5, 4, 3, 2, 2.
+    // Over the last 6 the slope is -0.857 — clearly improving, which is the
+    // truth: the learner has cut this fault from 6 to 2. A window of 2 sees
+    // only [2, 2], slope 0, and reports `flat`; a window of 8 picks up the two
+    // zero-rate sessions from before the fault appeared, slope +0.167, and
+    // reports `worsening` at a learner who is getting better.
+    const rates = [0, 0, 6, 5, 4, 3, 2, 2]
+    const sessions = rates.map((n, i) => rated(`s${i}`, day(i + 1), { 'comma-splice': n }))
+
+    expect(computeProfile(sessions).categories['comma-splice']?.trend).toBe('improving')
+  })
+
+  it('aggregates recentRate over the last 5 sessions', () => {
+    // Rates 0, 4, 3, 2, 1, 0 over 100 words each. The last 5 hold 10 issues
+    // across 500 words = 2.0 per 100. Every other window gives a different
+    // number — 1 -> 0, 2 -> 0.5, 3 -> 1.0, 4 -> 1.5, 6 -> 1.667 — so this one
+    // assertion pins the window to exactly 5.
+    const rates = [0, 4, 3, 2, 1, 0]
+    const sessions = rates.map((n, i) => rated(`s${i}`, day(i + 1), { article: n }))
+
+    expect(computeProfile(sessions).categories['article']?.recentRate).toBeCloseTo(2.0, 10)
+    expect(computeProfile(sessions).categories['article']?.total).toBe(10)
+  })
+
+  it('focuses on exactly 3 categories, the worst 3', () => {
+    // Four faults at four clearly different rates. Three is the number a
+    // learner can hold in their head while writing; one is not a profile and
+    // four is a list nobody acts on.
+    const sessions = [
+      rated('s1', day(1), { 'comma-splice': 4, article: 3, agreement: 2, fragment: 1 }),
+      rated('s2', day(2), { 'comma-splice': 4, article: 3, agreement: 2, fragment: 1 }),
+      rated('s3', day(3), { 'comma-splice': 4, article: 3, agreement: 2, fragment: 1 }),
+    ]
+
+    const focus = computeProfile(sessions).focusCategories
+    expect(focus).toHaveLength(3)
+    expect(focus).toEqual(['comma-splice', 'article', 'agreement'])
+    expect(focus).not.toContain('fragment')
+  })
+
+  it('offers no focus list until a second session exists', () => {
+    // `ErrorProfile.focusCategories` is documented "Empty until 2+ sessions
+    // exist", and the reason is honesty: one essay is one topic on one day, and
+    // ranking weaknesses from it would send a learner off to drill a fault they
+    // may not actually have.
+    const one = [rated('s1', day(1), { 'comma-splice': 4, article: 3 })]
+
+    const profile = computeProfile(one)
+    expect(profile.totalSessions).toBe(1)
+    // The categories are still measured — only the RANKING waits.
+    expect(profile.categories['comma-splice']).toBeDefined()
+    expect(profile.focusCategories).toEqual([])
+  })
+
+  it('offers one as soon as the second session lands', () => {
+    // The other side of the gate: 2 is the threshold, not 3 or more.
+    const two = [
+      rated('s1', day(1), { 'comma-splice': 4, article: 3 }),
+      rated('s2', day(2), { 'comma-splice': 4, article: 3 }),
+    ]
+
+    expect(computeProfile(two).totalSessions).toBe(2)
+    expect(computeProfile(two).focusCategories).toEqual(['comma-splice', 'article'])
+  })
+
+  it('counts only writing sessions towards that two-session gate', () => {
+    // The gate and the section scoping meet here: one essay plus a Reading
+    // paper is not two sessions of writing practice.
+    const mixed: SessionRecord[] = [
+      rated('s1', day(1), { 'comma-splice': 4 }),
+      {
+        section: 'reading',
+        id: 'r1',
+        dateISO: day(2),
+        module: 'academic',
+        testId: 'reading-academic-01',
+        testTitle: 'Academic Reading Test 1',
+        answers: {},
+        durationSec: 3600,
+        result: {
+          testId: 'reading-academic-01',
+          module: 'academic',
+          raw: 30,
+          total: 40,
+          band: 7,
+          questions: [],
+          byType: [],
+        },
+      },
+    ]
+
+    expect(computeProfile(mixed).focusCategories).toEqual([])
+  })
+})

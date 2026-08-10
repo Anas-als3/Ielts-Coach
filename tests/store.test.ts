@@ -12,7 +12,9 @@
  * migration ladder and the backup-before-clobber safety net together.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { importData, loadSessions, saveSession } from '../src/profile/store'
+import { deleteSession, importData, loadSessions, saveSession } from '../src/profile/store'
+import { rawToBand } from '../src/reading/bandTable'
+import type { ReadingModule } from '../src/reading/types'
 import type { SessionRecord, TaskKind } from '../src/types'
 
 /* --------------------------------- helpers ---------------------------------- */
@@ -635,5 +637,394 @@ describe('importData', () => {
     importData(json)
 
     expect(loadSessions().map((s) => s.section)).toEqual(['writing', 'reading'])
+  })
+})
+
+/* ------------ a Reading module is a table KEY, not a label ------------------ */
+
+/**
+ * The two ends of ONE defect, which is why a band-table assertion lives in the
+ * storage suite rather than beside the other band tests.
+ *
+ * A stored Reading record's `module` is not decoration: `rawToBand` and the
+ * report's own row lookup both use it to index `READING_BAND_TABLES`. A record
+ * saying `module: 'speaking'` passed validation, reached the report, indexed the
+ * table to `undefined`, and threw "table is not iterable" out of a render — the
+ * error boundary then blanked the WHOLE app, so one mistyped field cost the
+ * learner every screen including the history list holding their essays.
+ *
+ * Both ends are pinned here: the validator must not admit such a record, and
+ * the conversion must not throw even if one ever reaches it.
+ */
+describe('a Reading record with an unusable module cannot crash the app', () => {
+  it('drops a stored Reading record whose module is not an IELTS exam', () => {
+    seed(5, [
+      makeReadingSession('good', '2026-01-01T10:00:00.000Z'),
+      makeReadingSession('bad', '2026-01-02T10:00:00.000Z', { module: 'speaking' }),
+    ])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['good'])
+  })
+
+  it('drops a stored Reading record carrying no module at all', () => {
+    // Unlike a writing record, this one cannot be excused as pre-v3 data:
+    // Reading shipped at v4, AFTER `module` existed, so no rung would ever
+    // stamp it and the report would index the table with `undefined`.
+    seed(5, [
+      makeReadingSession('good', '2026-01-01T10:00:00.000Z'),
+      makeReadingSession('bad', '2026-01-02T10:00:00.000Z', { module: undefined }),
+    ])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['good'])
+  })
+
+  it('drops the same record inside the marking result but keeps the exam pair', () => {
+    // The record-level module is the one every consumer reads; a valid pair
+    // must still survive, or this validator would have eaten real history.
+    seed(5, [
+      makeReadingSession('academic', '2026-01-01T10:00:00.000Z'),
+      makeReadingSession('general', '2026-01-02T10:00:00.000Z', { module: 'general' }),
+    ])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['academic', 'general'])
+  })
+
+  it('converts an unknown module with the Academic table instead of throwing', () => {
+    // The second line of defence, for a record that reaches the conversion by
+    // some route the validator does not guard. Throwing here is what took the
+    // app down; Academic is the same default the v2 -> v3 migration stamps.
+    const unknown = 'speaking' as unknown as ReadingModule
+
+    expect(() => rawToBand(30, unknown)).not.toThrow()
+    expect(rawToBand(30, unknown)).toBe(rawToBand(30, 'academic'))
+    expect(rawToBand(30, unknown)).toBe(7)
+    // Total in BOTH arguments, at every corner of the raw-score range.
+    expect(rawToBand(0, unknown)).toBe(4)
+    expect(rawToBand(40, unknown)).toBe(9)
+    expect(rawToBand(Number.NaN, unknown)).toBe(4)
+  })
+
+  it('never converts silently with the wrong table', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    rawToBand(30, 'speaking' as unknown as ReadingModule)
+    expect(warn).toHaveBeenCalled()
+  })
+})
+
+/* ------------------- the cap is per section, not global --------------------- */
+
+/** `n` days after 1 January 2026, as the ISO string the app would store. */
+function day(n: number): string {
+  return new Date(Date.UTC(2026, 0, 1, 10) + n * 86_400_000).toISOString()
+}
+
+describe('sitting answer-key papers can never delete an essay', () => {
+  it('keeps all 20 essays after 190 Reading papers are sat', () => {
+    // The reported scenario, exactly. Under one global 200-record cap the
+    // 201st save evicted the oldest record in the STORE — which was an essay —
+    // so a learner who moved on to Reading practice lost ten essays they could
+    // only get back by writing them again. It also inverts the purpose of the
+    // `isWritingSession` guards: those exist so answer-key papers cannot dilute
+    // the writing profile, and the cap let them delete it outright.
+    seed(5, Array.from({ length: 20 }, (_, i) =>
+      makeSession(`essay-${i}`, day(i), { task: 'task2', section: 'writing' }),
+    ))
+
+    for (let i = 0; i < 190; i++) {
+      saveSession(makeReadingSession(`paper-${i}`, day(100 + i)) as SessionRecord)
+    }
+
+    const sessions = loadSessions()
+    const essays = sessions.filter((s) => s.section === 'writing')
+    const papers = sessions.filter((s) => s.section === 'reading')
+
+    expect(essays.map((s) => s.id)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `essay-${i}`),
+    )
+    expect(papers).toHaveLength(190)
+  })
+
+  it('keeps every essay when Listening papers fill the store instead', () => {
+    seed(5, Array.from({ length: 20 }, (_, i) =>
+      makeSession(`essay-${i}`, day(i), { task: 'task2', section: 'writing' }),
+    ))
+
+    for (let i = 0; i < 190; i++) {
+      saveSession(makeListeningSession(`heard-${i}`, day(100 + i)) as SessionRecord)
+    }
+
+    expect(loadSessions().filter((s) => s.section === 'writing')).toHaveLength(20)
+    expect(loadSessions().filter((s) => s.section === 'listening')).toHaveLength(190)
+  })
+
+  it('still evicts the oldest record WITHIN a section that is over the cap', () => {
+    // The cap is not removed, only scoped. 200 essays plus one more is still
+    // 200 essays, and the one that goes is the oldest of that section.
+    seed(5, Array.from({ length: 200 }, (_, i) =>
+      makeSession(`essay-${i}`, day(i), { task: 'task2', section: 'writing' }),
+    ))
+
+    saveSession(newRecord('newest', day(500)))
+
+    const ids = loadSessions().map((s) => s.id)
+    expect(ids).toHaveLength(200)
+    expect(ids).not.toContain('essay-0')
+    expect(ids).toContain('essay-1')
+    expect(ids).toContain('newest')
+  })
+
+  it('does not let an over-cap section evict another section', () => {
+    // Reading is at its own limit and one more paper arrives; the essays are
+    // not the oldest thing in the store's eyes, and must not be touched.
+    seed(5, [
+      ...Array.from({ length: 3 }, (_, i) =>
+        makeSession(`essay-${i}`, day(i), { task: 'task2', section: 'writing' }),
+      ),
+      ...Array.from({ length: 200 }, (_, i) => makeReadingSession(`paper-${i}`, day(100 + i))),
+    ])
+
+    saveSession(makeReadingSession('paper-new', day(400)) as SessionRecord)
+
+    const sessions = loadSessions()
+    expect(sessions.filter((s) => s.section === 'writing').map((s) => s.id)).toEqual([
+      'essay-0',
+      'essay-1',
+      'essay-2',
+    ])
+    expect(sessions.filter((s) => s.section === 'reading')).toHaveLength(200)
+    expect(sessions.map((s) => s.id)).not.toContain('paper-0')
+  })
+})
+
+/* ------------- a record dropped on read is backed up, not binned ------------ */
+
+describe('backup when only SOME records fail validation', () => {
+  it('keeps a copy of the payload before a damaged record is filtered out', () => {
+    // The likeliest form of corruption by far — one record truncated by a write
+    // that was interrupted — and the one case the file header promised to back
+    // up and did not. The read is silent, the next save persists the filtered
+    // list, and the learner's essay is gone with nothing to recover it from.
+    const good = makeSession('good', '2026-01-01T10:00:00.000Z', {
+      task: 'task2',
+      section: 'writing',
+    })
+    const damaged = makeSession('damaged', '2026-01-02T10:00:00.000Z', {
+      task: 'task2',
+      section: 'writing',
+      analysis: undefined,
+    })
+    seed(5, [good, damaged])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['good'])
+
+    const keys = backupKeys()
+    expect(keys).toHaveLength(1)
+    const rescued = JSON.parse(store.get(keys[0]) as string)
+    // The whole payload, so the damaged record is recoverable by hand — it is
+    // the only copy left once anything writes.
+    expect(rescued.sessions).toHaveLength(2)
+    expect(rescued.sessions[1].id).toBe('damaged')
+  })
+
+  it('does not mint a second backup of a payload it has already copied', () => {
+    // Reads are pure, so the damaged payload is seen again on every render.
+    // One backup per read would fill the quota holding the surviving essays.
+    seed(5, [
+      makeSession('good', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      makeSession('damaged', '2026-01-02T10:00:00.000Z', { section: 'writing', analysis: undefined }),
+    ])
+
+    loadSessions()
+    loadSessions()
+    loadSessions()
+
+    expect(backupKeys()).toHaveLength(1)
+  })
+
+  it('backs nothing up when every record validates', () => {
+    seed(5, [makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    expect(loadSessions()).toHaveLength(1)
+    expect(backupKeys()).toEqual([])
+  })
+})
+
+/* -------------------- import backs up before it replaces -------------------- */
+
+describe('importData backs up the store it is about to replace', () => {
+  it('keeps the existing sessions recoverable after an import wipes them', () => {
+    // The only destructive action a learner reaches through a file picker, with
+    // no undo in the UI and (per SPEC) not even a confirm on some paths. Every
+    // other destructive path in the store backs up first; this one replaced two
+    // years of essays with whatever file was double-clicked.
+    seed(5, [
+      makeSession('mine-1', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      makeSession('mine-2', '2026-01-02T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+    ])
+
+    importData(
+      JSON.stringify({
+        schemaVersion: 5,
+        sessions: [
+          makeSession('theirs', '2026-02-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+        ],
+      }),
+    )
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['theirs'])
+
+    const keys = backupKeys()
+    expect(keys).toHaveLength(1)
+    const rescued = JSON.parse(store.get(keys[0]) as string)
+    expect(rescued.sessions.map((s: { id: string }) => s.id)).toEqual(['mine-1', 'mine-2'])
+  })
+
+  it('backs nothing up when a first run imports into an empty store', () => {
+    importData(
+      JSON.stringify({
+        schemaVersion: 5,
+        sessions: [
+          makeSession('theirs', '2026-02-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+        ],
+      }),
+    )
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['theirs'])
+    expect(backupKeys()).toEqual([])
+  })
+
+  it('does not back up a store an invalid import was never going to replace', () => {
+    seed(5, [makeSession('mine', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    expect(() => importData('{not json')).toThrow()
+    expect(() => importData(JSON.stringify({ schemaVersion: 6, sessions: [] }))).toThrow()
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['mine'])
+    expect(backupKeys()).toEqual([])
+  })
+})
+
+/* --------------------- a version between two rungs -------------------------- */
+
+describe('a fractional schemaVersion still climbs every rung above it', () => {
+  it('migrates a 2.5 store instead of stamping it v5 with nothing filled in', () => {
+    // `readStore` admits any version in the RANGE [1, 5], but the ladder used to
+    // step on exact `===` integers, so 2.5 ran ZERO rungs and was then written
+    // back as v5 — permanently, with `module` and `section` undefined on every
+    // record. A store can hold such a version from a half-finished write, a
+    // hand edit, or a build that ever shipped a fractional one.
+    seed(2.5, [makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2' })])
+
+    const sessions = loadSessions()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].module).toBe('academic')
+    expect(sessions[0].section).toBe('writing')
+    // The rung it is already past is not re-run: `task` keeps its stored value.
+    expect(sessions[0].task).toBe('task2')
+  })
+
+  it('climbs from below the first rung too', () => {
+    seed(1.5, [makeSession('a', '2026-01-01T10:00:00.000Z')])
+
+    const sessions = loadSessions()
+    expect(sessions[0].task).toBe('task2')
+    expect(sessions[0].module).toBe('academic')
+    expect(sessions[0].section).toBe('writing')
+  })
+
+  it('survives the write that stamps the fractional store as v5', () => {
+    seed(2.5, [makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2' })])
+
+    saveSession(newRecord('b', '2026-01-02T10:00:00.000Z'))
+
+    const sessions = loadSessions()
+    expect(sessions.map((s) => s.id)).toEqual(['a', 'b'])
+    expect(sessions.every((s) => s.section === 'writing')).toBe(true)
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(5)
+  })
+
+  it('imports a fractional export the same way', () => {
+    importData(
+      JSON.stringify({
+        schemaVersion: 3.5,
+        sessions: [makeSession('x', '2026-03-01T10:00:00.000Z', { task: 'task2' })],
+      }),
+    )
+
+    expect(loadSessions()[0].section).toBe('writing')
+  })
+})
+
+/* --------------------- import: one record per id, real dates ---------------- */
+
+describe('importData will not create two records sharing an id', () => {
+  it('keeps one record when a file carries the same id twice', () => {
+    // `saveSession` has always deduplicated; import did not, so a hand-merged
+    // file produced duplicate React keys in the history list AND made
+    // `deleteSession` remove both records at once — deleting an essay could
+    // silently take a Reading paper with it.
+    importData(
+      JSON.stringify({
+        schemaVersion: 5,
+        sessions: [
+          makeSession('dup', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+          makeReadingSession('dup', '2026-01-02T10:00:00.000Z'),
+        ],
+      }),
+    )
+
+    expect(loadSessions()).toHaveLength(1)
+  })
+
+  it('leaves nothing behind when the surviving record is deleted', () => {
+    importData(
+      JSON.stringify({
+        schemaVersion: 5,
+        sessions: [
+          makeSession('dup', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+          makeReadingSession('dup', '2026-01-02T10:00:00.000Z'),
+        ],
+      }),
+    )
+
+    deleteSession('dup')
+    expect(loadSessions()).toEqual([])
+  })
+
+  it('orders imported records by instant, not by the text of the date', () => {
+    // 23:00+05:00 is 18:00Z — three hours BEFORE 20:00Z, and after it as text.
+    // The app only ever writes UTC, but an imported file need not, and the list
+    // order is what `capSessions` calls "oldest": text order decides which
+    // record gets deleted.
+    importData(
+      JSON.stringify({
+        schemaVersion: 5,
+        sessions: [
+          makeSession('later', '2026-01-01T20:00:00.000Z', { task: 'task2', section: 'writing' }),
+          makeSession('earlier', '2026-01-01T23:00:00+05:00', { task: 'task2', section: 'writing' }),
+        ],
+      }),
+    )
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['earlier', 'later'])
+  })
+})
+
+/* ------------------------- saveSession id dedupe ---------------------------- */
+
+describe('saveSession replaces a record with the same id', () => {
+  it('never stores the same session twice', () => {
+    // A double submit — a double-clicked button, a re-render mid-save — must
+    // update the record, not append a second one with the same id. Two records
+    // sharing an id collide as React keys and are deleted together.
+    saveSession(newRecord('same', '2026-01-01T10:00:00.000Z'))
+    saveSession({
+      ...(newRecord('same', '2026-01-01T10:00:00.000Z') as SessionRecord & { essayText: string }),
+      essayText: 'The rewritten essay.',
+    })
+
+    const sessions = loadSessions()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].section === 'writing' && sessions[0].essayText).toBe('The rewritten essay.')
   })
 })
