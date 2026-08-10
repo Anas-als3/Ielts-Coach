@@ -8,10 +8,12 @@
  * rule the coach panel uses (never a re-implementation), that opening an
  * entry renders the real `ModelAnswer` component (scorecard and
  * memorisation warning included), that "Practise this prompt" lands the
- * chosen question on a blank desk, and that the library is unreachable under
- * exam conditions like the rest of the nav.
+ * chosen question on a blank desk (asking the same consent
+ * `switchTask`/`switchModule` ask before it discards one in progress — see
+ * `module-switch.test.tsx` for the sibling pattern this mirrors), and that
+ * the library is unreachable under exam conditions like the rest of the nav.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EXACT_PROMPT, FALLBACK_PROMPT, renderApp } from './renderApp'
@@ -21,6 +23,10 @@ import { TASK1_PROMPTS } from '../../src/prompts/task1Bank'
 
 function modeButton(name: 'Coach' | 'Exam'): HTMLElement {
   return within(screen.getByRole('group', { name: 'Writing mode' })).getByRole('button', { name })
+}
+
+function sheet(): HTMLTextAreaElement {
+  return screen.getByRole('textbox') as HTMLTextAreaElement
 }
 
 async function openLibrary(user: ReturnType<typeof userEvent.setup>): Promise<void> {
@@ -155,5 +161,35 @@ describe('the model-answer library', () => {
 
     // The whole nav disappears with the cleared desk — same gate Progress uses.
     expect(screen.queryByRole('button', { name: 'Models' })).not.toBeInTheDocument()
+  })
+
+  // A ninth case, beyond the plan's eight: `handlePractiseFromLibrary` asks
+  // the same consent `switchTask`/`switchModule` ask before discarding a
+  // non-empty essay (see `module-switch.test.tsx`'s "clears the answer sheet"
+  // / "refuses to clear ... without consent" pair, which this mirrors) — a
+  // behaviour this plan's own handler sketch predates, so it needs its own
+  // coverage rather than riding along on an assertion written for something
+  // else.
+  it('asks before discarding an essay in progress, and obeys a refusal', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderApp()
+
+    sheet().focus()
+    await user.paste('An essay already in progress on the desk.')
+    await openLibrary(user)
+    await openEntry(user, FALLBACK_PROMPT.id)
+    await user.click(screen.getByRole('button', { name: 'Practise this prompt' }))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/discards the essay in progress/i)
+    // Refused: still in the library, nothing practised yet.
+    expect(
+      screen.getByRole('heading', { name: 'Every worked answer, in one place' }),
+    ).toBeInTheDocument()
+
+    confirmSpy.mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Practise this prompt' }))
+    expect(screen.getByRole('button', { name: 'Write' })).toHaveAttribute('aria-current', 'page')
   })
 })
