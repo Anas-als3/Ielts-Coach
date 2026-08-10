@@ -99,6 +99,11 @@ function task1KindOf(s: WritingSessionRecord): string {
 /** The 11 half-bands IELTS actually awards, 4.0 through 9.0. */
 const HALF_BANDS = Array.from({ length: 11 }, (_, i) => 4 + i * 0.5)
 
+/** Every section the app can score, in a fixed display order — the one place
+ *  this file spells out the triad, so the gap-line loop and the target-select
+ *  row below can never drift apart on which sections exist. */
+const SECTIONS = ['writing', 'reading', 'listening'] as const
+
 const SECTION_LABEL: Record<SessionSection, string> = {
   writing: 'Writing',
   reading: 'Reading',
@@ -165,7 +170,7 @@ function ExamGoalCard({
   const days = prefs.examDateISO ? daysUntil(prefs.examDateISO, new Date()) : null
 
   const gapLines: Array<{ key: string; text: string }> = []
-  for (const section of ['writing', 'reading', 'listening'] as const) {
+  for (const section of SECTIONS) {
     const target = prefs.targetBySection?.[section]
     const latest = latestBandBySection[section]
     if (target === undefined || latest === undefined) continue
@@ -204,7 +209,7 @@ function ExamGoalCard({
           onChange={(value) => onUpdatePrefs({ targetOverall: value })}
         />
 
-        {(['writing', 'reading', 'listening'] as const).map((section) => (
+        {SECTIONS.map((section) => (
           <BandSelect
             key={section}
             id={`goal-target-${section}`}

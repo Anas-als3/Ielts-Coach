@@ -835,6 +835,10 @@ export default function App({
   function dismissIntro() {
     setIntroDismissed(true)
     savePrefs({ introDismissedAtISO: new Date().toISOString() })
+    // Re-read into `prefs` too, the same rule every other prefs write in this
+    // file follows: storage is the source of truth, so `prefs` state can
+    // never fall behind what `introDismissed` above already knows.
+    setPrefs(loadPrefs())
   }
 
   function handleImport(json: string) {

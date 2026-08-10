@@ -649,7 +649,6 @@ export function deleteSession(id: string): void {
   writeStore(remaining)
 }
 
-/** Download the full store as pretty-printed JSON named ielts-coach-data.json. */
 /**
  * The export payload as a JSON string. Split from exportData so the engine
  * tests can pin the payload without a DOM (Blob/anchor stay in exportData).
