@@ -84,6 +84,19 @@ export const CATEGORY_META: Record<IssueCategory, { label: string; criterion: Cr
   't1-opinion': { label: 'Opinion in Task 1', criterion: 'TR', hint: 'Task 1 has no opinion. Describe the data, do not evaluate it.' },
   't1-prompt-echo': { label: 'Copied chart title', criterion: 'TR', hint: 'Paraphrase the chart title in your own words — copied wording is excluded from your word count.' },
   't1-shape': { label: 'Answer shape', criterion: 'CC', hint: 'Task 1 shape: paraphrase, overview, one or two detail paragraphs. No conclusion is needed.' },
+  // General Training Task 1 (letters). All sit in the 'TR' slot — which the
+  // report labels "Task Achievement" for task1 — except `gt-tone-mismatch`,
+  // which is a REGISTER fault and therefore Lexical Resource: choosing "I can't
+  // wait" over "I look forward to" is a word-choice decision, not a
+  // task-completion one.
+  'gt-word-count': { label: 'Word count', criterion: 'TR', hint: 'A Task 1 letter needs at least 150 words.' },
+  'gt-salutation-missing': { label: 'No greeting', criterion: 'TR', hint: "Every letter opens with a greeting: 'Dear Sir or Madam,' or 'Dear Anna,'." },
+  'gt-salutation-tone': { label: 'Greeting does not match', criterion: 'TR', hint: "Match the greeting to the reader: 'Dear Sir or Madam' when you do not know their name, 'Dear Mr Hughes' when you do." },
+  'gt-signoff-missing': { label: 'No sign-off', criterion: 'TR', hint: "Close the letter: 'Yours faithfully', 'Yours sincerely' or 'Best wishes', then your name." },
+  'gt-signoff-pairing': { label: 'Greeting and sign-off clash', criterion: 'TR', hint: "'Yours faithfully' goes with 'Dear Sir or Madam'; 'Yours sincerely' goes with a name." },
+  'gt-bullet-uncovered': { label: 'Bullet point not covered', criterion: 'TR', hint: 'All three bullet points in the task must be addressed.' },
+  'gt-purpose-missing': { label: 'Purpose not stated', criterion: 'TR', hint: "Say why you are writing in the first paragraph: 'I am writing to …'." },
+  'gt-tone-mismatch': { label: 'Wrong register', criterion: 'LR', hint: 'Hold one level of formality throughout — a formal letter takes no contractions or slang.' },
 }
 
 /**
@@ -128,9 +141,47 @@ export const TASK2_ONLY_CATEGORIES: ReadonlySet<IssueCategory> = new Set<IssueCa
   'conclusion-shape',
 ])
 
-/** Could `category` have fired in a session answering `task`? */
-export function categoryAppliesTo(category: IssueCategory, task: TaskKind): boolean {
-  if (TASK1_ONLY_CATEGORIES.has(category)) return task === 'task1'
+/**
+ * Emitted only by the LETTER pipeline, which is General Training Task 1.
+ *
+ * This set is why `categoryAppliesTo` had to grow a module dimension. `TaskKind`
+ * alone cannot express "General Training Task 1": Academic Task 1 and the
+ * General Training letter are two different tasks sharing the id `'task1'`, and
+ * a learner switching between the two exams would otherwise have their letter
+ * faults averaged over chart sessions that could never produce them — the exact
+ * defect `tests/profile-scoping.test.ts` exists to prevent.
+ */
+export const LETTER_ONLY_CATEGORIES: ReadonlySet<IssueCategory> = new Set<IssueCategory>([
+  'gt-word-count',
+  'gt-salutation-missing',
+  'gt-salutation-tone',
+  'gt-signoff-missing',
+  'gt-signoff-pairing',
+  'gt-bullet-uncovered',
+  'gt-purpose-missing',
+  'gt-tone-mismatch',
+])
+
+/**
+ * Could `category` have fired in a session answering `task` in `module`?
+ *
+ * `module` is an OPTIONAL trailing parameter defaulting to `'academic'`, the
+ * same convention `cohesionRules` uses for its `TaskKind`. That keeps every
+ * existing two-argument call site correct: Academic was the only exam whose
+ * Task 1 existed before this plan, so a caller that does not know about modules
+ * is asking about the Academic pipeline by construction.
+ */
+export function categoryAppliesTo(
+  category: IssueCategory,
+  task: TaskKind,
+  module: Module = 'academic',
+): boolean {
+  if (LETTER_ONLY_CATEGORIES.has(category)) return task === 'task1' && module === 'general'
+  // Written as `!== 'general'` rather than `=== 'academic'` deliberately: a
+  // stored record from before the module field existed reads as `undefined`
+  // here and must keep counting as an Academic chart session, exactly as it did
+  // before letters shipped.
+  if (TASK1_ONLY_CATEGORIES.has(category)) return task === 'task1' && module !== 'general'
   if (TASK2_ONLY_CATEGORIES.has(category)) return task === 'task2'
   return true
 }
