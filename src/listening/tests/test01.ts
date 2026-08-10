@@ -50,6 +50,12 @@
  *  - Every distractor is heard in the recording. Curlew's price, the cot
  *    charge, the recycling point and the café terrace all exist and are all
  *    wrong; the two unused matching options are ruled out in so many words.
+ *  - **Every key is complete in the renderings of its own answer.** The marker
+ *    never guesses at equivalence, so anything an examiner would accept has to
+ *    be written down here: a number in figures and in words, and — where the
+ *    paper preprints a unit or a currency symbol beside the gap — the answer
+ *    with that unit repeated and without it. A form is listed only if it stays
+ *    inside the question's own word limit.
  *
  * `tests/listening-marking.test.ts` enforces the mechanical half of that list.
  */
@@ -1120,7 +1126,11 @@ export const LISTENING_TEST_01: ListeningTest = {
       format: 'form-completion',
       maxWords: 2,
       prompt: 'Total cost of the stay: £ ____________',
-      answers: ['680'],
+      // The form preprints the £, so the learner may or may not write it again,
+      // and may spell the unit instead of using the symbol. All four are the
+      // same quantity and an examiner accepts all four. "Six hundred and eighty"
+      // is not listed: it is four words against a two-word limit.
+      answers: ['680', '£680', '£ 680', '680 pounds'],
       explanation:
         'Sanderling is £680 for the five nights. £745 is Curlew, which she does not take.',
     },
@@ -1132,7 +1142,9 @@ export const LISTENING_TEST_01: ListeningTest = {
       format: 'form-completion',
       maxWords: 2,
       prompt: 'Extra charge per dog: £ ____________',
-      answers: ['15', 'fifteen'],
+      // As Q7: numeral and word form, each with the preprinted £ repeated or the
+      // unit spelled out. "£fifteen" is not a form anyone writes and is not listed.
+      answers: ['15', 'fifteen', '£15', '£ 15', '15 pounds', 'fifteen pounds'],
       explanation: '“Fifteen pounds per dog for the stay.” The £8 is the cot, which she declines.',
     },
 
@@ -1478,7 +1490,11 @@ export const LISTENING_TEST_01: ListeningTest = {
       format: 'note-completion',
       maxWords: 2,
       prompt: 'In the middle latitudes the sound-speed minimum lies about ____________ metres down.',
-      answers: ['1,000', '1000', 'one thousand'],
+      // "metres" is printed next to the gap, so a learner may repeat it; the
+      // American spelling is listed because IELTS accepts it and the marker
+      // never transforms a spelling it was not given. "One thousand metres" is
+      // not listed: three words against a two-word limit.
+      answers: ['1,000', '1000', 'one thousand', '1,000 metres', '1000 metres', '1,000 meters', '1000 meters'],
       explanation: 'Below it the water stops getting colder while the weight of water above keeps rising.',
     },
     {
@@ -1533,7 +1549,11 @@ export const LISTENING_TEST_01: ListeningTest = {
       format: 'note-completion',
       maxWords: 2,
       prompt: 'Fin whales and blue whales call at around ____________ hertz.',
-      answers: ['20', 'twenty'],
+      // "hertz" is printed next to the gap and may be repeated. "20 Hz" is NOT
+      // listed: the symbol is not what the paper prints, and whether an examiner
+      // accepts an unprompted SI abbreviation is exactly the kind of guess this
+      // project's marking policy refuses to make on a learner's behalf.
+      answers: ['20', 'twenty', '20 hertz', 'twenty hertz'],
       explanation: 'At the bottom edge of human hearing, and low enough to carry a long way.',
     },
     {

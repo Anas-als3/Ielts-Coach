@@ -509,7 +509,24 @@ export const GENERAL_TEST_01: ReadingTest = {
       type: 'completion',
       maxWords: 2,
       prompt: 'In winter the last ferry of the day sails at ______.',
-      answers: ['18:15', '18.15', '6.15pm', '6:15pm'],
+      // One time, ten renderings. Both separators (colon and point), both
+      // clocks, and — the omission this list was written to close — "pm" spaced
+      // as well as closed up, and pointed as well as bare. Nothing here is a
+      // different answer; they are the same sailing written the way a learner
+      // was taught to write it. "Quarter past six" is not listed: three words
+      // against a two-word limit.
+      answers: [
+        '18:15',
+        '18.15',
+        '6.15pm',
+        '6:15pm',
+        '6.15 pm',
+        '6:15 pm',
+        '6.15p.m.',
+        '6:15p.m.',
+        '6.15 p.m.',
+        '6:15 p.m.',
+      ],
       explanation: 'Between 1 November and 31 March the last sailing leaves at 18:15.',
     },
 

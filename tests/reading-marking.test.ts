@@ -178,6 +178,26 @@ describe('markAnswerKey', () => {
     expect(markOne({ type: 'multiple-choice', answers: ['the harbour office'] }, 'harbour office').correct).toBe(false)
   })
 
+  it('lets a completion article be omitted or added, but never swapped', () => {
+    // "Optional" sanctions leaving the key's article out, and putting one in
+    // where the key prints none. It does not sanction substituting one for
+    // another: "a sun" is not "the sun". Stripping the article from BOTH sides
+    // before comparing makes it a free variable and accepts the substitution,
+    // which is a wrong answer marked right.
+    expect(markOne(completion(['the sun']), 'the sun').correct).toBe(true)
+    expect(markOne(completion(['the sun']), 'sun').correct).toBe(true)
+    expect(markOne(completion(['sun']), 'the sun').correct).toBe(true)
+    expect(markOne(completion(['sun']), 'a sun').correct).toBe(true)
+
+    expect(markOne(completion(['the sun']), 'a sun').correct).toBe(false)
+    expect(markOne(completion(['a sun']), 'the sun').correct).toBe(false)
+    expect(markOne(completion(['an orbit']), 'the orbit').correct).toBe(false)
+
+    // A key that lists both forms still accepts all three determiners, because
+    // the bare form is there to have an article added to it.
+    expect(markOne(completion(['the sun', 'sun']), 'a sun').correct).toBe(true)
+  })
+
   it('never marks a blank correct', () => {
     for (const given of ['', '   ', undefined]) {
       const result = markOne(completion(['library']), given)
@@ -467,6 +487,65 @@ describe.each(AUTHORED)('$title integrity', (test) => {
     const everything = JSON.stringify(test).toLowerCase()
     for (const forbidden of ['ieltsonlinetests', 'cambridge ielts', 'ucles']) {
       expect(everything, `mentions ${forbidden}`).not.toContain(forbidden)
+    }
+  })
+})
+
+/* --------------------------- answer-key completeness ------------------------- */
+
+/**
+ * The integrity block above walks `q.answers`, so it passes however much of a
+ * key you delete: it proves a key is self-consistent, never that it is
+ * complete. These write the learner's forms out by hand instead, and fail the
+ * moment the paper loses one.
+ *
+ * They are the counterpart of the marker's "never guess at equivalence" rule.
+ * The marker will not invent "6.15 pm" from "6.15pm", so the KEY has to say it.
+ */
+describe('authored answer keys are complete in their own renderings', () => {
+  const FERRY_TIME = 'gt1-q14'
+
+  it('accepts every ordinary way of writing the ferry’s departure time', () => {
+    const forms = [
+      '18:15',
+      '18.15',
+      '6.15pm',
+      '6:15pm',
+      '6.15 pm',
+      '6:15 pm',
+      '6.15p.m.',
+      '6:15p.m.',
+      '6.15 p.m.',
+      '6:15 p.m.',
+      // Case and stray space are the marker's job, not the key's.
+      '6.15 PM',
+      '  6:15 p.m. ',
+    ]
+
+    for (const given of forms) {
+      const result = markAnswerKey(GENERAL_TEST_01, { [FERRY_TIME]: given })
+      expect(result.raw, `Q14 rejects "${given}"`).toBe(1)
+    }
+  })
+
+  it('still marks a different time wrong', () => {
+    for (const given of ['18:50', '6.15am', '8.15pm', '6.15']) {
+      expect(markAnswerKey(GENERAL_TEST_01, { [FERRY_TIME]: given }).raw, `Q14 accepts "${given}"`).toBe(0)
+    }
+  })
+
+  it('gives both the numeral and the word form of every number a learner writes', () => {
+    const numeric: Array<[string, string[]]> = [
+      ['gt1-q11', ['8', 'eight']],
+      ['gt1-q16', ['six months', '6 months']],
+      ['gt1-q17', ['two', '2']],
+      ['gt1-q19', ['three months', '3 months']],
+    ]
+
+    for (const [id, forms] of numeric) {
+      for (const given of forms) {
+        expect(markAnswerKey(GENERAL_TEST_01, { [id]: given }).raw, `${id} rejects "${given}"`).toBe(1)
+      }
     }
   })
 })
