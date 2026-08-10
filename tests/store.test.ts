@@ -1074,3 +1074,40 @@ describe('016-d: the backup key no longer collides inside one millisecond', () =
     vi.useRealTimers()
   })
 })
+
+/* -------------------- 016-a: backups are capped and pruned -------------------- */
+
+describe('016-a: backups are capped and pruned, newest kept', () => {
+  it('never keeps more backups than the cap, and the survivors are the newest', () => {
+    // MAX_BACKUPS is 5 and private to store.ts; this mirrors it the same way
+    // the existing per-section cap tests mirror MAX_SESSIONS_PER_SECTION as a
+    // bare 200 rather than importing it.
+    const CAP = 5
+    const MINTED = 8
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    for (let i = 0; i < MINTED; i++) {
+      store.set(
+        STORAGE_KEY,
+        JSON.stringify({ schemaVersion: 99, sessions: [makeSession(`s${i}`, '2026-01-01T10:00:00.000Z')] }),
+      )
+      loadSessions()
+      // A distinct millisecond per backup, so the cap — not the collision
+      // suffix — is what this test is pinning.
+      vi.advanceTimersByTime(1000)
+    }
+
+    const keys = backupKeys()
+    expect(keys.length).toBeLessThanOrEqual(CAP)
+    const survivorIds = keys
+      .map((k) => JSON.parse(store.get(k) as string).sessions[0].id)
+      .sort()
+    expect(survivorIds).toEqual(
+      Array.from({ length: CAP }, (_, i) => `s${MINTED - CAP + i}`).sort(),
+    )
+
+    vi.useRealTimers()
+  })
+})

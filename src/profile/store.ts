@@ -59,6 +59,20 @@ const BACKUP_KEY_PREFIX = 'ielts-coach.backup.'
  * `writeStore` already survives a full quota by warning rather than throwing.
  */
 const MAX_SESSIONS_PER_SECTION = 200
+/**
+ * How many timestamped backup copies to keep.
+ *
+ * Backups exist so nothing is destroyed without a recoverable copy — but a copy
+ * is a full serialisation of the store, and MEASURED at ae92bac a store can
+ * reach several megabytes against a typical ~5 MB origin quota. Unbounded
+ * copies fill the quota holding the essays they exist to protect, which turns
+ * the safety net into the thing that breaks the save.
+ *
+ * Newest N wins: a learner recovering by hand wants the most recent readable
+ * state, and an old copy of a store that has since been read successfully many
+ * times is not the one they will reach for.
+ */
+const MAX_BACKUPS = 5
 const EXPORT_FILENAME = 'ielts-coach-data.json'
 
 interface StoreShape {
@@ -370,6 +384,48 @@ function nextBackupKey(): string {
   throw new Error(`IELTS Coach: could not find a free backup key after ${BOUND} attempts.`)
 }
 
+/** How many timestamped backup keys currently exist. */
+function backupCount(): number {
+  const storage = window.localStorage
+  let n = 0
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    if (key !== null && key.startsWith(BACKUP_KEY_PREFIX)) n++
+  }
+  return n
+}
+
+/**
+ * Delete the oldest timestamped backups until at most `keep` remain.
+ *
+ * Keys sort by age as plain text — see `nextBackupKey` — so the oldest are
+ * simply the first `length - keep` after a lexicographic sort.
+ *
+ * This is the ONE function in the codebase that deletes a learner's data.
+ * Routing every eviction through it — including the single-backup eviction
+ * the write retry needs (`pruneBackups(backupCount() - 1)`) — keeps that
+ * scrutiny in one place instead of a second, easier-to-miss deletion site.
+ *
+ * Wrapped in ITS OWN try/catch, separate from `backupRaw`'s: a failure here
+ * must never read back as "could not back up saved data" — the backup this
+ * call follows already succeeded — and it must never block the read or write
+ * that triggered it either.
+ */
+function pruneBackups(keep: number): void {
+  try {
+    const storage = window.localStorage
+    const keys: string[] = []
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i)
+      if (key !== null && key.startsWith(BACKUP_KEY_PREFIX)) keys.push(key)
+    }
+    keys.sort()
+    for (let i = 0; i < keys.length - keep; i++) storage.removeItem(keys[i])
+  } catch (err) {
+    console.warn('IELTS Coach: could not prune old backup copies.', err)
+  }
+}
+
 /**
  * Copy the raw stored string to a timestamped backup key. Used whenever this
  * build is about to lose sight of stored data — because it could not parse it,
@@ -393,6 +449,7 @@ function backupRaw(raw: string, reason: string): void {
       `IELTS Coach: ${reason} ` +
         `A copy of the data as it was stored was kept at localStorage key "${key}".`,
     )
+    pruneBackups(MAX_BACKUPS)
   } catch (err) {
     console.warn('IELTS Coach: could not back up saved data before replacing it.', err)
   }
