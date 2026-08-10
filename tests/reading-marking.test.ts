@@ -63,7 +63,18 @@ function answerAllMessily(test: ReadingTest): SubmittedAnswers {
   return answers
 }
 
-const AUTHORED: ReadingTest[] = [ACADEMIC_TEST_01, GENERAL_TEST_01]
+/**
+ * Every registered paper, not a hand-written list of the two that exist today.
+ *
+ * `src/reading/tests/index.ts` says a paper is added by putting one entry in
+ * `READING_TESTS` and that "nothing else in the Reading code counts or names
+ * them" — which was true of src/ and false here. A hand-written array means a
+ * third paper ships with none of the fifteen integrity checks below: no
+ * guarantee it has forty questions, no guarantee its multiple-choice keys are
+ * among their own options, no guarantee a completion key fits its own word
+ * limit. Listening already spreads its registry; this matches it.
+ */
+const AUTHORED: ReadingTest[] = [...READING_TESTS]
 
 const V1_TYPES: ReadingQuestionType[] = [
   'true-false-notgiven',
@@ -578,6 +589,13 @@ describe('authored test structure', () => {
     expect(readingTestsForModule('academic')).toEqual([ACADEMIC_TEST_01])
     expect(readingTestsForModule('general')).toEqual([GENERAL_TEST_01])
     expect(READING_TESTS).toHaveLength(2)
+  })
+
+  it('offers every registered paper to exactly one module', () => {
+    // A paper whose `module` is neither value is registered, marked, and never
+    // shown to anyone — the pickers only ever list `readingTestsForModule`.
+    const offered = [...readingTestsForModule('academic'), ...readingTestsForModule('general')]
+    expect(offered.map((t) => t.id).sort()).toEqual(READING_TESTS.map((t) => t.id).sort())
   })
 
   it('looks a test up by id and returns null for an unknown one', () => {
