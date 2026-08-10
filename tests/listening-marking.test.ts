@@ -29,7 +29,12 @@ vi.mock('../src/marking/markAnswerKey', async (importOriginal) => {
   return { ...actual, markAnswerKey: vi.fn(actual.markAnswerKey) }
 })
 
-import { markAnswerKey, type SubmittedAnswers } from '../src/marking/markAnswerKey'
+import {
+  countWords,
+  markAnswerKey,
+  normaliseAnswer,
+  type SubmittedAnswers,
+} from '../src/marking/markAnswerKey'
 import { listeningRawToBand } from '../src/listening/bandTable'
 import { markListening } from '../src/listening/mark'
 import { ListeningPlayer } from '../src/listening/player'
@@ -140,7 +145,11 @@ describe.each(AUTHORED)('$id is a complete, answerable paper', (test) => {
     for (const question of test.questions) {
       if (question.type !== 'completion') continue
       for (const answer of question.answers) {
-        const words = answer.trim().split(/\s+/).length
+        // The MARKER's own count, on the marker's own normalised form — not a
+        // second definition of the word limit written out here. A local
+        // `split(/\s+/)` would pass a key the runtime then failed the learner
+        // for, which is the drift this assertion exists to catch.
+        const words = countWords(normaliseAnswer(answer))
         expect(words, `Q${question.number} key "${answer}" breaks its own limit`).toBeLessThanOrEqual(
           question.maxWords,
         )
@@ -290,6 +299,55 @@ describe('marking a Listening paper', () => {
         const result = markListening(LISTENING_TEST_01, { [question.id]: answer })
         expect(result.raw, `Q${question.number} rejects its own key "${answer}"`).toBe(1)
       }
+    }
+  })
+
+  /*
+   * The test above walks `question.answers`, so it passes however much of a key
+   * you delete — it can only prove the key is self-consistent, never that it is
+   * complete. The three that follow write the learner's forms out by hand, and
+   * fail the moment an alternate goes missing from the paper.
+   */
+
+  it('accepts the preprinted £ repeated, and the unit spelled out, on a money answer', () => {
+    // The form prints "Total cost of the stay: £ ____". Whether the learner
+    // writes the symbol again is not something the exam has an opinion about.
+    for (const given of ['680', '£680', '£ 680', '680 pounds']) {
+      expect(markListening(LISTENING_TEST_01, { 'ls-q07': given }).raw, `Q7 rejects "${given}"`).toBe(1)
+    }
+
+    // Complete, not lenient: Curlew's price and the wrong currency are still wrong.
+    for (const given of ['745', '£745', '680 euros']) {
+      expect(markListening(LISTENING_TEST_01, { 'ls-q07': given }).raw, `Q7 accepts "${given}"`).toBe(0)
+    }
+
+    for (const given of ['15', 'fifteen', '£15', '£ 15', '15 pounds', 'fifteen pounds']) {
+      expect(markListening(LISTENING_TEST_01, { 'ls-q08': given }).raw, `Q8 rejects "${given}"`).toBe(1)
+    }
+    // £8 is the cot, which she declines.
+    expect(markListening(LISTENING_TEST_01, { 'ls-q08': '£8' }).raw).toBe(0)
+  })
+
+  it('accepts a unit printed beside the gap being repeated, in either spelling', () => {
+    for (const given of ['1,000', '1000', 'one thousand', '1,000 metres', '1000 metres', '1,000 meters']) {
+      expect(markListening(LISTENING_TEST_01, { 'ls-q33': given }).raw, `Q33 rejects "${given}"`).toBe(1)
+    }
+    for (const given of ['20', 'twenty', '20 hertz', 'twenty hertz']) {
+      expect(markListening(LISTENING_TEST_01, { 'ls-q38': given }).raw, `Q38 rejects "${given}"`).toBe(1)
+    }
+
+    // The limit still bites: repeating the unit after the words is three words.
+    const tooLong = markListening(LISTENING_TEST_01, { 'ls-q33': 'one thousand metres' })
+    expect(tooLong.questions.find((q) => q.number === 33)!.overWordLimit).toBe(true)
+    expect(tooLong.raw).toBe(0)
+  })
+
+  it('keeps the article optional on an authored key that prints one', () => {
+    // Q29's key is written "the sample size" and also bare, so all three
+    // determiners land. Worth pinning: the marker no longer strips the article
+    // from both sides, and this is the authored key that would notice.
+    for (const given of ['the sample size', 'sample size', 'a sample size', 'sample sizes']) {
+      expect(markListening(LISTENING_TEST_01, { 'ls-q29': given }).raw, `Q29 rejects "${given}"`).toBe(1)
     }
   })
 

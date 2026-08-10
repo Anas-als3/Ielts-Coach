@@ -815,6 +815,14 @@ result:
 - a leading article is optional on **completion answers only**, and only AFTER the word limit has been
   checked, so it can never rescue an over-length answer.
 
+**Optional means omitted or added — never SWAPPED.** The learner may leave out the article the key
+prints ("greenhouse effect" against a key of "the greenhouse effect") or supply one the key does not
+print ("the greenhouse effect" against a key of "greenhouse effect"). Substituting one article for
+another is a different answer: **a key of "the sun" does not accept "a sun"**. Stripping the article
+from both sides before comparing — which is what the code did until the article was made genuinely
+optional — turns it into a free variable and marks a wrong answer right. An item-writer who wants both
+determiners accepted lists the bare form as well, and the "added" direction then covers all three.
+
 Unconditional, because this is how the real exam marks:
 
 - **a blank is never correct**, whatever the key says;
@@ -827,6 +835,35 @@ item-writer cannot see, and the first time it accepted something the real exam r
 stop meaning what it claims to mean.
 
 Word counting matches IELTS: whitespace separates words, so "well-being" and "1,500" are each ONE word.
+
+### The other half of that rule: keys must be COMPLETE
+
+Refusing to guess at equivalence puts the whole burden on the answer key, so an incomplete key is a
+marking defect and not a cosmetic one. Every rendering of the SAME answer that a real examiner accepts
+has to be written down, and a key that lists some of them is more dangerous than one that lists none,
+because the omission is invisible: a test that walks `question.answers` passes however much of the key
+has been deleted. The papers therefore list, for each completion gap and always subject to the
+question's own word limit:
+
+| Class | Written out as |
+|---|---|
+| numbers | figures and words, and the ordinal where the gap is a date — `['14', '14th', 'fourteenth']` |
+| a unit or currency symbol **preprinted beside the gap** | with it repeated and without — `£ ____` takes `['680', '£680', '£ 680', '680 pounds']` |
+| times | both separators and both clocks, `pm` spaced and closed up, pointed and bare — ten forms for one sailing |
+| spelling and hyphenation | every variant the exam accepts, British and American — `['1,000 metres', '1,000 meters']`, `['cross-dating', 'cross dating', 'crossdating']` |
+
+Two forms are deliberately NOT listed, and the boundary is worth stating because it is where the next
+item-writer will be tempted. **A unit or symbol is the same value written differently** — "£680" and
+"680" are one answer, so both belong in the key. **Preprinted words that are not units are additional
+content**, not another rendering: "Petra Lindqvist" against a key of "Lindqvist" is a judgement that
+surplus preprinted text is harmless, which is a policy this app has not adopted and would have no edge
+to. And anything that breaks the printed word limit stays out however right it sounds, because the
+marker checks the limit first and would fail it anyway.
+
+`tests/reading-marking.test.ts` and `tests/listening-marking.test.ts` each carry a block that writes
+the learner's forms out **by hand** for the keys most exposed to this — the money answers, the units,
+the ferry time — precisely so that deleting an alternate fails a test instead of silently costing a
+learner a mark.
 
 ### Question types (v1 — the six that cover ~80% of a real paper)
 
@@ -981,6 +1018,11 @@ Every leniency and every refusal is `markAnswerKey`'s, unchanged — see "Markin
 for the full list. Listening supplies only the conversion table. `src/listening/mark.ts` contains no
 marking logic at all, which is the point: duplicating the marker would have meant two definitions of
 the word limit and the two would eventually have disagreed.
+
+**That prohibition binds the tests too.** The authored-content check in `tests/listening-marking.test.ts`
+counts each key with the marker's own `countWords(normaliseAnswer(...))`, not a local
+`split(/\s+/)`. A second definition living in a test is still a second definition, and a test-only one
+fails in the worst direction: it passes a key that the runtime then marks the learner down for.
 
 Two pieces of impedance matching happen in that adapter and nowhere else:
 

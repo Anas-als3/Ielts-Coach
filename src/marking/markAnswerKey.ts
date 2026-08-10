@@ -20,7 +20,8 @@
  *  - case is ignored;
  *  - leading/trailing space and internal whitespace runs are normalised;
  *  - edge punctuation and typographic quotes are normalised away;
- *  - a leading article is optional on COMPLETION answers only.
+ *  - a leading article is optional on COMPLETION answers only — it may be
+ *    omitted or added, never swapped for a different one.
  *
  * And two things are unconditional, because they are how the real exam marks:
  *
@@ -122,11 +123,21 @@ function stripLeadingArticle(normalised: string): string {
 /**
  * Does `given` match any accepted answer?
  *
- * For COMPLETION questions a leading article is optional on either side: the
- * gap's own sentence usually supplies "the", and an examiner does not fail
- * "greenhouse effect" against a key of "the greenhouse effect". The leniency is
- * applied AFTER the word limit is checked, so it can never rescue an answer
- * that was too long — three words are three words even if one is "the".
+ * For COMPLETION questions a leading article is OPTIONAL. The gap's own
+ * sentence usually supplies "the", so an examiner does not fail "greenhouse
+ * effect" against a key of "the greenhouse effect", nor "the greenhouse effect"
+ * against a key of "greenhouse effect".
+ *
+ * **Optional is not interchangeable, and that distinction is the whole of this
+ * function.** Stripping the article from BOTH sides before comparing would make
+ * the article a free variable: a key of "the sun" would accept "a sun", which is
+ * a different answer and one the real exam marks wrong. So the article may be
+ * dropped from the KEY (the learner omitted it) or dropped from the ANSWER (the
+ * learner supplied one the key does not print) — never from both at once.
+ *
+ * The leniency is applied AFTER the word limit is checked, so it can never
+ * rescue an answer that was too long — three words are three words even if one
+ * of them is "the".
  */
 function isAccepted(given: string, question: MarkableQuestion): boolean {
   if (given === '') return false
@@ -135,8 +146,8 @@ function isAccepted(given: string, question: MarkableQuestion): boolean {
   if (accepted.includes(given)) return true
 
   if (question.type === 'completion') {
-    const bare = stripLeadingArticle(given)
-    return accepted.some((a) => stripLeadingArticle(a) === bare)
+    const givenWithoutArticle = stripLeadingArticle(given)
+    return accepted.some((a) => stripLeadingArticle(a) === given || a === givenWithoutArticle)
   }
 
   return false
