@@ -35,4 +35,44 @@ describe('the engine stays linear on pathological whitespace', () => {
     // pass with the quadratic regex restored.
     expect(elapsed).toBeLessThan(100)
   })
+
+  it('stays linear at 60,000 characters — no other rule is quadratic', () => {
+    analyzeEssay('Warm up.', null)
+    const t0 = performance.now()
+    analyzeEssay(whitespaceBlob(60_000), null)
+    const elapsed = performance.now() - t0
+    // 1250.6 ms before the fix, 2.24 ms after, on the reference machine. If
+    // some future rule reintroduces a backtracking scan, this is where it
+    // surfaces: a quadratic path shows up here long before anyone reports a
+    // frozen tab.
+    expect(elapsed).toBeLessThan(150)
+  })
+})
+
+/** The `connector-comma` issues a document produces, as `start-end` strings. */
+function spaceBeforeCommaSpans(text: string): string[] {
+  return analyzeEssay(text, null)
+    .issues.filter((i) => i.category === 'connector-comma')
+    .map((i) => `${i.start}-${i.end}`)
+}
+
+describe('bounding the quantifier changed no issue anyone will see', () => {
+  it.each([
+    ['The plan is good , but costly.', ['16-18']],
+    ['The plan is good     , but costly.', ['16-22']],
+    ['The plan is good, but costly.', []],
+    ['One idea.\n\n , Another.', ['9-13']],
+    ['x  ,  y ,z', ['1-4', '7-9']],
+  ])('%j still yields %j', (text, expected) => {
+    expect(spaceBeforeCommaSpans(text as string)).toEqual(expected)
+  })
+
+  it('clamps the highlight to the last 12 characters of an absurd run, and still flags it once', () => {
+    // The ONE documented behaviour difference. 30 spaces before the comma: the
+    // issue is still emitted exactly once and still ends at the comma, but the
+    // underline starts 12 characters back instead of 30. Nothing a learner
+    // types produces this; paste and import do.
+    const text = `A${' '.repeat(30)}, b`
+    expect(spaceBeforeCommaSpans(text)).toEqual(['19-32'])
+  })
 })
