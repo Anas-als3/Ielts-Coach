@@ -29,7 +29,7 @@ sessions on the same plan.
 | 010 | Reading — both modules, real question types, real band tables | P2 | L | 008 | TODO |
 | 013 | Full mock test mode | P2 | M | 010 | TODO |
 | 011 | Listening — marking is easy, audio is the project | P3 | L | 010 | TODO |
-| 012 | Speaking — the honest deterministic slice | P3 | M | 008 | TODO |
+| 012 | Speaking — the honest deterministic slice | P3 | M | 008 | DEFERRED — user descoped 2026-08-10; Writing/Reading/Listening first |
 
 **Run 007 before 006** even though it is numbered second: it is two hours, and
 it restores a trustworthy test suite that plan 006 needs to land against. The
