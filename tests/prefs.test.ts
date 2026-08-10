@@ -1,16 +1,20 @@
 /**
  * `ielts-coach.prefs.v1` (SPEC.md "Preferences"). A SEPARATE key from the
  * session store, so a preference write can never race or damage learner work.
- * These cases pin the two properties that make that safe: reads never throw
- * on hostile data, and writes never drop a field this build does not know
- * about (the plan-027 contract).
+ * These cases pin the properties that make that safe: reads never throw on
+ * hostile data, writes never drop a field this build does not know about
+ * (the plan-026 contract, extended by plan 027), and each plan-027 field
+ * (exam date, target bands, exam type) is validated INDEPENDENTLY — one
+ * hostile value must not take a good one down with it. `buildExportJson` /
+ * `importData`'s prefs rider is pinned separately, in the cases below that
+ * import from `../src/profile/store`.
  *
  * Same in-memory localStorage stub as `tests/store.test.ts` — the module
  * reads `window.localStorage` at call time, so installing it in `beforeEach`
  * is enough, no module mocking needed.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadPrefs, savePrefs } from '../src/profile/prefs'
+import { daysUntil, loadPrefs, sanitizePrefs, savePrefs } from '../src/profile/prefs'
 
 const PREFS_KEY = 'ielts-coach.prefs.v1'
 
@@ -58,10 +62,10 @@ describe('loadPrefs reads defensively', () => {
   })
 
   it('non-object JSON returns {}', () => {
-    store.set(PREFS_KEY, '42')
-    expect(loadPrefs()).toEqual({})
-    store.set(PREFS_KEY, '[1,2]')
-    expect(loadPrefs()).toEqual({})
+    for (const raw of ['42', '[]', '[1,2]', '"hi"', 'null']) {
+      store.set(PREFS_KEY, raw)
+      expect(loadPrefs()).toEqual({})
+    }
   })
 
   it('a wrong-typed field is discarded', () => {
@@ -76,6 +80,21 @@ describe('savePrefs writes safely', () => {
     expect(loadPrefs()).toEqual({ introDismissedAtISO: '2026-08-10T00:00:00.000Z' })
   })
 
+  it('round-trips every plan-027 field together', () => {
+    savePrefs({
+      examDateISO: '2026-11-07',
+      targetOverall: 7,
+      targetBySection: { writing: 6.5 },
+      module: 'general',
+    })
+    expect(loadPrefs()).toEqual({
+      examDateISO: '2026-11-07',
+      targetOverall: 7,
+      targetBySection: { writing: 6.5 },
+      module: 'general',
+    })
+  })
+
   it('preserves an unknown field across a write (plan-027 contract)', () => {
     store.set(
       PREFS_KEY,
@@ -87,6 +106,27 @@ describe('savePrefs writes safely', () => {
     expect(raw.introDismissedAtISO).toBe('2026-08-11T00:00:00.000Z')
   })
 
+  it('merge-on-write preserves a field this build does not own AT ALL, beside a field it does (the 026 contract, pinned)', () => {
+    store.set(
+      PREFS_KEY,
+      JSON.stringify({ introDismissedAtISO: '2026-08-01T00:00:00.000Z', futureField: 123 }),
+    )
+    savePrefs({ targetOverall: 7 })
+    const raw = JSON.parse(store.get(PREFS_KEY) as string) as Record<string, unknown>
+    expect(raw.introDismissedAtISO).toBe('2026-08-01T00:00:00.000Z')
+    expect(raw.futureField).toBe(123)
+    expect(raw.targetOverall).toBe(7)
+  })
+
+  it('an explicit undefined in the patch clears that field on disk, leaving its neighbour', () => {
+    savePrefs({ examDateISO: '2026-11-07', targetOverall: 7 })
+    savePrefs({ targetOverall: undefined })
+    expect(loadPrefs().targetOverall).toBeUndefined()
+    const raw = JSON.parse(store.get(PREFS_KEY) as string) as Record<string, unknown>
+    expect('targetOverall' in raw).toBe(false)
+    expect(loadPrefs().examDateISO).toBe('2026-11-07')
+  })
+
   it('a throwing setItem is swallowed, not propagated', () => {
     const stub = (globalThis as unknown as { window: { localStorage: Storage } }).window
       .localStorage
@@ -94,5 +134,76 @@ describe('savePrefs writes safely', () => {
       throw new Error('quota exceeded')
     }
     expect(() => savePrefs({ introDismissedAtISO: '2026-08-10T00:00:00.000Z' })).not.toThrow()
+  })
+})
+
+describe('sanitizePrefs drops a hostile targetOverall, field by field', () => {
+  const hostileValues: unknown[] = [3.5, 9.5, 7.25, '7', NaN, Infinity]
+
+  it.each(hostileValues)('drops targetOverall = %p but keeps examDateISO beside it', (bad) => {
+    const prefs = sanitizePrefs({ examDateISO: '2026-11-07', targetOverall: bad })
+    expect(prefs.targetOverall).toBeUndefined()
+    expect(prefs.examDateISO).toBe('2026-11-07')
+  })
+
+  it('the JSON-representable hostile values are dropped when they arrive through real storage too', () => {
+    for (const bad of [3.5, 9.5, 7.25, '7']) {
+      store.set(PREFS_KEY, JSON.stringify({ examDateISO: '2026-11-07', targetOverall: bad }))
+      const prefs = loadPrefs()
+      expect(prefs.targetOverall).toBeUndefined()
+      expect(prefs.examDateISO).toBe('2026-11-07')
+    }
+  })
+})
+
+describe('sanitizePrefs drops a hostile examDateISO, field by field', () => {
+  const hostileDates: unknown[] = ['not-a-date', '2026-13-40', '07/11/2026', 20261107]
+
+  it.each(hostileDates)('drops examDateISO = %p but keeps targetOverall beside it', (bad) => {
+    const prefs = sanitizePrefs({ examDateISO: bad, targetOverall: 7 })
+    expect(prefs.examDateISO).toBeUndefined()
+    expect(prefs.targetOverall).toBe(7)
+  })
+})
+
+describe('sanitizePrefs drops a hostile module', () => {
+  const hostileModules: unknown[] = ['speaking', '', 7]
+
+  it.each(hostileModules)('drops module = %p', (bad) => {
+    expect(sanitizePrefs({ module: bad }).module).toBeUndefined()
+  })
+
+  it('keeps a recognised module', () => {
+    expect(sanitizePrefs({ module: 'general' }).module).toBe('general')
+  })
+})
+
+describe('sanitizePrefs filters targetBySection per section', () => {
+  it('keeps only the known sections holding a valid band, drops the rest', () => {
+    const prefs = sanitizePrefs({ targetBySection: { writing: 6.5, speaking: 7, reading: 11 } })
+    expect(prefs.targetBySection).toEqual({ writing: 6.5 })
+  })
+
+  it('omits the field entirely when nothing in it survives', () => {
+    const prefs = sanitizePrefs({ targetBySection: { speaking: 7 } })
+    expect(prefs.targetBySection).toBeUndefined()
+  })
+})
+
+describe('daysUntil', () => {
+  it('the exam date itself is 0', () => {
+    expect(daysUntil('2026-08-10', new Date(2026, 7, 10, 15, 30))).toBe(0)
+  })
+
+  it('ten calendar days out is 10', () => {
+    expect(daysUntil('2026-08-20', new Date(2026, 7, 10))).toBe(10)
+  })
+
+  it('a date already passed is negative', () => {
+    expect(daysUntil('2026-08-01', new Date(2026, 7, 10))).toBe(-9)
+  })
+
+  it('an unparseable date is null', () => {
+    expect(daysUntil('2026-13-40', new Date(2026, 7, 10))).toBeNull()
   })
 })
