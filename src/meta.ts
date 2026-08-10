@@ -1,4 +1,4 @@
-import type { Criterion, IssueCategory, Module, QuestionType, TaskKind } from './types'
+import type { Criterion, IssueCategory, Module, QuestionType, TaskKind, WritingMode } from './types'
 import type { ReadingQuestionType } from './reading/types'
 import type { ListeningFormat } from './listening/types'
 
@@ -14,6 +14,12 @@ export const MODULE_META: Record<Module, { label: string; short: string; blurb: 
     short: 'General',
     blurb: 'For migration and work. Task 1 is a letter.',
   },
+}
+
+/** Learner-facing one-liners for the Coach / Exam toggle — the same duty MODULE_META.blurb does. */
+export const WRITING_MODE_META: Record<WritingMode, { blurb: string }> = {
+  coach: { blurb: 'Live feedback as you write: highlights, structure rail, band estimate.' },
+  exam: { blurb: 'The real thing: a countdown, no feedback, paste blocked. Full report at submit.' },
 }
 
 /** Display metadata for the four IELTS band criteria. Task 2 wording is the default. */

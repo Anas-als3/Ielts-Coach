@@ -21,7 +21,7 @@ import type {
 import { isListeningSession, isReadingSession, isWritingSession } from './types'
 import type { ReadingAnswers } from './reading/types'
 import type { ListeningAnswers } from './listening/types'
-import { MODULE_META, TASK_CONSTANTS } from './meta'
+import { MODULE_META, TASK_CONSTANTS, WRITING_MODE_META } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
 import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/draft'
@@ -1007,6 +1007,7 @@ export default function App({
                 className={mode === 'coach' ? 'mode-btn active' : 'mode-btn'}
                 aria-pressed={mode === 'coach'}
                 onClick={() => switchMode('coach')}
+                title={WRITING_MODE_META.coach.blurb}
               >
                 Coach
               </button>
@@ -1014,6 +1015,7 @@ export default function App({
                 className={mode === 'exam' ? 'mode-btn active' : 'mode-btn'}
                 aria-pressed={mode === 'exam'}
                 onClick={() => switchMode('exam')}
+                title={WRITING_MODE_META.exam.blurb}
               >
                 Exam
               </button>
