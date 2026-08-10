@@ -24,6 +24,8 @@ import type { ListeningAnswers } from './listening/types'
 import { MODULE_META, TASK_CONSTANTS } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
+import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/draft'
+import type { WritingDraft } from './profile/draft'
 import { computeProfile, computeTrends } from './profile/profile'
 import { isBefore } from './profile/chronology'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
@@ -157,6 +159,13 @@ export default function App({
   const essayTextRef = useRef(essayText)
   essayTextRef.current = essayText
   const handleSubmitRef = useRef<() => void>(() => {})
+  // The draft found at mount, held until the learner decides. NEVER applied
+  // silently: a draft is an offer, because auto-restoring would overwrite the
+  // empty sheet a learner deliberately reloaded to get.
+  const [pendingDraft, setPendingDraft] = useState<WritingDraft | null>(() => loadDraft())
+  // The exact text last written to the draft key — what beforeunload compares
+  // against to know whether closing the tab would lose anything.
+  const draftTextRef = useRef('')
 
   const taskConstants = TASK_CONSTANTS[task]
   // Task 2 is marked identically in both exams, so the only module-dependent
@@ -298,6 +307,34 @@ export default function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, mode, examState])
 
+  /* ---------------------------- draft persistence ---------------------------- */
+  // Debounced off the EXISTING `debouncedText` (400ms) — no new debounce
+  // machinery. This is the whole answer to 025-a: the essay used to live only
+  // in `useState`, so a reload, crash or tab close lost it outright.
+  useEffect(() => {
+    if (view !== 'write') return
+    // While a restore offer is undecided, the effect must not run at all:
+    // essayText is '' at mount, and the zero-word branch below would delete
+    // the very draft the card is offering to restore.
+    if (pendingDraft !== null) return
+    if (countWords(debouncedText) === 0) {
+      clearDraft()
+      draftTextRef.current = ''
+      return
+    }
+    const activeSpec = isLetter ? letterPrompt : task === 'task1' ? task1Prompt : prompt
+    saveDraft({
+      task,
+      module,
+      promptId: activeSpec?.id ?? null,
+      essayText: debouncedText,
+      mode,
+      examDeadlineEpochMs: examState === 'running' ? examDeadlineRef.current : null,
+      savedAtISO: new Date().toISOString(),
+    })
+    draftTextRef.current = debouncedText
+  }, [debouncedText, view, task, module, mode, examState, isLetter, letterPrompt, task1Prompt, prompt, pendingDraft])
+
   /* --------------------------------- actions -------------------------------- */
   handleSubmitRef.current = () => handleSubmit()
 
@@ -365,6 +402,11 @@ export default function App({
     setExamState('idle')
     setExamSecondsLeft(taskConstants.examDurationSec)
     examDeadlineRef.current = null
+    // Cleared HERE rather than left to the persistence effect: the view is
+    // about to become 'report', so that effect never runs again to do it, and
+    // a stale draft would offer back an essay that is already in the history.
+    clearDraft()
+    draftTextRef.current = ''
     setView('report')
     // submittingRef stays true until a new writing session starts, so a
     // double-fired timer expiry can never save the same essay twice.
