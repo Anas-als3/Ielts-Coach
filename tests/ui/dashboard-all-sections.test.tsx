@@ -25,16 +25,24 @@ function navLink(name: string): HTMLElement {
   return within(document.querySelector('.nav') as HTMLElement).getByText(name)
 }
 
+/** The "Start this paper" button on one paper's card. Each module lists more
+ * than one paper (see tests/ui/reading.test.tsx's `startButtonFor`), so the
+ * button has to be found through its own card rather than by role alone. */
+function startButtonFor(title: string): HTMLElement {
+  const card = screen.getByText(title).closest('.rdp-test') as HTMLElement
+  return within(card).getByRole('button', { name: 'Start this paper' })
+}
+
 /**
- * Sit and submit the Academic Reading paper, answering nothing. The submit
- * button has no answered-count gate — only a confirm for blank answers,
- * mocked true here — so an unanswered paper is a valid, saved session; only
- * the fact that ONE was saved matters to these tests.
+ * Sit and submit the first Academic Reading paper, answering nothing. The
+ * submit button has no answered-count gate — only a confirm for blank
+ * answers, mocked true here — so an unanswered paper is a valid, saved
+ * session; only the fact that ONE was saved matters to these tests.
  */
 async function sitReadingPaper(user: User): Promise<void> {
   vi.spyOn(window, 'confirm').mockReturnValue(true)
   await user.click(navLink('Reading'))
-  await user.click(screen.getByRole('button', { name: 'Start this paper' }))
+  await user.click(startButtonFor('Academic Reading Test 1'))
   await screen.findByRole('tab', { name: /Reading Passage 1/ })
   await user.click(screen.getByRole('button', { name: 'Submit answers' }))
   await screen.findByText(/This band is exact/i)

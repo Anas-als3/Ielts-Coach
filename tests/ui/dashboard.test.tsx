@@ -100,6 +100,10 @@ function renderDashboard(): void {
   render(
     <Dashboard
       sessions={SESSIONS}
+      // These tests exercise the populated writing view only — no import
+      // picker, no empty branch — so the whole-store list is honestly the
+      // same array as the writing-only one above.
+      allSessions={SESSIONS}
       profile={PROFILE}
       trends={[]}
       onOpenSession={() => {}}
