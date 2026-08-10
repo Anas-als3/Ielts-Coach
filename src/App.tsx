@@ -49,6 +49,8 @@ import Report from './components/Report'
 import Dashboard from './components/Dashboard'
 import PromptPicker from './components/PromptPicker'
 import CheatSheet from './components/CheatSheet'
+import ChartSheet from './components/ChartSheet'
+import LetterSheet from './components/LetterSheet'
 import ModelAnswer from './components/ModelAnswer'
 import ModelLibrary from './components/ModelLibrary'
 import ReadingRunner from './components/ReadingRunner'
@@ -673,8 +675,6 @@ export default function App({
     setExamState('idle')
     setExamSecondsLeft(TASK_CONSTANTS[next].examDurationSec)
     setFocusIssueId(null)
-    // The cheat sheet is Task 2 only, so that tab cannot survive the switch.
-    if (next === 'task1' && panelTab === 'cheatsheet') setPanelTab('feedback')
   }
 
   function switchModule(next: Module) {
@@ -924,9 +924,11 @@ export default function App({
   }
 
   /* --------------------------------- render --------------------------------- */
-  // The cheat sheet teaches Task 2 specifically, so Task 1 is never offered it.
-  const panelTabsShown: PanelTab[] =
-    task === 'task2' ? ['feedback', 'cheatsheet', 'model'] : ['feedback', 'model']
+  // Every task now has a sheet: Task 2 keeps its one-pager, Academic Task 1
+  // gets the chart sheet, and the GT letter gets the letter sheet. The tab id
+  // and label stay 'cheatsheet' / 'Cheat sheet' so the tab machinery,
+  // aria wiring and exam-mode gating are untouched.
+  const panelTabsShown: PanelTab[] = ['feedback', 'cheatsheet', 'model']
   /**
    * The tab actually on screen. `panelTab` can name one that is not — Task 1
    * hides the cheat sheet — and a panel labelled by a button that does not
@@ -1423,7 +1425,13 @@ export default function App({
                 aria-labelledby={panelTabId(activePanelTab)}
               >
                 {activePanelTab === 'cheatsheet' ? (
-                  <CheatSheet />
+                  task === 'task2' ? (
+                    <CheatSheet />
+                  ) : module === 'general' ? (
+                    <LetterSheet />
+                  ) : (
+                    <ChartSheet />
+                  )
                 ) : activePanelTab === 'model' ? (
                   <ModelAnswer
                     task={task}

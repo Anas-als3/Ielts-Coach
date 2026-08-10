@@ -1636,3 +1636,19 @@ nouns after a preposition would suppress genuine errors ("he walked to shop"). O
   matching the band hero's hedge.
 - The `TR` slot is one slot with two names (`criterionLabel`); the `task1`
   strings serve both the Academic chart and the GT letter.
+
+### Task 1 study sheets (`components/ChartSheet.tsx`, `components/LetterSheet.tsx`)
+
+- The coach panel's sheet tab is now task-aware: Task 2 → the original cheat
+  sheet, Academic Task 1 → the chart sheet, GT Task 1 → the letter sheet. Tab
+  id and label are unchanged ('cheatsheet' / 'Cheat sheet').
+- The sheets teach only what the engine rewards, so the app never contradicts
+  itself: the letter sheet's pairing table mirrors `SIGNOFF_FORMS` licenses
+  ('Yours faithfully' ↔ unnamed reader only), states the two-keyword bullet
+  coverage rule and the 5.5 cap from `letterBandEstimate`; the chart sheet
+  restates the overview lever, the invented-figure rule and the
+  no-causes/no-conclusion shape from `CATEGORY_META`. If a rule constant
+  changes, the sheet copy is part of the change.
+- All copy is original prose (see the copyright rule under this section's
+  parent heading); both sheets end with a memorisation warning matching
+  `ModelAnswer.tsx`'s.

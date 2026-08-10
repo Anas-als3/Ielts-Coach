@@ -113,15 +113,18 @@ describe('the model answer tab', () => {
     ).toBeInTheDocument()
   })
 
-  it('drops the cheat sheet tab but keeps the model tab in Task 1', async () => {
+  it('keeps the cheat sheet tab selected across the switch and swaps in the chart sheet', async () => {
     const user = userEvent.setup()
     renderApp()
     await user.click(screen.getByRole('tab', { name: 'Cheat sheet' }))
     await user.click(taskButton('Task 1'))
 
-    expect(screen.queryByRole('tab', { name: 'Cheat sheet' })).not.toBeInTheDocument()
+    // The tab survives the switch — it is never blank, it now shows Task 1's sheet.
+    expect(screen.getByRole('tab', { name: 'Cheat sheet' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
     expect(screen.getByRole('tab', { name: 'Model answer' })).toBeInTheDocument()
-    // Switching away from a tab that no longer exists must not blank the panel.
-    expect(screen.getByRole('tab', { name: 'Feedback' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('IELTS Task 1 — Charts, One Page')).toBeInTheDocument()
   })
 })

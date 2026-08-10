@@ -125,11 +125,14 @@ describe('switching to Task 1', () => {
     expect(taskButton('Task 1')).toHaveClass('active')
   })
 
-  it('hides the Task 2 cheat sheet', async () => {
+  it('swaps the sheet to the chart one in Task 1', async () => {
     const user = userEvent.setup()
     renderApp()
     await user.click(taskButton('Task 1'))
-    expect(screen.queryByRole('tab', { name: 'Cheat sheet' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Cheat sheet' })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Cheat sheet' }))
+    expect(screen.getByText('IELTS Task 1 — Charts, One Page')).toBeInTheDocument()
+    expect(screen.queryByText('IELTS Task 2 — One Page')).not.toBeInTheDocument()
   })
 
   it('shows no Conclusion group, because Task 1 has no conclusion', async () => {
