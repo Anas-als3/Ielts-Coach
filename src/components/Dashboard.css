@@ -108,6 +108,58 @@
   gap: 10px;
 }
 
+/* --------------------------------------------------------- exam goal card */
+.db-goal {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.db-goal-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.db-goal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+}
+
+.db-goal-label {
+  color: var(--ink-soft);
+}
+
+.db-goal-field input,
+.db-goal-field select {
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.db-goal-days {
+  font-weight: 600;
+}
+
+.db-goal-gaps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.db-goal-gap,
+.db-goal-hedge {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
 /* ------------------------------------------------------ band trend chart */
 .db-chart-card {
   padding: 16px 18px 14px;

@@ -75,6 +75,13 @@
   max-width: 22ch;
 }
 
+/* the learner's target band, when set — same quiet voice as the caption */
+.rp-band-target {
+  font-size: 12px;
+  color: var(--ink-soft);
+  max-width: 22ch;
+}
+
 /* confidence note directly under the caption — same quiet voice */
 .rp-band-note {
   font-size: 12px;

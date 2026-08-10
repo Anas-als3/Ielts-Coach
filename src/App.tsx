@@ -10,9 +10,11 @@ import type {
   LetterPromptSpec,
   ListeningSessionRecord,
   Module,
+  Prefs,
   PromptSpec,
   ReadingSessionRecord,
   SessionRecord,
+  SessionSection,
   Task1PromptSpec,
   TaskKind,
   WritingMode,
@@ -28,7 +30,7 @@ import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/
 import type { WritingDraft } from './profile/draft'
 import { computeProfile, computeTrends } from './profile/profile'
 import { isBefore } from './profile/chronology'
-import { loadPrefs, updatePrefs } from './profile/prefs'
+import { loadPrefs, savePrefs } from './profile/prefs'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
@@ -109,8 +111,9 @@ export default function App({
   const [view, setView] = useState<View>('write')
   const [mode, setMode] = useState<WritingMode>('coach')
   const [task, setTask] = useState<TaskKind>('task2')
-  // Academic is the default because it is the exam the app was built for.
-  const [module, setModule] = useState<Module>('academic')
+  // Academic is the default because it is the exam the app was built for; a
+  // learner who has chosen General should not have to re-choose every visit.
+  const [module, setModule] = useState<Module>(() => loadPrefs().module ?? 'academic')
   const [prompt, setPrompt] = useState<PromptSpec | null>(() => initialPrompt ?? randomPrompt())
   // THREE prompt slots rather than one union: switching task or exam and
   // switching back should return the learner to the question they were already
@@ -179,6 +182,12 @@ export default function App({
   const [introDismissed, setIntroDismissed] = useState<boolean>(
     () => loadPrefs().introDismissedAtISO != null,
   )
+  // The learner's goals & readiness prefs (exam date, targets, exam type),
+  // read once on mount like `sessions` and `introDismissed` above and kept in
+  // sync through `updatePrefs`, so the Dashboard's "Your exam" card and the
+  // Report's target chip re-render from ONE copy of state rather than each
+  // reading storage on their own.
+  const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs())
 
   const taskConstants = TASK_CONSTANTS[task]
   // Task 2 is marked identically in both exams, so the only module-dependent
@@ -220,6 +229,21 @@ export default function App({
     () => sessions.filter(isWritingSession),
     [sessions],
   )
+  /**
+   * The latest band per SECTION, from `sessions` — every section, not just
+   * writing — so the "Your exam" card can show a gap without depending on a
+   * Dashboard-props rework. `sessions` is sorted ascending by date (see
+   * `loadSessions`), so the last hit per section in this loop is the newest.
+   */
+  const latestBandBySection = useMemo<Partial<Record<SessionSection, number>>>(() => {
+    const out: Partial<Record<SessionSection, number>> = {}
+    for (const s of sessions) {
+      if (isWritingSession(s)) out.writing = s.analysis.band.overall
+      else if (isReadingSession(s)) out.reading = s.result.band
+      else out.listening = s.result.band
+    }
+    return out
+  }, [sessions])
   const readingHistory = useMemo<ReadingSessionRecord[]>(
     () =>
       sessions
@@ -618,6 +642,14 @@ export default function App({
       if (!leave) return
     }
     setModule(next)
+    // Persisted so a returning General candidate does not have to re-choose
+    // every visit — see the lazy initializer above. Sits AFTER the confirm
+    // guards, so declining the "abandon this attempt?" dialog persists nothing.
+    savePrefs({ module: next })
+    // Re-read rather than merging in memory (same rule `updatePrefs` follows):
+    // storage is the source of truth, so the "Your exam" card's exam-type
+    // select and this topbar toggle can never disagree.
+    setPrefs(loadPrefs())
     // A prompt the new exam does not ask disappears from the picker, so leaving
     // it selected would strand the learner on a question they cannot see listed.
     //
@@ -788,14 +820,37 @@ export default function App({
     setFocusIssueId(null)
   }
 
+  /**
+   * The single write path for the "Your exam" card (and anything else that
+   * sets a prefs field directly, `dismissIntro` and `switchModule` aside,
+   * which already have their own `savePrefs` + re-read). Re-reads rather than
+   * merging in memory, the same rule every session mutation below follows:
+   * storage is the source of truth.
+   */
+  function updatePrefs(patch: Partial<Prefs>) {
+    savePrefs(patch)
+    setPrefs(loadPrefs())
+  }
+
   function dismissIntro() {
     setIntroDismissed(true)
-    updatePrefs({ introDismissedAtISO: new Date().toISOString() })
+    savePrefs({ introDismissedAtISO: new Date().toISOString() })
+    // Re-read into `prefs` too, the same rule every other prefs write in this
+    // file follows: storage is the source of truth, so `prefs` state can
+    // never fall behind what `introDismissed` above already knows.
+    setPrefs(loadPrefs())
   }
 
   function handleImport(json: string) {
     importData(json)
     setSessions(loadSessions())
+    const restored = loadPrefs()
+    setPrefs(restored)
+    // Through switchModule, not setModule: away from the desk it keeps a
+    // prompt that suits the new exam and redraws one that does not
+    // (see switchModule above); a bare setModule would strand a
+    // General-only prompt on an Academic desk.
+    if (restored.module && restored.module !== module) switchModule(restored.module)
   }
 
   function handleDelete(id: string) {
@@ -1340,6 +1395,7 @@ export default function App({
             onRedraft={() => handleRedraft(reportSession)}
             onNewEssay={() => startNewEssay()}
             onViewDashboard={() => setView('dashboard')}
+            targetOverall={prefs.targetOverall}
           />
         </main>
       )}
@@ -1468,6 +1524,11 @@ export default function App({
             onDeleteSession={handleDelete}
             onExport={exportData}
             onImport={handleImport}
+            prefs={prefs}
+            latestBandBySection={latestBandBySection}
+            onUpdatePrefs={updatePrefs}
+            module={module}
+            onSwitchModule={switchModule}
           />
         </main>
       )}

@@ -399,6 +399,27 @@ export type RuleFn = (
 export type Module = 'academic' | 'general';
 
 /**
+ * Learner preferences, persisted under `profile/prefs.ts`'s `PREFS_KEY` — a
+ * SEPARATE localStorage key from the sessions store, with no schema ladder:
+ * every field is optional and independently validated, so a bad value is
+ * dropped alone rather than versioned around.
+ */
+export interface Prefs {
+  /** Owned by plan 026 (intro dismissal); carried here so it round-trips
+   *  through load/save/export whichever plan lands first. */
+  introDismissedAtISO?: string;
+  /** Exam day as 'YYYY-MM-DD' (a calendar date, not an instant). */
+  examDateISO?: string;
+  /** Target overall band: 4.0–9.0 in half steps. */
+  targetOverall?: number;
+  /** Per-SECTION targets (IELTS requirements are per section, never per
+   *  Writing criterion). */
+  targetBySection?: Partial<Record<SessionSection, number>>;
+  /** The exam the learner is preparing for; restored on next visit. */
+  module?: Module;
+}
+
+/**
  * Which IELTS task a session belongs to. `task2` is the only value produced by
  * the current app; sessions saved before schemaVersion 2 are migrated to it.
  */
@@ -726,6 +747,9 @@ export interface ReportProps {
   onRedraft: () => void;
   onNewEssay: () => void;
   onViewDashboard: () => void;
+  /** The learner's target overall band, when set — the report shows the gap
+   *  beside the estimate. Optional: no target, no chip. */
+  targetOverall?: number;
 }
 
 export interface DashboardProps {
@@ -748,6 +772,17 @@ export interface DashboardProps {
   onDeleteSession: (id: string) => void;
   onExport: () => void;
   onImport: (json: string) => void;
+  /** Learner prefs, passed down rather than read from storage in the
+   *  component: App owns the single copy of state (same rule as sessions),
+   *  and a test can assert the card re-renders when they change. */
+  prefs: Prefs;
+  /** The latest band per SECTION, from every saved session (not just
+   *  writing) — lets the "Your exam" card show a gap without depending on a
+   *  Dashboard-props rework. */
+  latestBandBySection: Partial<Record<SessionSection, number>>;
+  onUpdatePrefs: (patch: Partial<Prefs>) => void;
+  module: Module;
+  onSwitchModule: (m: Module) => void;
 }
 
 export interface PromptPickerProps {

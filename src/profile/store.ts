@@ -32,6 +32,7 @@
 import type { Criterion, SaveResult, SessionRecord, SessionSection } from '../types'
 import { isWritingSession } from '../types'
 import { byDateAscending } from './chronology'
+import { loadPrefs, sanitizePrefs, savePrefs } from './prefs'
 
 const STORAGE_KEY = 'ielts-coach.v1'
 const SCHEMA_VERSION = 5
@@ -648,10 +649,28 @@ export function deleteSession(id: string): void {
   writeStore(remaining)
 }
 
+/**
+ * The export payload as a JSON string. Split from exportData so the engine
+ * tests can pin the payload without a DOM (Blob/anchor stay in exportData).
+ *
+ * Prefs ride along ADDITIVELY: importData has never enumerated keys — it
+ * reads schemaVersion and sessions and ignores the rest — so an older build
+ * importing a newer file keeps working, and the field is omitted when empty
+ * so a prefs-less export is byte-identical to today's.
+ */
+export function buildExportJson(): string {
+  const prefs = loadPrefs()
+  const payload = {
+    schemaVersion: SCHEMA_VERSION,
+    sessions: loadSessions(),
+    ...(Object.keys(prefs).length > 0 ? { prefs } : {}),
+  }
+  return JSON.stringify(payload, null, 2)
+}
+
 /** Download the full store as pretty-printed JSON named ielts-coach-data.json. */
 export function exportData(): void {
-  const store: StoreShape = { schemaVersion: SCHEMA_VERSION, sessions: loadSessions() }
-  const json = JSON.stringify(store, null, 2)
+  const json = buildExportJson()
   const blob = new Blob([json], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -732,4 +751,10 @@ export function importData(json: string): void {
   const sessions = migrateSessions(Array.from(deduplicated.values()), version).sort(byDateAscending)
   backupCurrentStore('your saved sessions were replaced by an imported file.')
   writeStore(capSessions(sessions))
+
+  // Prefs ride the export additively (see buildExportJson). Restore them the
+  // same way they are read from disk: sanitized field-by-field, so a
+  // hand-edited file with one hostile number still restores its good fields —
+  // and a file from before prefs existed leaves the current prefs untouched.
+  if (isRecordObject(parsed.prefs)) savePrefs(sanitizePrefs(parsed.prefs))
 }

@@ -111,6 +111,14 @@ function renderDashboard(): void {
       onDeleteSession={() => {}}
       onExport={() => {}}
       onImport={() => {}}
+      // plan 027: this suite is about the band readouts, not the goals card —
+      // an empty prefs record and no-op handlers keep the card's own
+      // behaviour out of these assertions (see tests/ui/goals.test.tsx).
+      prefs={{}}
+      latestBandBySection={{}}
+      onUpdatePrefs={() => {}}
+      module="academic"
+      onSwitchModule={() => {}}
     />,
   )
 }

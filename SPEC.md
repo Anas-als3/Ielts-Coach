@@ -433,19 +433,57 @@ biodiversity science, political participation, globalisation), and BOTH when in 
 
 ## Preferences (`ielts-coach.prefs.v1`) & first-run intro
 
-`src/profile/prefs.ts` holds device-local UI preferences under localStorage key `ielts-coach.prefs.v1`
-— `{ introDismissedAtISO?: string }` today. This key is deliberately OUTSIDE the session store's world:
-no `schemaVersion`, no migration rung, never exported, never imported by `exportData`/`importData`.
-A learner moving browsers re-sees one intro card; that is cheaper than teaching the import/export path
-about a second key, and losing a UI flag costs nothing a learner would call "my work" the way a lost
-essay would.
+`src/profile/prefs.ts` holds device-local learner preferences under localStorage key
+`ielts-coach.prefs.v1` — the `Prefs` interface (`src/types.ts`, near `Module`):
+`{ introDismissedAtISO?: string; examDateISO?: string; targetOverall?: number;
+targetBySection?: Partial<Record<SessionSection, number>>; module?: Module }`. This key is
+deliberately OUTSIDE the session store's world: no `schemaVersion`, no migration rung — the record is a
+handful of independent optional scalars, so "migration" is field-by-field validation on read rather than
+a version ladder, and there is no ordering between fields for a ladder to preserve. A field this build
+cannot validate is dropped ALONE, never taking a good field down with it (a hostile `targetOverall`
+never costs the learner their `examDateISO`).
 
-**Contract (plan 026 defines it, plan 027's goals extend it additively): one flat JSON object; fields
-are ADDITIVE and optional; nothing is renamed or repurposed. Reads validate field-by-field against
-hostile data — a malformed blob or a wrong-typed field is discarded, never crashed on, because losing a
-dismissed-intro flag costs one extra card while throwing on mount costs the app. Writes MERGE over the
-raw stored object, so a field this build does not know about (e.g. one written by a newer build)
-survives a round-trip.** `loadPrefs()` reads, `updatePrefs(patch)` writes; neither ever throws.
+**Contract (plan 026 defines `introDismissedAtISO`, plan 027 extends it additively with the rest): one
+flat JSON object; fields are ADDITIVE and optional; nothing is renamed or repurposed. Reads validate
+field-by-field against hostile data — a malformed blob or a wrong-typed field is discarded, never
+crashed on, because losing one preference costs one extra card or one re-typed date while throwing on
+mount costs the app. Writes MERGE over the raw stored object, so a field this build does not know about
+(e.g. one written by a newer build) survives a round-trip, and a key explicitly patched to `undefined`
+clears just that field.** `loadPrefs()` reads (via `sanitizePrefs`), `savePrefs(patch)` writes; neither
+ever throws.
+
+**The fields, beyond `introDismissedAtISO`:**
+- `examDateISO` — the exam day as a real calendar date (`'YYYY-MM-DD'`, not an instant); a rollover
+  string like `'2026-13-40'` is rejected by round-tripping its components through `Date`, not by the
+  regex shape alone.
+- `targetOverall` / `targetBySection` — target bands, 4.0–9.0 in half steps (`isHalfBand`). Per SECTION
+  (`writing` / `reading` / `listening`), never per Writing CRITERION: IELTS institutions set requirements
+  per section, sometimes "no section below X", but never per criterion, so a "TR target" would be an
+  invention with no real-world referent — the per-criterion tiles on the Report stay untouched.
+- `module` — the exam the learner is preparing for, restored on the next visit (below).
+
+**Module persistence.** `App.tsx`'s `module` state now initializes from `loadPrefs().module ??
+'academic'` instead of a bare `'academic'` default, and `switchModule` calls `savePrefs({ module: next
+})` right after `setModule`, sitting AFTER its confirm guards — declining an "abandon this attempt?"
+dialog persists nothing. `readingHistory` is filtered by the live module, so persisting it changes which
+Reading history a returning General candidate sees on load; that is the point.
+
+**The export rider.** `buildExportJson` (the payload-construction half of `exportData`, split out so the
+engine tests can pin it without a DOM) adds a `prefs` field carrying `loadPrefs()` when it is non-empty,
+and omits the field entirely when it is — so a prefs-less export stays byte-identical to a build that
+predates this. `importData` has never enumerated keys — it reads only `schemaVersion` and `sessions` —
+so an older build importing a newer file with a `prefs` field keeps working, the field simply ignored.
+When a file DOES carry `prefs`, `importData` restores it AFTER the sessions have fully validated and
+been written (same sanitize-on-read discipline as `loadPrefs`), so a rejected file never half-applies
+and a hostile prefs value inside an otherwise-valid file restores only its good fields rather than
+poisoning the import.
+
+**The honesty rule.** Every gap the app shows — the "Your exam" card's per-section lines, the Report's
+target chip — states DISTANCE (a latest band against a target) and carries the same form-only hedge the
+band hero does; none of it implies precision. A "you will reach band 7 by March" forecast was considered
+and explicitly REJECTED: the band estimate is form-only and cannot honestly extrapolate a trajectory, and
+a rule engine extrapolating its own error would manufacture precision this project has refused
+everywhere else. Nothing in this app predicts an arrival date.
 
 **The first-run intro card** renders as the first child inside the coach panel `<aside>`, which makes
 two things structural rather than conventions someone could break: it can never appear in exam mode
@@ -491,6 +529,17 @@ page renders from — the count must match what `importData` is about to replace
 a wrong file destroys. The empty state's own line ("Write your first essay and your profile starts
 here.") stays unchanged because it is still accurate — this page is the writing record — and any
 Reading or Listening data is named separately, in its own line, rather than folded into that sentence.
+
+**"Your exam" card** (`ExamGoalCard`, `Dashboard.tsx`): exam date with a days-remaining readout
+(`daysUntil`); target overall band and per-section targets (Writing/Reading/Listening); the exam-type
+select, wired through `switchModule` rather than a second module state, so it and the topbar toggle can
+never disagree; and, for each section holding both a target and a latest band, a gap line ("Writing:
+latest 6.5 vs target 7.0"). Rendered in BOTH of `Dashboard`'s returns — the empty state and the populated
+view — because setting an exam date is the natural first action, before any essay exists. Every gap line
+sits beside the form-only hedge (see "Preferences" above); the card never states an arrival date.
+**The Report's target chip**: when `prefs.targetOverall` is set, one line under the band hero's existing
+"Form-only estimate" caption states the target and repeats the hedge — the per-criterion tiles do not
+gain a matching target, because per-criterion targets are not a real-world thing (see "Preferences").
 
 ## Cut from v1 (deliberate)
 Handwriting-pace mode · UK/US consistency · cohesion X-ray overlay · warm-up drills · dictionary

@@ -366,6 +366,7 @@ export default function Report({
   onRedraft,
   onNewEssay,
   onViewDashboard,
+  targetOverall,
 }: ReportProps) {
   const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({})
   const { analysis, essayText } = session
@@ -475,6 +476,12 @@ export default function Report({
           <p className="rp-band-caption">
             Form-only estimate — your real band is likely this or lower.
           </p>
+          {targetOverall !== undefined && (
+            <p className="rp-band-target">
+              Target {targetOverall.toFixed(1)} — the estimate above is
+              form-only, so treat the gap as a hint, not a measurement.
+            </p>
+          )}
           <p className="rp-band-note">
             This engine checks form, not meaning — it cannot judge whether your argument makes
             sense.

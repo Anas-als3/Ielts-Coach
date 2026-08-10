@@ -1,10 +1,20 @@
 import { useMemo, useRef } from 'react'
 import type { ChangeEvent } from 'react'
-import type { DashboardProps, IssueCategory, SessionRecord, Severity, WritingSessionRecord } from '../types'
+import type {
+  DashboardProps,
+  IssueCategory,
+  Module,
+  Prefs,
+  SessionRecord,
+  SessionSection,
+  Severity,
+  WritingSessionRecord,
+} from '../types'
 import { isListeningSession, isReadingSession, isWritingSession } from '../types'
 import { CATEGORY_META, MODULE_META, QUESTION_TYPE_META } from '../meta'
 import { TASK1_PROMPTS } from '../prompts/task1Bank'
 import { sortByDateAscending } from '../profile/chronology'
+import { daysUntil } from '../profile/prefs'
 import './Dashboard.css'
 
 /* --------------------------------- helpers --------------------------------- */
@@ -82,6 +92,174 @@ function topIssue(session: WritingSessionRecord): { label: string; severity: Sev
 /** The chart kind a Task 1 session answered, resolved from the bank by prompt id. */
 function task1KindOf(s: WritingSessionRecord): string {
   return TASK1_PROMPTS.find((p) => p.id === s.promptId)?.chart.kind ?? 'chart'
+}
+
+/* ------------------------------- exam goal card ------------------------------ */
+
+/** The 11 half-bands IELTS actually awards, 4.0 through 9.0. */
+const HALF_BANDS = Array.from({ length: 11 }, (_, i) => 4 + i * 0.5)
+
+/** Every section the app can score, in a fixed display order — the one place
+ *  this file spells out the triad, so the gap-line loop and the target-select
+ *  row below can never drift apart on which sections exist. */
+const SECTIONS = ['writing', 'reading', 'listening'] as const
+
+const SECTION_LABEL: Record<SessionSection, string> = {
+  writing: 'Writing',
+  reading: 'Reading',
+  listening: 'Listening',
+}
+
+/** A target-band picker: '—' (no target) plus the 11 half-bands, `.toFixed(1)` labelled. */
+function BandSelect({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string
+  label: string
+  value: number | undefined
+  onChange: (value: number | undefined) => void
+}) {
+  return (
+    <label className="db-goal-field" htmlFor={id}>
+      <span className="db-goal-label">{label}</span>
+      <select
+        id={id}
+        value={value !== undefined ? String(value) : ''}
+        onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+      >
+        <option value="">—</option>
+        {HALF_BANDS.map((b) => (
+          <option key={b} value={b}>
+            {b.toFixed(1)}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+/**
+ * "Your exam": exam date, target bands (overall and per section), exam type,
+ * and — the point of collecting any of it — the gap between the latest band
+ * per section and the target for it. Rendered in BOTH of `Dashboard`'s
+ * returns (the empty state below and the populated view further down),
+ * because setting an exam date is the natural FIRST action a learner takes,
+ * before any essay exists, and the empty state is reachable with zero
+ * seeding.
+ *
+ * Every gap line sits beside the same hedge the Report's band hero carries:
+ * this card shows DISTANCE between a latest band and a target, never an
+ * arrival date — no forecast, ever (see SPEC.md "Preferences").
+ */
+function ExamGoalCard({
+  prefs,
+  latestBandBySection,
+  onUpdatePrefs,
+  module,
+  onSwitchModule,
+}: {
+  prefs: Prefs
+  latestBandBySection: Partial<Record<SessionSection, number>>
+  onUpdatePrefs: (patch: Partial<Prefs>) => void
+  module: Module
+  onSwitchModule: (m: Module) => void
+}) {
+  const days = prefs.examDateISO ? daysUntil(prefs.examDateISO, new Date()) : null
+
+  const gapLines: Array<{ key: string; text: string }> = []
+  for (const section of SECTIONS) {
+    const target = prefs.targetBySection?.[section]
+    const latest = latestBandBySection[section]
+    if (target === undefined || latest === undefined) continue
+    gapLines.push({
+      key: section,
+      text: `${SECTION_LABEL[section]}: latest ${latest.toFixed(1)} vs target ${target.toFixed(1)}`,
+    })
+  }
+  // Not a gap comparison — there is no single "overall" band this app computes
+  // (a real IELTS Overall Band averages four skills, including Speaking, which
+  // this app does not have). This restates the number the learner set, gated
+  // on a Writing band existing so it never appears before any is.
+  if (prefs.targetOverall !== undefined && latestBandBySection.writing !== undefined) {
+    gapLines.push({ key: 'overall', text: `Overall target ${prefs.targetOverall.toFixed(1)}` })
+  }
+
+  return (
+    <section className="card db-goal" aria-label="Your exam">
+      <p className="eyebrow">Your exam</p>
+
+      <div className="db-goal-grid">
+        <label className="db-goal-field" htmlFor="goal-exam-date">
+          <span className="db-goal-label">Exam date</span>
+          <input
+            id="goal-exam-date"
+            type="date"
+            value={prefs.examDateISO ?? ''}
+            onChange={(e) => onUpdatePrefs({ examDateISO: e.target.value || undefined })}
+          />
+        </label>
+
+        <BandSelect
+          id="goal-target-overall"
+          label="Target overall band"
+          value={prefs.targetOverall}
+          onChange={(value) => onUpdatePrefs({ targetOverall: value })}
+        />
+
+        {SECTIONS.map((section) => (
+          <BandSelect
+            key={section}
+            id={`goal-target-${section}`}
+            label={`${SECTION_LABEL[section]} target`}
+            value={prefs.targetBySection?.[section]}
+            onChange={(value) =>
+              onUpdatePrefs({ targetBySection: { ...prefs.targetBySection, [section]: value } })
+            }
+          />
+        ))}
+
+        <label className="db-goal-field" htmlFor="goal-module">
+          <span className="db-goal-label">Exam type</span>
+          <select
+            id="goal-module"
+            value={module}
+            onChange={(e) => onSwitchModule(e.target.value as Module)}
+          >
+            <option value="academic">{MODULE_META.academic.label}</option>
+            <option value="general">{MODULE_META.general.label}</option>
+          </select>
+        </label>
+      </div>
+
+      {days !== null && (
+        <p className="db-goal-days">
+          {days > 0
+            ? `Exam in ${days} ${days === 1 ? 'day' : 'days'}`
+            : days === 0
+              ? 'Exam is today'
+              : 'Exam date has passed — update it when you book your next sitting.'}
+        </p>
+      )}
+
+      {gapLines.length > 0 && (
+        <div className="db-goal-gaps">
+          {gapLines.map((g) => (
+            <p key={g.key} className="db-goal-gap">
+              {g.text}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <p className="db-goal-hedge">
+        Bands here are form-only estimates — your real band is likely at or below them, so treat
+        any gap as a hint, not a measurement.
+      </p>
+    </section>
+  )
 }
 
 /* ----------------------------- band trend chart ----------------------------- */
@@ -250,6 +428,11 @@ export default function Dashboard({
   onDeleteSession,
   onExport,
   onImport,
+  prefs,
+  latestBandBySection,
+  onUpdatePrefs,
+  module,
+  onSwitchModule,
 }: DashboardProps) {
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -296,6 +479,13 @@ export default function Dashboard({
   if (sessions.length === 0) {
     return (
       <div className="db-root">
+        <ExamGoalCard
+          prefs={prefs}
+          latestBandBySection={latestBandBySection}
+          onUpdatePrefs={onUpdatePrefs}
+          module={module}
+          onSwitchModule={onSwitchModule}
+        />
         <div className="card db-empty">
           <svg
             className="db-empty-mark"
@@ -371,6 +561,14 @@ export default function Dashboard({
           </button>
         </div>
       </header>
+
+      <ExamGoalCard
+        prefs={prefs}
+        latestBandBySection={latestBandBySection}
+        onUpdatePrefs={onUpdatePrefs}
+        module={module}
+        onSwitchModule={onSwitchModule}
+      />
 
       {chrono.length >= 2 && (
         <section className="db-section" aria-label="Band trend">
