@@ -263,7 +263,7 @@ describe('the shared marker', () => {
   })
 
   it('reports no module, because Listening has no Academic/General split', () => {
-    const result = markListening(LISTENING_TEST_01, {}) as Record<string, unknown>
+    const result = markListening(LISTENING_TEST_01, {})
     expect('module' in result).toBe(false)
   })
 })
