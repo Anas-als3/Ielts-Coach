@@ -769,6 +769,17 @@ export interface DashboardProps {
   onDeleteSession: (id: string) => void;
   onExport: () => void;
   onImport: (json: string) => void;
+  /** Learner prefs, passed down rather than read from storage in the
+   *  component: App owns the single copy of state (same rule as sessions),
+   *  and a test can assert the card re-renders when they change. */
+  prefs: Prefs;
+  /** The latest band per SECTION, from every saved session (not just
+   *  writing) — lets the "Your exam" card show a gap without depending on a
+   *  Dashboard-props rework. */
+  latestBandBySection: Partial<Record<SessionSection, number>>;
+  onUpdatePrefs: (patch: Partial<Prefs>) => void;
+  module: Module;
+  onSwitchModule: (m: Module) => void;
 }
 
 export interface PromptPickerProps {
