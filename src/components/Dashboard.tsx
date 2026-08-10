@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react'
 import type { DashboardProps, IssueCategory, Severity, WritingSessionRecord } from '../types'
 import { CATEGORY_META, MODULE_META, QUESTION_TYPE_META } from '../meta'
 import { TASK1_PROMPTS } from '../prompts/task1Bank'
+import { sortByDateAscending } from '../profile/chronology'
 import './Dashboard.css'
 
 /* --------------------------------- helpers --------------------------------- */
@@ -223,10 +224,10 @@ export default function Dashboard({
 }: DashboardProps) {
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const chrono = useMemo(
-    () => [...sessions].sort((a, b) => a.dateISO.localeCompare(b.dateISO)),
-    [sessions],
-  )
+  // By parsed instant, not text — see profile/chronology. This is the band
+  // chart's x-axis; an imported file with an offset would draw the learner's
+  // progress in the wrong order.
+  const chrono = useMemo(() => sortByDateAscending(sessions), [sessions])
   const newestFirst = useMemo(() => [...chrono].reverse(), [chrono])
 
   async function handleFilePicked(event: ChangeEvent<HTMLInputElement>) {

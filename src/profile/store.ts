@@ -31,6 +31,7 @@
 
 import type { Criterion, SaveResult, SessionRecord, SessionSection } from '../types'
 import { isWritingSession } from '../types'
+import { byDateAscending } from './chronology'
 
 const STORAGE_KEY = 'ielts-coach.v1'
 const SCHEMA_VERSION = 5
@@ -217,35 +218,6 @@ function looksLikeSession(value: unknown): value is SessionRecord {
   return CRITERIA.every(
     (c) => typeof byCriterion[c] === 'number' && Number.isFinite(byCriterion[c]),
   )
-}
-
-/**
- * Ascending by INSTANT (oldest first).
- *
- * Compared as parsed times rather than as text, because "ISO-8601 sorts
- * correctly as text" is only true while every string is in the same zone. This
- * app writes `toISOString()`, which is always UTC — but an IMPORTED file need
- * not be, and `2026-01-01T23:00:00+05:00` (18:00Z) sorts AFTER
- * `2026-01-01T20:00:00Z` as text while falling three hours before it in time.
- * A mis-ordered list is not cosmetic here: the list order is what `capSessions`
- * calls "oldest", so text order decides which record gets deleted.
- *
- * Unparseable dates sort last and are compared to each other as text. They
- * cannot be placed on the timeline at all, and the end of the list is where the
- * cap cannot reach them — when in doubt, keep the learner's record.
- *
- * Equal instants return 0, so `Array.prototype.sort`, which is stable, leaves
- * them in the order they arrived.
- */
-function byDateAscending(a: SessionRecord, b: SessionRecord): number {
-  const ta = Date.parse(a.dateISO)
-  const tb = Date.parse(b.dateISO)
-  const aValid = Number.isFinite(ta)
-  const bValid = Number.isFinite(tb)
-  if (aValid && bValid) return ta - tb
-  if (aValid) return -1
-  if (bValid) return 1
-  return a.dateISO.localeCompare(b.dateISO)
 }
 
 /**
