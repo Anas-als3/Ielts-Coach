@@ -293,6 +293,35 @@ describe('the sign-off survives a standard business tail', () => {
     // There genuinely is no closing here, and the letter is told so.
     expect(categories(a)).toContain('gt-signoff-missing')
   })
+
+  it('finds the closing under a signature, a reference and an enclosure note', () => {
+    // The WIDEST layout the window is meant to admit: closing, signature and
+    // two notes is four lines, and standard business layout puts exactly this
+    // under a complaint. Falling one line short of it tells a correctly
+    // formatted letter, by an ERROR worth −0.5 Task Achievement, that it has no
+    // sign-off — and silences the pairing check, which needs both halves.
+    //
+    // MUTATION PIN: SIGNOFF_TAIL_LINES_MAX 4→3. Neither existing case in this
+    // block distinguishes 4 from 3; this one does.
+    const text = `${letter('Dear Sir or Madam,')}\n\nOrder reference 44718\n\nEnclosed: receipt`
+    const a = analyzeLetter(text, FORMAL)
+    expect(categories(a)).not.toContain('gt-signoff-missing')
+    expect(categories(a)).not.toContain('gt-signoff-pairing')
+    expect(checkSatisfied(a, 'gt-signoff')).toBe(true)
+  })
+
+  it('stops before a fifth tail line, so a mid-letter closing is never the closing', () => {
+    // The other edge, and the reason the window is capped at all: every line the
+    // walk is allowed to cross is a line where a stray "Regards" or "Love" could
+    // be read as the sign-off after an unnamed greeting — a gt-signoff-pairing
+    // ERROR against a letter that signed off correctly. The price of the cap is
+    // that a five-line tail loses its closing, and this letter pays it.
+    //
+    // MUTATION PIN: SIGNOFF_TAIL_LINES_MAX 4→5 and 4→99 both make this fail.
+    const text = `${letter('Dear Sir or Madam,')}\n\nOrder reference 44718\n\nEnclosed: receipt\n\nPlease quote this`
+    const a = analyzeLetter(text, FORMAL)
+    expect(categories(a)).toContain('gt-signoff-missing')
+  })
 })
 
 /* ------------------------------------ tone ----------------------------------- */
@@ -755,15 +784,6 @@ I would be grateful if you could confirm in writing which of these two options y
     // TRUE NEGATIVE: an evenly developed letter of the same shape raises nothing,
     // so the check is not simply always on.
     expect(messagesFor(analyzeLetter(letter('Dear Sir or Madam,'), FORMAL), 'paragraph-balance')).toEqual([])
-  })
-
-  it('keeps the sign-off tail window tight — SIGNOFF_TAIL_LINES_MAX = 4', () => {
-    // MUTATION PIN: SIGNOFF_TAIL_LINES_MAX 4→2 loses the reference-line case
-    // above; this asserts the other edge, that the window stops. Four tail
-    // lines is closing + signature + two notes, and a fifth is not reached.
-    const text = `${letter('Dear Sir or Madam,')}\n\nOrder reference 44718\n\nEnclosed: receipt\n\nPlease quote this`
-    const a = analyzeLetter(text, FORMAL)
-    expect(categories(a)).toContain('gt-signoff-missing')
   })
 })
 
