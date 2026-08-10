@@ -125,7 +125,11 @@ function buildChecks(doc: TokenizedDoc, prompt: LetterPromptSpec): StructureChec
   })
 
   /* gt-purpose — why the letter is being written, stated up front */
-  const purposeFound = started && hasPurposeStatement(parts)
+  // The tone is passed for the same reason the rail derives the greeting itself:
+  // an informal letter states its purpose differently ("You will never guess
+  // what has happened"), and a rail that judged it by the formal phrasings alone
+  // would leave the check unticked while the feedback panel said nothing.
+  const purposeFound = started && hasPurposeStatement(parts, prompt.tone)
   checks.push({
     id: 'gt-purpose',
     label: 'Purpose stated',
