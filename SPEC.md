@@ -374,6 +374,51 @@ list — a learner is not two sessions into their writing practice because they 
 `tests/profile-scoping.test.ts` pins it for both, and for Listening asserts the entire profile object
 is byte-identical with and without the papers.
 
+#### `profile/draft.ts` — the scratch draft
+
+localStorage key `ielts-coach.draft.v1`, holding `{ task, module, promptId, essayText, mode,
+examDeadlineEpochMs, savedAtISO }` — `examDeadlineEpochMs` is the absolute wall-clock deadline of a
+RUNNING exam, `null` in coach mode and in exam-idle. This key is deliberately OUTSIDE the session
+store's world: it is never exported, never imported, and carries no `schemaVersion` — a draft that
+fails validation in ANY field is simply discarded (`loadDraft` returns `null`) rather than migrated.
+It shares the `ielts-coach.` namespace but matches neither `STORAGE_KEY` nor `BACKUP_KEY_PREFIX`, so
+it can never collide with a session and can never be swept by backup pruning. Reads treat the stored
+bytes as hostile wire exactly like the store does: a zero-word `essayText` is never written, so one
+found on disk is hand-edited or corrupt and is rejected outright.
+
+**Written debounced (400ms) off the write view's existing `debouncedText`, no new debounce
+machinery.** Cleared on a successful submit, on a task/module switch the learner has consented to
+(the toggles below), and on an explicit "Discard draft". An UNCLAIMED draft — offered but neither
+restored nor discarded — is never cleared at mount; the persistence effect skips entirely while
+`pendingDraft` is set, so it cannot delete the very draft the restore card is offering.
+
+**A draft found at mount is an OFFER, never applied silently** — auto-restoring would overwrite the
+empty sheet a learner deliberately reloaded to get. The card names two actions, "Restore draft" and
+"Discard draft". Restoring an expired exam draft (`examDeadlineEpochMs` at or before now) puts its
+TEXT into COACH mode with a `role="status"` notice and never auto-submits — submitting is an act the
+learner performs, and marking an essay nobody handed in is hostile; restoring into exam-idle would
+also be invisible, since the editor is not rendered there. Restoring a still-running exam draft resumes
+the clock from the ABSOLUTE deadline (not the seconds left), so the tab being closed costs no time.
+
+**`beforeunload` warns exactly when closing the tab would destroy something no key holds**: a Reading
+or Listening paper mid-run (both sections persist answers only on submit, by design — see their own
+doctrine comments), or write-view text that is non-empty and differs from the text last written to the
+draft key (the ≤400ms debounce window the draft cannot cover). Once the draft is on disk, closing the
+tab is safe and the guard stays silent — warning then would be a lie that teaches learners to click
+through warnings.
+
+**Task/module switches confirm whenever they would clear a non-empty sheet, in any mode** — not only
+while an exam clock runs. Consenting to the switch clears the draft too, so a learner who just agreed
+to abandon an essay is never re-offered it as if the consent had not happened. Switching the module
+from the READING view still clears nothing and asks nothing (the essay survives, as before this plan).
+
+**Expiry at zero words returns to exam-idle with a notice and writes nothing.** Both manual submit
+paths already refuse an empty sheet (the keyboard shortcut, the disabled submit button); the timer
+hitting zero on a blank sheet used to be the one path that did not, and it wrote a Band-4-floor session
+for an essay nobody wrote. The `role="status"` notice here is distinct from the save-failure banner
+above: nothing was lost, so it is a notice, not an alert. An essay with at least one word still submits
+exactly as before.
+
 ### `prompts/bank.ts`
 40 prompts (8 per question type), realistic Task 2 wording, topics spread across education, technology,
 environment, health, society, work, government, culture. Each with honest `parts` (checklist phrasing)
