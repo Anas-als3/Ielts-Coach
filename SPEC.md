@@ -280,10 +280,12 @@ any second caller is deleting a learner's data and needs the same scrutiny this 
 cap made the sections compete for one budget and Writing always lost: 20 essays plus 190 Reading
 papers deleted 10 essays, which inverts the whole purpose of the union — the `isWritingSession`
 guards exist so answer-key papers cannot DILUTE the writing profile, and a section-blind cap let them
-DELETE it. Sitting an answer-key paper must never cost a learner an essay. Records are ordered for
-that cap by parsed INSTANT, not by the text of `dateISO`: an imported file may carry an offset
-(`23:00+05:00` is three hours before `20:00Z` and sorts after it as text), and list order is what
-"oldest" means here.
+DELETE it. Sitting an answer-key paper must never cost a learner an essay. Records are ordered by parsed INSTANT everywhere, not by the text of `dateISO`: an imported file may
+carry an offset (`23:00+05:00` is three hours before `20:00Z` and sorts after it as text). List order
+is what "oldest" means for the cap, what sets the sign of every trend slope in `computeProfile`, what
+`lastSeenISO` is read off, what orders the Dashboard band chart's x-axis, and what picks the report's
+"previous session". There is ONE comparator, `profile/chronology.ts`; nothing else may sort a
+`dateISO`.
 
 **Measured record sizes** (built through `analyzeEssay`/`markAnswerKey`, `JSON.stringify(...).length`,
 at `ae92bac`): a clean worked essay is 4.8–4.9 kB; a flawed Band-6 essay (12 issues, 290 words) is
