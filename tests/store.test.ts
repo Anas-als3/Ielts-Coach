@@ -1111,3 +1111,118 @@ describe('016-a: backups are capped and pruned, newest kept', () => {
     vi.useRealTimers()
   })
 })
+
+/* -------------------- 016-c: a failed write is reported -------------------- */
+
+/** Access to the localStorage stub `installLocalStorage` installed on `window`. */
+function fakeStorage(): {
+  setItem: (k: string, v: string) => void
+  getItem: (k: string) => string | null
+  removeItem: (k: string) => void
+  key: (i: number) => string | null
+  length: number
+} {
+  return (
+    globalThis as unknown as {
+      window: {
+        localStorage: {
+          setItem: (k: string, v: string) => void
+          getItem: (k: string) => string | null
+          removeItem: (k: string) => void
+          key: (i: number) => string | null
+          length: number
+        }
+      }
+    }
+  ).window.localStorage
+}
+
+function quotaExceededError(): DOMException {
+  return new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+}
+
+/**
+ * Make `setItem` throw for `key` on the next `times` calls, then behave
+ * normally again. Used to simulate a `writeStore` quota failure and, with
+ * `times: 1`, a failure the retry recovers from.
+ */
+function failSetItem(key: string, times: number): void {
+  const ls = fakeStorage()
+  const real = ls.setItem
+  let remaining = times
+  ls.setItem = (k: string, v: string) => {
+    if (k === key && remaining > 0) {
+      remaining--
+      throw quotaExceededError()
+    }
+    real(k, v)
+  }
+}
+
+describe('016-c: saveSession reports whether the write persisted', () => {
+  it('reports a quota failure instead of returning void', () => {
+    failSetItem(STORAGE_KEY, Number.POSITIVE_INFINITY)
+
+    const result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.reason).toBe('quota')
+      expect(result.message.length).toBeGreaterThan(0)
+    }
+    // Nothing was actually persisted.
+    expect(loadSessions()).toEqual([])
+  })
+
+  it('evicts the oldest backup and persists on the second attempt', () => {
+    const oldBackupKey = `${BACKUP_PREFIX}2020-01-01T00:00:00.000Z`
+    store.set(oldBackupKey, 'an old backup payload')
+    failSetItem(STORAGE_KEY, 1) // fails once, then behaves normally
+
+    const result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+
+    expect(result.ok).toBe(true)
+    expect(store.has(oldBackupKey)).toBe(false)
+    expect(loadSessions().map((s) => s.id)).toEqual(['a'])
+  })
+
+  it('does not retry more than once', () => {
+    let calls = 0
+    const ls = fakeStorage()
+    ls.setItem = (k: string) => {
+      if (k === STORAGE_KEY) {
+        calls++
+        throw quotaExceededError()
+      }
+    }
+
+    const result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+
+    expect(result.ok).toBe(false)
+    // One first attempt, one retry, and never a third — a second failure is
+    // reported, not retried again.
+    expect(calls).toBe(2)
+  })
+
+  it('reports a failure rather than crashing when counting backups itself fails', () => {
+    // Storage that is genuinely UNAVAILABLE (not merely full) can throw on
+    // `length`/`key` too, not only on `setItem` — the retry path counts
+    // backups before evicting one, and that count must be exactly as
+    // best-effort as everything else here. A crash out of `saveSession` would
+    // be worse than the write failure it was trying to recover from.
+    failSetItem(STORAGE_KEY, Number.POSITIVE_INFINITY)
+    const ls = fakeStorage()
+    Object.defineProperty(ls, 'length', {
+      configurable: true,
+      get() {
+        throw new Error('storage unavailable')
+      },
+    })
+
+    let result: ReturnType<typeof saveSession> | undefined
+    expect(() => {
+      result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+    }).not.toThrow()
+    expect(result?.ok).toBe(false)
+  })
+})

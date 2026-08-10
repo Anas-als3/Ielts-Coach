@@ -629,6 +629,17 @@ export function isWritingSession(s: SessionRecord): s is WritingSessionRecord {
   }
 }
 
+/**
+ * What a write to localStorage did. `saveSession` returns this so a caller can
+ * tell the learner — `writeStore` used to return `void` and swallow every
+ * failure into `console.warn`, so a full quota looked identical to a
+ * successful save from every caller's point of view, and the caller went on
+ * to navigate to a report for a session that was never persisted.
+ */
+export type SaveResult =
+  | { ok: true }
+  | { ok: false; reason: 'quota' | 'unavailable'; message: string };
+
 export interface CategoryStat {
   total: number;
   /** Issues per 100 words over the last 5 sessions (0 if unseen). */

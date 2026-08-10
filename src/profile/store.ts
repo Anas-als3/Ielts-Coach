@@ -29,7 +29,7 @@
  * never crashes the app — we warn on the console and keep going.
  */
 
-import type { SessionRecord, SessionSection } from '../types'
+import type { SaveResult, SessionRecord, SessionSection } from '../types'
 import { isWritingSession } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
@@ -535,17 +535,92 @@ function readStore(): StoreShape | null {
   }
 }
 
-function writeStore(sessions: SessionRecord[]): void {
+/**
+ * `err` is the DOMException `setItem` throws when a write exceeds the
+ * origin's storage quota. Distinguished from every other write failure
+ * (storage disabled, private-browsing restrictions, a non-browser
+ * environment) so the learner-facing message can say which one happened.
+ */
+function isQuotaError(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === 'QuotaExceededError' ||
+      // Firefox's legacy name for the same condition.
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+  )
+}
+
+function quotaFailure(): SaveResult {
+  return {
+    ok: false,
+    reason: 'quota',
+    message:
+      "Your device is out of storage space, so this could not be saved. Export your data now " +
+      "from Progress, before you write anything else — once space frees up you can import it back.",
+  }
+}
+
+function unavailableFailure(): SaveResult {
+  return {
+    ok: false,
+    reason: 'unavailable',
+    message:
+      'Your browser storage is unavailable right now (private browsing can do this), so this ' +
+      'could not be saved. Export your data now from Progress, before you write anything else, ' +
+      'so nothing is lost.',
+  }
+}
+
+/**
+ * Write the store and report what happened — `saveSession` returns this so a
+ * caller can tell the learner rather than have a failed save look identical
+ * to a successful one.
+ *
+ * On failure, tries ONCE more after evicting the oldest backup.
+ *
+ * A quota failure is the one case where this module is holding something it
+ * can give up: an old backup copy. Evicting the oldest and retrying once
+ * spends a recovery copy to save the thing the copies exist to protect — a
+ * learner's essay, which is 40 minutes of work and cannot be re-run, against
+ * a snapshot of a store that has since been read successfully.
+ * ONCE, not in a loop: if a second attempt fails too, the store is full of
+ * sessions rather than of backups, and the honest answer is to tell the
+ * learner rather than to keep deleting their history to make room.
+ */
+function writeStore(sessions: SessionRecord[]): SaveResult {
   const store: StoreShape = { schemaVersion: SCHEMA_VERSION, sessions }
+  const json = JSON.stringify(store)
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
-  } catch (err) {
-    // Quota exceeded or storage blocked — the app keeps working in memory.
-    console.warn(
-      'IELTS Coach: could not save your session (storage is full or unavailable). ' +
-        'The app keeps working, but this change will not persist.',
-      err,
-    )
+    window.localStorage.setItem(STORAGE_KEY, json)
+    return { ok: true }
+  } catch {
+    // Evict exactly one backup — the oldest — rather than re-applying the
+    // whole cap: a quota failure needs ONE slot back to try again, not every
+    // backup but MAX_BACKUPS - 1 gone. `pruneBackups` never throws, so this
+    // can never turn a save failure into a crash — but `backupCount` reads
+    // `storage.length` / `.key()` OUTSIDE that guard, and storage being
+    // unavailable (rather than merely full) can make those throw too. Wrapped
+    // here so counting the backups can fail exactly like everything else in
+    // this module: best-effort, never the thing that turns a save failure
+    // into a crash instead of a reported one.
+    try {
+      const count = backupCount()
+      if (count > 0) pruneBackups(count - 1)
+    } catch (evictErr) {
+      console.warn('IELTS Coach: could not evict an old backup to make room for this save.', evictErr)
+    }
+    try {
+      window.localStorage.setItem(STORAGE_KEY, json)
+      return { ok: true }
+    } catch (retryErr) {
+      // Quota exceeded or storage blocked — the app keeps working in memory.
+      console.warn(
+        'IELTS Coach: could not save your session (storage is full or unavailable). ' +
+          'The app keeps working, but this change will not persist.',
+        retryErr,
+      )
+      return isQuotaError(retryErr) ? quotaFailure() : unavailableFailure()
+    }
   }
 }
 
@@ -555,13 +630,18 @@ export function loadSessions(): SessionRecord[] {
   return store ? store.sessions : []
 }
 
-/** Append a session, keep the list sorted by date, cap at 200 (oldest dropped). */
-export function saveSession(s: SessionRecord): void {
+/**
+ * Append a session, keep the list sorted by date, cap at
+ * MAX_SESSIONS_PER_SECTION per section (oldest of that section dropped), and
+ * report whether the write actually persisted — callers used to get `void`
+ * here and had no way to tell a silent failure from a success.
+ */
+export function saveSession(s: SessionRecord): SaveResult {
   // Replace any record with the same id so a double-save never duplicates.
   const sessions = loadSessions().filter((existing) => existing.id !== s.id)
   sessions.push(s)
   sessions.sort(byDateAscending)
-  writeStore(capSessions(sessions))
+  return writeStore(capSessions(sessions))
 }
 
 /** Remove one session by id. Unknown ids are a no-op. */
