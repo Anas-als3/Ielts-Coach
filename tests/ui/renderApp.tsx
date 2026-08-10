@@ -11,12 +11,21 @@
  * is a multi-series line chart with numbers, so figure checking has data to work
  * on, and gt-01 is a FORMAL letter with a hand-written worked answer, so the
  * greeting/sign-off pairing has a known-correct case to assert against.
+ *
+ * The Listening speech driver is pinned for the same reason the prompts are.
+ * jsdom implements no `speechSynthesis`, so an uninjected App would build a
+ * `TranscriptPaceDriver` and drive the suite off real `setTimeout`s at 130
+ * words per minute — a four-section paper would take twenty minutes of
+ * wall-clock time and fail on a busy machine. `FakeSpeechDriver` uses no timers
+ * and no globals, so playback is deterministic and instant. No test may depend
+ * on a real speech engine.
  */
 import { render } from '@testing-library/react'
 import App from '../../src/App'
 import { PROMPTS } from '../../src/prompts/bank'
 import { TASK1_PROMPTS } from '../../src/prompts/task1Bank'
 import { LETTER_PROMPTS } from '../../src/prompts/letterBank'
+import { FakeSpeechDriver } from '../../src/listening/speech'
 import type { AppProps } from '../../src/types'
 
 /** A Task 2 prompt that HAS a hand-written worked answer. */
@@ -35,6 +44,10 @@ export function renderApp(overrides: Partial<AppProps> = {}) {
       initialPrompt={EXACT_PROMPT}
       initialTask1Prompt={LINE_CHART_PROMPT}
       initialLetterPrompt={LETTER_PROMPT}
+      // A fresh fake per render, so nothing a previous test spoke can leak into
+      // this one. A Listening test that needs to assert on playback passes its
+      // own instance through `overrides` and keeps the reference.
+      listeningDriver={new FakeSpeechDriver()}
       {...overrides}
     />,
   )

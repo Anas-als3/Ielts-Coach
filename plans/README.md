@@ -28,7 +28,7 @@ sessions on the same plan.
 | 009 | General Training Task 1 — letters | P1 | L | 008 | DONE |
 | 010 | Reading — both modules, real question types, real band tables | P2 | L | 008 | DONE |
 | 013 | Full mock test mode | P2 | M | 010 | TODO |
-| 011 | Listening — marking is easy, audio is the project | P3 | L | 010 | TODO |
+| 011 | Listening — marking is easy, audio is the project | P3 | L | 010 | DONE |
 | 012 | Speaking — the honest deterministic slice | P3 | M | 008 | DEFERRED — user descoped 2026-08-10; Writing/Reading/Listening first |
 
 **Run 007 before 006** even though it is numbered second: it is two hours, and
@@ -93,7 +93,7 @@ learner's three weaknesses and the "practice" button hands them a blank essay.
 | Writing Task 1 | ✅ charts | ✅ letters | 009 |
 | Writing Task 2 | ✅ | ✅ same engine, 28 of 40 prompts tagged GT-appropriate | 008 |
 | Reading | ✅ one paper, 6 question types | ✅ one paper, stricter band table | 010 |
-| Listening | ❌ | ❌ (identical to Academic) | 011 |
+| Listening | ✅ one paper, 7 formats, synthetic voice | ✅ the identical paper — no branching anywhere | 011 |
 | Speaking | ❌ | ❌ (identical to Academic) | 012 |
 | Full mock sitting | ❌ | ❌ | 013 |
 
@@ -175,6 +175,53 @@ So nobody re-audits these:
   A Reading band trend is worth building once more than one paper exists.
 - **Reading passage highlighting was deferred**, as plan 010 allows. Real
   candidates annotate the passage; this runner does not let them.
+- **The Listening voice is synthetic, and accents are untrained.** Plan 011's
+  option B: `window.speechSynthesis` costs no bundled bytes and no dependency,
+  where real recordings would be 25–30 MB per test. The trade is that the real
+  exam's British / Australian / North American / New Zealand accents are part of
+  what it examines and this practice cannot reproduce them. Both the picker and
+  the runner say so in the exported `SYNTHETIC_VOICE_NOTICE`; the fix, if it is
+  ever worth it, is bundled audio, not better prompting of a browser voice.
+- **Listening ships ONE paper**, on the same "validate the format before
+  authoring more" basis as Reading. A four-section script with a difficulty
+  curve is the most expensive content in the repo.
+- **Listening results are not on the Progress page**, for the reason Reading's
+  are not: the dashboard is a writing view.
+- **No Listening band trend**, for the same reason as Reading — worth building
+  once more than one paper exists.
+- **Section 3's overlapping speakers are sequential.** The real exam's
+  educational conversation has speakers interrupting each other; a synthetic
+  voice takes one turn at a time. Plan 011 named this cost up front.
+- **The "Coach" wordmark is briefly illegible while the desk clears.**
+  Pre-existing, not introduced by Listening, and shared by writing exam mode and
+  the Reading runner. `.topbar` crossfades its background over 400ms while
+  `.brand em` snaps to its near-white exam colour on frame one — measured in
+  Chromium at **1.02:1 contrast at 0ms**, 1.5:1 at 60ms, reaching 11.6:1 only
+  once the bar has darkened. A `transition: color 400ms` on the wordmark was
+  tried and **reverted**: it fixes frame one (5.8:1) but any crossfade from
+  dark-on-light to light-on-dark must pass through equal luminance, and it
+  measurably *lengthened* the sub-3:1 window (≈140ms → ≈210ms). The real fix is
+  to fade the wordmark's opacity out and back in so the colour swaps while it is
+  invisible, which is a change to the DESIGN.md "clearing the desk" signature
+  moment and belongs to whoever owns that, not to plan 011. Cosmetic and
+  transient; the functional readouts beside it (timer, phase label, answered
+  count) all measure 12.55:1.
+
+## Bundle growth (plan 011 done-criterion)
+
+Measured by building `7e471c6` and this branch with the same Vite config and
+comparing. Wiring Listening in is what pulls the already-authored four-section
+transcript into the graph — at the baseline nothing imported `src/listening/`,
+so tree-shaking dropped all of it.
+
+| | Baseline `7e471c6` | With Listening | Change |
+|---|---|---|---|
+| JS | 484.35 kB (154.30 kB gzip) | 554.75 kB (172.44 kB gzip) | +70.40 kB (+18.14 kB gzip) |
+| CSS | 55.16 kB (10.44 kB gzip) | 68.58 kB (11.58 kB gzip) | +13.42 kB (+1.14 kB gzip) |
+| Total | 539.51 kB (164.74 kB gzip) | 623.33 kB (184.02 kB gzip) | **+83.82 kB (+11.7% gzip)** |
+
+For scale: plan 011's rejected option A was 25–30 MB *per test*, roughly 300×
+this whole bundle. Nothing was added to `package.json`.
 
 ## What was NOT audited
 

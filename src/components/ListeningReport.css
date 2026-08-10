@@ -1,0 +1,353 @@
+/* Listening review screen. Tokens from DESIGN.md.
+
+   --marking-red IS correct here and only here in the Listening UI: a wrong
+   answer against a published key is an error in the examiner's-pen sense, not a
+   heuristic suspicion. --ok-green marks the ones that were right. */
+
+.lr-report {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------------------------------------------------------------- header */
+.lrp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.lrp-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Amber, not red: a practice run is not an error, it is a different exercise
+   and the band means something different. */
+.lrp-practice {
+  padding: 12px 16px;
+  border-left: 3px solid var(--marking-amber);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------ hero */
+.lrp-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  padding: 22px 24px;
+}
+
+.lrp-hero-figures {
+  text-align: center;
+  padding-right: 26px;
+  border-right: 1px solid var(--rule-line);
+}
+
+.lrp-band {
+  font-size: 54px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--exam-navy);
+}
+
+.lrp-raw {
+  margin-top: 8px;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.lrp-hero-copy {
+  min-width: 0;
+}
+
+/* The one claim this screen exists to make. */
+.lrp-exact {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.lrp-exact-why {
+  margin-top: 6px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 62ch;
+}
+
+.lrp-table-row {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.lrp-scale {
+  position: relative;
+  margin-top: 18px;
+  max-width: 420px;
+}
+
+.lrp-scale-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--rule-line);
+}
+
+.lrp-scale-marker {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 14px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--exam-navy);
+}
+
+.lrp-scale-ticks {
+  position: relative;
+  height: 16px;
+  margin-top: 4px;
+}
+
+.lrp-scale-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------- format accuracy */
+.lrp-formats,
+.lrp-review {
+  padding: 18px 22px;
+}
+
+.lrp-formats-lead {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 70ch;
+}
+
+.lrp-format-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lrp-format {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) 52px 44px;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.lrp-format-label {
+  color: var(--ink);
+}
+
+.lrp-format-bar {
+  height: 7px;
+  border-radius: 4px;
+  background: var(--rule-line);
+  overflow: hidden;
+}
+
+.lrp-format-fill {
+  display: block;
+  height: 100%;
+  background: var(--exam-navy);
+  border-radius: 4px;
+}
+
+.lrp-format-score,
+.lrp-format-pct {
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- review */
+.lrp-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.lrp-filter {
+  display: flex;
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.lrp-muted {
+  margin-top: 12px;
+  color: var(--ink-soft);
+}
+
+.lrp-answers {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lrp-answer {
+  border: 1px solid var(--rule-line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 10px 14px;
+}
+
+.lrp-answer-right {
+  border-left-color: var(--ok-green);
+}
+
+.lrp-answer-wrong {
+  border-left-color: var(--marking-red);
+}
+
+.lrp-answer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.lrp-answer-num {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  min-width: 2.4ch;
+}
+
+.lrp-answer-mark {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lrp-answer-right .lrp-answer-mark {
+  color: var(--ok-green);
+}
+
+.lrp-answer-wrong .lrp-answer-mark {
+  color: var(--marking-red);
+}
+
+.lrp-answer-format {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.lrp-answer-prompt {
+  margin-top: 6px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.lrp-answer-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 12px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.lrp-answer-key {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding-top: 2px;
+}
+
+.lrp-answer-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lrp-blank {
+  color: var(--ink-soft);
+}
+
+.lrp-alt {
+  color: var(--ink-soft);
+}
+
+.lrp-answer-note {
+  margin-top: 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.lrp-answer-note-limit {
+  color: var(--marking-red);
+}
+
+.lrp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------ responsive */
+@media (max-width: 900px) {
+  .lrp-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .lrp-hero-figures {
+    text-align: left;
+    padding-right: 0;
+    padding-bottom: 14px;
+    border-right: none;
+    border-bottom: 1px solid var(--rule-line);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+
+  .lrp-raw {
+    margin-top: 0;
+  }
+
+  .lrp-format {
+    grid-template-columns: minmax(0, 1fr) 52px 44px;
+  }
+
+  .lrp-format-bar {
+    display: none;
+  }
+}

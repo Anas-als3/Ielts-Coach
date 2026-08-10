@@ -21,12 +21,13 @@
  * almost no rules.
  *
  * SECTION SCOPING is the same argument taken one step further, and it is
- * absolute rather than per-category. A READING session produces no
- * `IssueCategory` at all — it is an answer key, not an analysis — so every
+ * absolute rather than per-category. A READING or LISTENING session produces no
+ * `IssueCategory` at all — each is an answer key, not an analysis — so every
  * category would count it as a session that could have fired and did not. Five
- * Reading papers would read as five clean essays and pull every writing rate
- * towards zero. Reading sessions are therefore dropped before any maths runs,
- * by BOTH exported functions; `tests/profile-scoping.test.ts` pins it.
+ * answer-key papers would read as five clean essays and pull every writing rate
+ * towards zero. They are therefore dropped before any maths runs, by BOTH
+ * exported functions, via the single `isWritingSession` guard in `types.ts`;
+ * `tests/profile-scoping.test.ts` pins it for both sections.
  */
 
 import type {
@@ -57,9 +58,10 @@ type CategoryCounts = Partial<Record<IssueCategory, number>>
  * The writing sessions, in input order. Everything below runs over this list
  * and never over the raw one.
  *
- * A Reading session carries no issues and no word count, so leaving it in
- * would contribute a zero-issue, zero-word row to every category's series —
- * arithmetically a clean essay. See the section-scoping note at the top.
+ * A Reading or Listening session carries no issues and no word count, so
+ * leaving one in would contribute a zero-issue, zero-word row to every
+ * category's series — arithmetically a clean essay. See the section-scoping
+ * note at the top.
  */
 function writingOnly(sessions: SessionRecord[]): WritingSessionRecord[] {
   return sessions.filter(isWritingSession)
@@ -149,9 +151,9 @@ function latestSeverityWeight(
 }
 
 export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
-  // Reading first, before anything is counted — including `totalSessions`,
-  // which gates the focus list. A learner is not two sessions into their
-  // writing practice because they sat two Reading papers.
+  // Answer-key sections first, before anything is counted — including
+  // `totalSessions`, which gates the focus list. A learner is not two sessions
+  // into their writing practice because they sat two Reading papers.
   const ordered = sortChronological(writingOnly(sessions))
   const totalSessions = ordered.length
   const counts = countsBySession(ordered)
@@ -219,8 +221,8 @@ export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
 }
 
 export function computeTrends(sessions: SessionRecord[]): CategoryTrend[] {
-  // Same exclusion as computeProfile: a Reading paper is not a point on a
-  // writing-error sparkline.
+  // Same exclusion as computeProfile: a Reading or Listening paper is not a
+  // point on a writing-error sparkline.
   const ordered = sortChronological(writingOnly(sessions))
   const counts = countsBySession(ordered)
 

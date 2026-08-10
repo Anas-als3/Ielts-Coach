@@ -1,5 +1,6 @@
 import type { Criterion, IssueCategory, Module, QuestionType, TaskKind } from './types'
 import type { ReadingQuestionType } from './reading/types'
+import type { ListeningFormat } from './listening/types'
 
 /** Learner-facing names and the one-line difference that matters. */
 export const MODULE_META: Record<Module, { label: string; short: string; blurb: string }> = {
@@ -288,6 +289,43 @@ export const READING_TYPE_META: Record<
     instruction:
       'Which paragraph contains the following information? You may use any letter more than once.',
   },
+}
+
+/* --------------------------------- listening -------------------------------- */
+
+/**
+ * Learner-facing names for each Listening presentation FORMAT.
+ *
+ * Keyed by `ListeningFormat`, not by the marking `type`, and that is the whole
+ * reason this table exists. Matching and plan labelling both mark as
+ * `multiple-choice` — once the paper is off the desk they are the same act,
+ * picking one entry from a shared bank — so a type-keyed breakdown would tell a
+ * learner "multiple choice: 18/23" and hide the fact that they lose plan
+ * labelling and nothing else. `format` is the axis a learner can actually
+ * practise along, so it is the axis the report breaks down by.
+ *
+ * There is NO `instruction` here, unlike `READING_TYPE_META`. A Listening
+ * instruction belongs to the printed group ("Complete the form below. Write NO
+ * MORE THAN TWO WORDS AND/OR A NUMBER"), not to the format: the same
+ * note-completion format takes a different word limit in different blocks of
+ * the same paper, so the item-writer states it per group and
+ * `ListeningQuestionGroup.instruction` carries it.
+ *
+ * `widget` names how the runner renders the format, so the mapping from format
+ * to control is stated once as data rather than as a switch in the component
+ * that a new format could silently fall through.
+ */
+export const LISTENING_FORMAT_META: Record<
+  ListeningFormat,
+  { label: string; report: string; widget: 'text' | 'radio' | 'bank' }
+> = {
+  'form-completion': { label: 'Form completion', report: 'Form completion', widget: 'text' },
+  'note-completion': { label: 'Note completion', report: 'Note completion', widget: 'text' },
+  'table-completion': { label: 'Table completion', report: 'Table completion', widget: 'text' },
+  'short-answer': { label: 'Short answer', report: 'Short answer', widget: 'text' },
+  'multiple-choice': { label: 'Multiple choice', report: 'Multiple choice', widget: 'radio' },
+  matching: { label: 'Matching', report: 'Matching', widget: 'bank' },
+  'map-labelling': { label: 'Plan labelling', report: 'Plan / map labelling', widget: 'bank' },
 }
 
 /** Number words for the printed word limit. Limits above three do not occur. */

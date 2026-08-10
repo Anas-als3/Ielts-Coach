@@ -17,10 +17,13 @@
  * Training Task 1 (a letter) share the id `'task1'` and share almost no rules,
  * so `TaskKind` alone cannot say which of them a category belongs to.
  *
- * The fourth block is the same defect one step further out. A READING session
- * produces no `IssueCategory` at all, so it is not "inapplicable to some
- * categories" — it is inapplicable to every one of them, and the profile drops
- * it entirely rather than counting it as a clean essay.
+ * The fourth and fifth blocks are the same defect one step further out. A
+ * READING or LISTENING session produces no `IssueCategory` at all, so neither
+ * is "inapplicable to some categories" — each is inapplicable to every one of
+ * them, and the profile drops it entirely rather than counting it as a clean
+ * essay. The Listening block asserts on the WHOLE profile object rather than on
+ * one category, because there is no category a Listening paper could legitimately
+ * move and a byte-identical profile is the strongest way to say so.
  */
 import { describe, expect, it } from 'vitest'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from '../src/analysis/engine'
@@ -435,5 +438,132 @@ describe('a Reading session never dilutes a writing weakness', () => {
 
     expect(computeProfile(preV4).totalSessions).toBe(3)
     expect(computeProfile(preV4).categories['no-position']?.total).toBe(3)
+  })
+})
+
+/* ------------------ Listening sessions are not writing sessions ------------- */
+
+describe('a Listening session never dilutes a writing weakness', () => {
+  /**
+   * A sat Listening paper, as `App.tsx` persists one.
+   *
+   * The same danger as a Reading paper and one extra trap: it carries no
+   * `module` either, so a guard written as "not writing means it has a module"
+   * would have let it through. The only thing that identifies it is `section`,
+   * which is why `isWritingSession` names every answer-key section explicitly
+   * rather than inferring.
+   */
+  function listeningSession(id: string, dateISO: string, practice = false): SessionRecord {
+    return {
+      section: 'listening',
+      id,
+      dateISO,
+      testId: 'listening-01',
+      testTitle: 'Listening Test 1',
+      answers: {},
+      durationSec: 1800,
+      practice,
+      result: {
+        testId: 'listening-01',
+        raw: 30,
+        total: 40,
+        band: 7,
+        questions: [],
+        byType: [],
+        byFormat: [],
+      },
+    }
+  }
+
+  /** Three Task 2 essays, each losing a mark for the same thing. */
+  const ESSAYS: SessionRecord[] = [
+    session('e1', '2026-01-01T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+    session('e2', '2026-01-02T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+    session('e3', '2026-01-03T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+  ]
+
+  /** The same learner, who then sat five Listening papers instead of writing. */
+  const WITH_LISTENING: SessionRecord[] = [
+    ...ESSAYS,
+    ...Array.from({ length: 5 }, (_, i) =>
+      listeningSession(`l${i}`, `2026-02-0${i + 1}T00:00:00Z`),
+    ),
+  ]
+
+  it('leaves the writing profile byte-identical', () => {
+    const before = computeProfile(ESSAYS)
+    const after = computeProfile(WITH_LISTENING)
+
+    // Not merely "close", and not merely one category: the WHOLE profile is
+    // unchanged. The Listening papers are dropped before any arithmetic runs,
+    // so there is nothing anywhere for them to move.
+    expect(after).toEqual(before)
+    expect(after.categories['no-position']?.recentRate).toBeCloseTo(0.4, 5)
+    expect(after.categories['no-position']?.total).toBe(3)
+    expect(after.categories['no-position']?.trend).toBe('flat')
+  })
+
+  it('leaves every writing trend line byte-identical', () => {
+    expect(computeTrends(WITH_LISTENING)).toEqual(computeTrends(ESSAYS))
+  })
+
+  it('does not count Listening papers towards the session total', () => {
+    expect(computeProfile(WITH_LISTENING).totalSessions).toBe(3)
+  })
+
+  it('keeps the weakness in the focus list after a run of Listening practice', () => {
+    expect(computeProfile(WITH_LISTENING).focusCategories).toContain('no-position')
+  })
+
+  it('drops practice-mode papers too', () => {
+    const practised: SessionRecord[] = [
+      ...ESSAYS,
+      listeningSession('lp', '2026-02-01T00:00:00Z', true),
+    ]
+
+    expect(computeProfile(practised)).toEqual(computeProfile(ESSAYS))
+  })
+
+  it('produces no profile at all from Listening papers alone', () => {
+    const listeningOnly = Array.from({ length: 4 }, (_, i) =>
+      listeningSession(`l${i}`, `2026-03-0${i + 1}T00:00:00Z`),
+    )
+
+    const profile = computeProfile(listeningOnly)
+    expect(profile.totalSessions).toBe(0)
+    expect(profile.categories).toEqual({})
+    expect(profile.focusCategories).toEqual([])
+    expect(computeTrends(listeningOnly)).toEqual([])
+  })
+
+  it('drops Reading and Listening papers together, in any order', () => {
+    const everything: SessionRecord[] = [
+      ESSAYS[0],
+      listeningSession('l1', '2026-01-05T00:00:00Z'),
+      ESSAYS[1],
+      {
+        section: 'reading',
+        id: 'r1',
+        dateISO: '2026-01-06T00:00:00Z',
+        module: 'academic',
+        testId: 'reading-academic-01',
+        testTitle: 'Academic Reading Test 1',
+        answers: {},
+        durationSec: 3600,
+        result: {
+          testId: 'reading-academic-01',
+          module: 'academic',
+          raw: 30,
+          total: 40,
+          band: 7,
+          questions: [],
+          byType: [],
+        },
+      },
+      ESSAYS[2],
+    ]
+
+    expect(computeProfile(everything)).toEqual(computeProfile(ESSAYS))
+    expect(computeProfile(everything).totalSessions).toBe(3)
   })
 })
