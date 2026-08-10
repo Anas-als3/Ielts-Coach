@@ -634,9 +634,18 @@ const MODAL_BEFORE_VERB_RE =
 const SINGULAR_DET_PLURAL_RE =
   /\b(a|an|one|each|every|another)\s+((?:\w+\s+){0,2})(women|men|children|people|persons|criminals|killers|prisoners|students|employees|citizens|teachers|workers|parents|years|skills)\b/gi
 
-/** Middles that make B1 correct as written: "one of the children", "a few years". */
+/**
+ * Middles that make B1 correct as written: "one of the children", "a few
+ * years" — and, crucially, a NUMERAL.
+ *
+ * The spelled-out numbers were listed from the start, but nothing matched a
+ * DIGIT, so "every 10 years" and "a further 20 years" — both correct, and both
+ * ordinary in IELTS writing about data — were told to write "10 year". A
+ * numeral is exactly what licenses the plural: only a bare "every years" is an
+ * error.
+ */
 const QUANTITY_MIDDLE_RE =
-  /\b(of|few|couple|dozen|hundred|thousand|million|several|many|number|lot|group|majority|minority|pair|team|series|range|variety|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty|thirty|forty|fifty)\b/i
+  /\d|\b(of|few|couple|dozen|hundred|thousand|million|several|many|number|lot|group|majority|minority|pair|team|series|range|variety|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty)\b/i
 
 const SINGULAR_OF: Record<string, string> = {
   women: 'woman', men: 'man', children: 'child', people: 'person', persons: 'person',
