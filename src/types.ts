@@ -399,10 +399,10 @@ export type RuleFn = (
 export type Module = 'academic' | 'general';
 
 /**
- * Learner preferences, persisted at localStorage key 'ielts-coach.prefs.v1' —
- * a SEPARATE key from the sessions store, with no schema ladder: every field
- * is optional and independently validated, so a bad value is dropped alone
- * rather than versioned around.
+ * Learner preferences, persisted under `profile/prefs.ts`'s `PREFS_KEY` — a
+ * SEPARATE localStorage key from the sessions store, with no schema ladder:
+ * every field is optional and independently validated, so a bad value is
+ * dropped alone rather than versioned around.
  */
 export interface Prefs {
   /** Owned by plan 026 (intro dismissal); carried here so it round-trips
