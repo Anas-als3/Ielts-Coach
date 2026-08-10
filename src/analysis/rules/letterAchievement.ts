@@ -590,10 +590,37 @@ function matchSalutation(line: Line): FoundSalutation | null {
  * the first paragraph and the window can never reach the body — the tight-window
  * guarantee is kept, and only the signature block is admitted.
  */
+
+/**
+ * Is this line a closing line — a SIGNOFF_FORM at its start with, at most, a
+ * name after it?
+ *
+ * Shared by the window and the matcher on purpose. When only `matchSignoff`
+ * knew what a closing looked like, `signoffCandidates` happily extended the
+ * window PAST one, and the first match walking forward was then a short body
+ * line above the real sign-off: "Best wishes to you." two lines above "Yours
+ * faithfully," raised gt-signoff-pairing — an ERROR, −0.5 TA — against a letter
+ * that had closed perfectly correctly.
+ */
+function isClosingLine(line: Line): SignoffForm | null {
+  for (const form of SIGNOFF_FORMS) {
+    const m = form.re.exec(line.text)
+    if (!m) continue
+    const trailing = line.text.slice(m[0].length).replace(/^[\s,.:;!-]+/, '')
+    if (wordsIn(trailing) > SIGNOFF_TRAILING_WORDS_MAX) continue
+    return form
+  }
+  return null
+}
+
 function signoffCandidates(lines: Line[]): Line[] {
   let first = Math.max(0, lines.length - SIGNOFF_TAIL_LINES_MIN)
+  // Stop as soon as the window CONTAINS a closing. Extending past one is what
+  // let a short body line outrank the real sign-off; the reference/enclosure
+  // tail this extension exists for always sits BELOW the closing, never above.
   while (
     first > 0 &&
+    !lines.slice(first).some((l) => isClosingLine(l) !== null) &&
     lines.length - first < SIGNOFF_TAIL_LINES_MAX &&
     wordsIn(lines[first - 1].text) <= SIGNOFF_TAIL_WORDS_MAX
   ) {
@@ -615,17 +642,14 @@ function matchSignoff(lines: Line[], salutation: FoundSalutation | null): FoundS
     // The greeting is never also the sign-off. In a two-line draft ("Dear Anna,"
     // / "…") the greeting would otherwise fall inside the search window.
     if (salutation && line.start <= salutation.start && line.end >= salutation.end) continue
-    for (const form of SIGNOFF_FORMS) {
-      const m = form.re.exec(line.text)
-      if (!m) continue
-      const trailing = line.text.slice(m[0].length).replace(/^[\s,.:;!-]+/, '')
-      if (wordsIn(trailing) > SIGNOFF_TRAILING_WORDS_MAX) continue
-      return {
-        form,
-        start: line.start + m.index,
-        end: line.start + m.index + m[0].length,
-        text: m[0],
-      }
+    const form = isClosingLine(line)
+    if (!form) continue
+    const m = form.re.exec(line.text)!
+    return {
+      form,
+      start: line.start + m.index,
+      end: line.start + m.index + m[0].length,
+      text: m[0],
     }
   }
   return null

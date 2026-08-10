@@ -817,6 +817,28 @@ In conclusion, governments should price roads and fund buses. Your journey to wo
   })
 })
 
+/* ------------------------- round two: five false accusations ------------------ */
+/**
+ * Every case below FAILS on the code as it stood at `ae92bac`, before any of
+ * plan 015's fixes. Each is modelled on the real `analyzeLetter` pipeline, per
+ * the file's own convention, and each comment names the false accusation (or
+ * false negative) the case prevents.
+ */
+
+describe('015-a: the sign-off window must not walk past a real closing', () => {
+  it("does not mistake 'Best wishes to you.' for the sign-off, above the real closing", () => {
+    // FALSE POSITIVE: 'Best wishes to you.' is four words — short enough to
+    // extend the search window backwards — and once inside the window it
+    // outranked the real closing below it. 'Yours faithfully' after an unnamed
+    // greeting is correct; 'Best wishes' is not, so a perfectly closed letter
+    // was accused of a pairing error it never made.
+    const body = `${FORMAL_BODY}\n\nBest wishes to you.`
+    const a = analyzeLetter(letter('Dear Sir or Madam,', body, 'Yours faithfully'), FORMAL)
+    expect(categories(a)).not.toContain('gt-signoff-pairing')
+    expect(a.structure.find((c) => c.id === 'gt-signoff')?.detail).toContain('Yours faithfully')
+  })
+})
+
 /* --------------------------------- the bank ----------------------------------- */
 
 describe('the letter prompt bank', () => {
