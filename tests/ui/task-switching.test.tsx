@@ -9,7 +9,7 @@
  * Everything drives the real <App />, so a regression anywhere between the
  * engine and the rendered rail surfaces.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FALLBACK_PROMPT, LINE_CHART_PROMPT, renderApp } from './renderApp'
@@ -83,6 +83,7 @@ describe('the app opens on Task 2', () => {
 describe('switching to Task 1', () => {
   it('renders the chart, retargets the word count and clears the sheet', async () => {
     const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderApp()
 
     await type(user, 'A Task 2 essay in progress.')
@@ -90,10 +91,38 @@ describe('switching to Task 1', () => {
 
     await user.click(taskButton('Task 1'))
 
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/clears the answer sheet/i)
     expect(screen.getByTitle('Minimum 150 words')).toBeInTheDocument()
     expect(document.querySelectorAll('.chart')).toHaveLength(1)
     // A Task 2 essay scored by Task 1 rules would produce confident nonsense.
     expect(sheet().value).toBe('')
+  })
+
+  it('refuses to clear a coach-mode draft without consent', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderApp()
+
+    await type(user, 'A Task 2 essay in progress.')
+    await user.click(taskButton('Task 1'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    // Refused: the sheet keeps its text and the toggle has not moved.
+    expect(sheet().value).toBe('A Task 2 essay in progress.')
+    expect(taskButton('Task 2')).toHaveClass('active')
+    expect(taskButton('Task 1')).not.toHaveClass('active')
+  })
+
+  it('switching with an empty sheet asks nothing', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderApp()
+
+    await user.click(taskButton('Task 1'))
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(taskButton('Task 1')).toHaveClass('active')
   })
 
   it('hides the Task 2 cheat sheet', async () => {

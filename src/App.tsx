@@ -556,6 +556,11 @@ export default function App({
         'The exam clock is running. Switch task and abandon this attempt?',
       )
       if (!leave) return
+    } else if (countWords(essayText) > 0) {
+      const leave = window.confirm(
+        'Switching task clears the answer sheet and discards the essay in progress. Switch anyway?',
+      )
+      if (!leave) return
     }
     submittingRef.current = false
     examDeadlineRef.current = null
@@ -563,6 +568,11 @@ export default function App({
     // A Task 2 essay sitting in a Task 1 answer sheet would be scored against
     // the wrong rules and produce confidently wrong feedback.
     setEssayText('')
+    // Consent to clear IS the "explicit discard" the draft contract names;
+    // keeping a draft the learner just agreed to abandon would re-offer it at
+    // next launch as if the consent never happened.
+    clearDraft()
+    draftTextRef.current = ''
     setExamState('idle')
     setExamSecondsLeft(TASK_CONSTANTS[next].examDurationSec)
     setFocusIssueId(null)
@@ -578,6 +588,11 @@ export default function App({
     if (view === 'write' && mode === 'exam' && examState === 'running') {
       const leave = window.confirm(
         'The exam clock is running. Switch exam type and abandon this attempt?',
+      )
+      if (!leave) return
+    } else if (view === 'write' && countWords(essayText) > 0) {
+      const leave = window.confirm(
+        'Switching exam type clears the answer sheet and discards the essay in progress. Switch anyway?',
       )
       if (!leave) return
     }
@@ -610,6 +625,11 @@ export default function App({
     submittingRef.current = false
     examDeadlineRef.current = null
     setEssayText('')
+    // Consent to clear IS the "explicit discard" the draft contract names;
+    // keeping a draft the learner just agreed to abandon would re-offer it at
+    // next launch as if the consent never happened.
+    clearDraft()
+    draftTextRef.current = ''
     setExamState('idle')
     setFocusIssueId(null)
   }

@@ -74,6 +74,7 @@ describe('the app opens on Academic', () => {
 describe('switching to General Training', () => {
   it('clears the answer sheet', async () => {
     const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderApp()
 
     await type(user, 'An Academic Task 2 essay in progress.')
@@ -81,9 +82,26 @@ describe('switching to General Training', () => {
 
     await user.click(moduleButton('General'))
 
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/clears the answer sheet/i)
     expect(moduleButton('General')).toHaveClass('active')
     expect(moduleButton('Academic')).not.toHaveClass('active')
     expect(sheet().value).toBe('')
+  })
+
+  it('refuses to clear a coach-mode draft without consent', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderApp()
+
+    await type(user, 'An Academic Task 2 essay in progress.')
+    await user.click(moduleButton('General'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    // Refused: the sheet keeps its text and the toggle has not moved.
+    expect(sheet().value).toBe('An Academic Task 2 essay in progress.')
+    expect(moduleButton('Academic')).toHaveClass('active')
+    expect(moduleButton('General')).not.toHaveClass('active')
   })
 
   it('hands Task 2 a question from the exam just chosen, every time', async () => {
