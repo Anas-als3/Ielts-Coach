@@ -629,7 +629,10 @@ Machine-checkable. ALL must hold:
 - [ ] `npx vitest run` exits 0; ≥ 848 tests pass; all new cases pass
 - [ ] `npm run build` exits 0
 - [ ] `npx vitest run --project ui` produces identical results across 10 consecutive runs
-- [ ] `grep -rn "removeItem" src/` returns the `pruneBackups` site (it returned nothing at `ae92bac`)
+- [ ] `grep -rn "removeItem" src/` returns the `pruneBackups` site (it returned nothing at `ae92bac`).
+      Forward note for reconciliation: plan 025 later adds a second legitimate
+      site (`clearDraft` in `src/profile/draft.ts`) — if 025 has landed, this
+      criterion reads "exactly the pruneBackups and clearDraft sites".
 - [ ] `grep -c "SCHEMA_VERSION = 5" src/profile/store.ts` still returns 1 — the version was NOT bumped
 - [ ] `grep -n "byCriterion: Record<Criterion, number>" src/types.ts` still matches — the type was NOT widened
 - [ ] Both mutation checks (step 2's `hasIdenticalBackup`, step 3's `MAX_BACKUPS`) were run and reported

@@ -1,6 +1,6 @@
 # Implementation Plans
 
-Three rounds so far:
+Four rounds so far:
 
 - **001–005** — 2026-08-05. All DONE and merged.
 - **006–014** — 2026-08-10, from a six-dimension audit (26 findings survived
@@ -9,6 +9,9 @@ Three rounds so far:
 - **015–024** — 2026-08-10, second `/improve` pass over the merged result.
   All TODO. **Several are regressions in the round-two fixes themselves** — see
   "What the second audit found".
+- **025–032** — 2026-08-10, UX/direction audit (four lenses: learner journey,
+  retention, platform/accounts, competitive) at baseline `d4ddef8`, plus the
+  user-reported Listening voice defect. All TODO. See "What the UX audit found".
 
 **Repo**: https://github.com/Anas-als3/Ielts-Coach (private)
 **Baseline for 015–024**: commit `ae92bac` · 23,292 lines of source · 848 tests.
@@ -18,6 +21,28 @@ plan's Git workflow section. Do not work on `main` directly, and do not have two
 sessions on the same plan.
 
 ## Execution order & status
+
+### Round four — 025–032, all TODO (baseline `d4ddef8`)
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| **025** | **Draft safety — no work in progress dies silently** | **P0** | M | — | TODO |
+| 026 | Small honest fixes — 100/150 gate, mode tooltips, intro card, title | P2 | S | — | TODO |
+| 027 | Goals & readiness — exam date, target band, persisted exam type | P1 | M | 026 (prefs key, soft) | TODO |
+| 031 | Portability pack — merge-import, tombstones (v6), dated exports | P1 | M | **016** | TODO |
+| 032 | Listening voice quality — ranked voices now, authoring-time audio next | P1 | M+L | — | TODO |
+| 028 | Listening tapescript in the report | P2 | S | — | TODO |
+| 029 | Model-answer library | P2 | M | — | TODO |
+| 030 | Teach the bands — descriptors, Task 1 sheets, question technique | P2 | L (3 phases) | — | TODO |
+
+**Concurrency rules for this round**: 025, 026, 027 and 029 all add UI to
+`App.tsx` — run them sequentially (rebase order in each plan), and none of them
+concurrently with 023. 028 touches only the Listening report and can run beside
+the App.tsx line, but **028 lands before 030** (Phase C edits the same
+component). **032 lands after 026 AND 027** — it extends the prefs module they
+create, and its Prong B wiring touches `App.tsx:221`. 031 touches the store and
+Dashboard — after 016, not beside 019 or 017's Dashboard work. 026 defines the
+`'ielts-coach.prefs.v1'` key that 027 and 032 extend additively.
 
 ### Round three — 015–024, all TODO
 
@@ -172,6 +197,67 @@ cost — transfer and parse are.
 **556 ms**; bounded `/\s{1,12},/g` → **0.8 ms**. Reachable by paste, and the
 analyser runs on a 400 ms debounce while the learner types.
 
+## What the UX audit found (round four, verified at `d4ddef8`)
+
+Four parallel lenses: learner journey, retention/coaching, platform/accounts,
+competitive. Every claim below was verified against the live code before a plan
+was written.
+
+### Work in progress dies silently — plan 025
+
+`essayText` is `useState` only (`App.tsx:122`); the only localStorage writer in
+`src/` is the session store, on submit. No `beforeunload` anywhere. Coach-mode
+task/module toggles clear a non-empty sheet with no confirm (`App.tsx:413`,
+`:460`). Timer expiry auto-submits a blank paper both manual paths refuse
+(`App.tsx:271-274` vs `:282`, `:832`).
+
+### The panel contradicts its own numbers — plan 026
+
+Task 1 copy says "estimates unlock at 100 words" while the gate is hardcoded
+`< 150` (`FeedbackPanel.tsx:86` vs `:103`); the engine really assesses from 100
+(`task1BandEstimate.ts:36`). Plus: no first-run explanation of Coach vs Exam or
+the module toggle, and the tab title still says "Writing Task 2".
+
+### The app knows nothing about the learner — plan 027
+
+The store is `{schemaVersion, sessions}` and nothing else; the module resets to
+Academic every visit (`App.tsx:109`). No exam date, no target band — the two
+facts every IELTS candidate has. Gap display, not forecasting: the form-only
+estimate cannot honestly extrapolate a date.
+
+### The best content is withheld — plans 028, 029, 030
+
+The Listening report never renders the tapescript its props already carry (zero
+`transcript` hits in `ListeningReport.tsx`). Worked answers render at exactly
+one site, mid-writing (`App.tsx:1035-1041`) — 5 of 40 Task 2 prompts and 3 of
+15 letters have exact models, all Task 1 charts generate one. And the app
+scores four criteria it never teaches: no band descriptors, no Task 1 phrase
+sheets (the cheat-sheet tab is deliberately Task 2-only, `App.tsx:620-622`),
+no question-type technique.
+
+### Import is replace-only and deletes leave no trace — plan 031
+
+`importData` replaces the store outright (`store.ts:513-567`) though it already
+dedups by id; `deleteSession` leaves no tombstone (`:476-481`), so any future
+merge resurrects deletions. Exports are undated with a constant filename. The
+serverless fix (merge + tombstones + self-describing exports) is byte-for-byte
+the merge a future account sync would need — accounts themselves stay deferred.
+
+### The voice picker takes the platform's worst voice — plan 032
+
+`pickVoice` (`speech.ts:223-237`) is first-match-by-language; platforms list
+legacy robot voices first. It also ignores the 8 speakers' gender/pitch hints,
+so every speaker is the same voice. User-reported as "horrendous"; the plan
+ranks voices by quality markers, differentiates speakers, and pipelines
+authoring-time neural audio as static assets (runtime TTS APIs are rejected —
+a client-only app cannot keep an API key secret).
+
+### Deferred, not rejected
+
+- **Mobile coach loop collapse** (below 980px the feedback panel sits under a
+  55vh editor + full rail — `App.css:312-324`, `Editor.css:10`): the finding is
+  CSS-derived, not device-tested. Verify on hardware before planning a fix.
+
 ## Gap analysis against the full exam
 
 | Section | Academic | General Training | Plan |
@@ -219,6 +305,26 @@ test. One test per module ships today; validate the format before authoring more
 ## Findings considered and rejected
 
 So nobody re-audits these.
+
+**Round four (2026-08-10, UX audit):**
+
+- **Runtime TTS API for the Listening voice** — the voices are good, but a
+  static client-only app cannot keep an API key secret: any key in the bundle
+  is public and will be abused, and the proxy that hides it is the server this
+  product deliberately does not have. Plan 032 uses the same APIs at
+  AUTHORING time instead, committing the generated audio as static assets.
+- **Accounts/login first** — deferred, not refused. Plan 031 ships the
+  serverless 80% (merge, tombstones, portable exports); a backend after that is
+  weekend-scale, but it spends the "no server" moat and makes the maintainer a
+  custodian of user data. Build it when a second device is a proven need.
+- **Async store rewrite to "prepare" for sync** — rejected again (first
+  rejected in round three): it ripples through every runner and test for a
+  backend that may never ship. A future remote is a replicator beside the sync
+  store, not an adapter behind it.
+- **Band forecasting ("you will reach 7.0 by March")** — the form-only estimate
+  cannot honestly extrapolate; plan 027 shows the gap to target instead.
+- **Voice-gender inference from platform voice names** — locale-dependent and
+  wrong often enough to be worse than the pitch differentiation plan 032 uses.
 
 **Round three (2026-08-10, second pass):**
 
