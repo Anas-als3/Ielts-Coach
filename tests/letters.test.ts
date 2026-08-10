@@ -376,10 +376,11 @@ describe('register is judged against the tone the prompt fixes', () => {
 
   it("still flags 'No problem' as an interjection, with the same message", () => {
     // TRUE POSITIVE: the guard is a sentence boundary on each side, so the
-    // reading it was written for is untouched.
+    // reading it was written for is untouched. A full stop, not a comma — the
+    // lookahead no longer admits a comma, because both readings survive one.
     const body = FORMAL_BODY.replace(
       'I would be grateful if you could confirm',
-      'No problem, I will collect the replacement myself. I would be grateful if you could confirm',
+      'No problem. I will collect the replacement myself. I would be grateful if you could confirm',
     )
     const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
     expect(messagesFor(a, 'gt-tone-mismatch')).toEqual([
@@ -854,6 +855,23 @@ describe('015-b: "I wanted to" only states a purpose at a sentence start', () =>
     expect(a.stats.wordCount).toBeGreaterThanOrEqual(150)
     expect(categories(a)).toContain('gt-purpose-missing')
     expect(checkSatisfied(a, 'gt-purpose')).toBe(false)
+  })
+})
+
+describe('015-e: "no problem" must not fire on the noun-phrase reading', () => {
+  it('leaves the comma and semicolon noun-phrase readings alone', () => {
+    // FALSE POSITIVE: the lookahead admitted ',' and ';', and both readings
+    // survive them — 'No problem, however, has arisen' is a noun phrase, not
+    // the interjection the rule exists to catch, but it was flagged all the
+    // same.
+    for (const clause of [
+      'No problem, however, has arisen with the delivery.',
+      'No problem; the refund was issued in full.',
+    ]) {
+      const body = `${FORMAL_BODY} ${clause}`
+      const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+      expect(messagesFor(a, 'gt-tone-mismatch'), clause).toEqual([])
+    }
   })
 })
 

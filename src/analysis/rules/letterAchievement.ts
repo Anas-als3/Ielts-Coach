@@ -412,7 +412,7 @@ const FORMAL_VIOLATION_MARKERS: readonly { re: RegExp; fix: string }[] = [
   { re: /\b(?:cheers|thanks a lot|thanks a million|no worries)\b/gi, fix: "write 'thank you' or 'I would be grateful'" },
   {
     // 'no problem' is flagged ONLY in its INTERJECTION reading — a whole clause
-    // on its own, "No problem, I will arrange it." Everywhere else it is
+    // on its own, "No problem. I will arrange it." Everywhere else it is
     // perfectly good formal English: "that will be no problem", "the delay poses
     // no problem", "no problem has arisen with the replacement". Telling a
     // learner that their correct formal sentence is slang is exactly the false
@@ -423,10 +423,19 @@ const FORMAL_VIOLATION_MARKERS: readonly { re: RegExp; fix: string }[] = [
     // list would never be complete:
     //   - lookBEHIND: it must OPEN a sentence, so "that will be no problem" is
     //     out of reach;
-    //   - lookAHEAD: it must END there, so the noun phrase — "no problem
-    //     arises", "no problem with the account" — is out of reach too.
+    //   - lookAHEAD: it must END the sentence there, so the noun phrase — "no
+    //     problem arises", "no problem with the account" — is out of reach too.
     // Both are zero-width, so the highlighted span stays on the phrase itself.
-    re: /(?<=^|[.!?]["'”’)\]]?\s)no problem(?=\s*[,.!?;:—–-]|$)/gim,
+    //
+    // The lookahead admits '.', '!' and '?' ONLY — not ',', ';', ':' or a dash.
+    // Both readings survive a comma or a semicolon: "No problem, however, has
+    // arisen with the delivery" and "No problem; the refund was issued in full"
+    // are the noun phrase, but "No problem, I will arrange it." is genuinely the
+    // interjection. Nothing available here tells the two apart — it would need
+    // to know whether what follows the comma opens a new clause — so this is a
+    // DELIBERATE false negative: "No problem, I will arrange it." is now silent.
+    // A false negative here costs nothing; a false accusation costs trust.
+    re: /(?<=^|[.!?]["'”’)\]]?\s)no problem(?=\s*[.!?]|$)/gim,
     fix: "write 'thank you' or 'I would be grateful'",
   },
   { re: /\b(?:awesome|cool|great stuff|super)\b/gi, fix: "use 'excellent' or 'very welcome'" },
