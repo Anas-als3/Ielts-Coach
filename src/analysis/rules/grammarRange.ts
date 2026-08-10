@@ -53,6 +53,20 @@ const AUX_BEFORE_COMMA_RE =
   /\b(is|are|was|were|be|been|being|has|have|had|will|would|shall|should|can|could|may|might|must|do|does|did)\s*$/i
 /** Guard: "If it rains, then we stay home" is a correct correlative pair, not a splice. */
 const CORRELATIVE_BEFORE_THEN_RE = /\b(if|when|whenever|once|unless)\b/i
+/**
+ * Guard: a fronted adverbial followed by a pronoun subject is not a splice.
+ *
+ * "However, it is clear that…" is ordinary correct English and among the most
+ * common openings in IELTS writing, but pattern A saw only ", it is" and called
+ * it two sentences joined by a comma. The adverbial is a sentence ADJUNCT — one
+ * clause follows it, not two — so there is nothing for the comma to splice.
+ *
+ * Anchored with `\s*$` because it is tested against the text BEFORE the comma:
+ * the adverbial must be the whole of it, so "However, it is expensive, it is
+ * also slow" still reports its second comma.
+ */
+const FRONTED_ADVERBIAL_RE =
+  /(^|[.!?]\s+)(however|therefore|moreover|furthermore|nevertheless|consequently|thus|in addition|for example|for instance|in my opinion|in my view|on the other hand|as a result|overall|in conclusion|first|firstly|second|secondly|finally|indeed|admittedly)\s*$/i
 
 const FIRST_PERSON_RE = /\bI\b|\b[Mm][ye]\b/
 
@@ -279,8 +293,11 @@ function commaSplices(doc: TokenizedDoc, out: Issue[]): void {
     if (OPENS_WITH_SUBORDINATOR_RE.test(s.text)) continue
     for (const m of s.text.matchAll(SPLICE_PRONOUN_RE)) {
       const idx = m.index ?? 0
-      // Skip when a coordinator sits right before the comma ("…and, it is…").
-      if (COORDINATOR_BEFORE_COMMA_RE.test(s.text.slice(0, idx))) continue
+      // Same guards patterns B, C and D already carried: a coordinator ("…and,
+      // it is…") or an auxiliary ("…the question is, it is…") before the comma.
+      if (guardedBeforeComma(idx)) continue
+      // "However, it is clear that…" — a fronted adverbial, then ONE clause.
+      if (FRONTED_ADVERBIAL_RE.test(s.text.slice(0, idx))) continue
       if (overlaps(idx, idx + m[0].length)) continue
       claim(
         idx,
