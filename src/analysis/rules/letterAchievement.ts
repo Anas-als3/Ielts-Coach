@@ -131,6 +131,30 @@ interface SalutationForm {
   label: string
 }
 
+/** Optional title plus one or two name tokens: "Mr Hughes", "Anna", "Anna Petrova". */
+const NAME_TOKEN = "[a-zà-ÿ][a-zà-ÿ'’-]*"
+const TITLE = '(?:mr|mrs|ms|miss|dr|prof|professor)\\.?'
+const PLAIN_PART = `${NAME_TOKEN}(?:\\s+${NAME_TOKEN})?`
+const TITLED_PART = `(?:${TITLE}\\s+)?${PLAIN_PART}`
+
+/**
+ * A greeting to two OR MORE readers — "A and B" or "A, B and C" — built from the
+ * fragments above so any list length is one pattern, not one row per reader
+ * count.
+ *
+ * `requireTitle` gates the FORMAL reading: a lookahead requires a TITLE
+ * ANYWHERE in the list, not only on the first part, so "Dear Mr Hughes and
+ * Anna," still reads as formal — the conservative direction, since a title
+ * present means at least semi-formal.
+ */
+function nameListRe(part: string, requireTitle: boolean): RegExp {
+  const titleGuard = requireTitle ? `(?=.*\\b${TITLE})` : ''
+  return new RegExp(`^dear\\s+${titleGuard}${part}(?:\\s*,\\s*${part})*\\s+and\\s+${part}[,.:!]?$`, 'i')
+}
+
+const NAMED_FORMAL_LIST_RE = nameListRe(TITLED_PART, true)
+const NAMED_INFORMAL_LIST_RE = nameListRe(PLAIN_PART, false)
+
 /**
  * Ordered — the FIRST match wins, so the specific unnamed forms must precede the
  * bare-name pattern. "Dear Sir" has to read as `unnamed`, not as a letter to
@@ -180,12 +204,18 @@ const SALUTATION_FORMS: readonly SalutationForm[] = [
     label: 'Dear Mr/Ms + surname',
   },
   {
-    // TWO titles sharing a surname: "Dear Mr and Mrs Hughes". A letter to a
-    // couple is ordinary General Training material (landlords, hosts, the
-    // neighbours you kept awake), and the single-title row above cannot match it
-    // — so without this row a learner who plainly wrote a greeting was told, by
-    // an ERROR, that they had not. Same kind and same tones as one title.
-    re: /^dear\s+(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+and\s+(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+[a-zà-ÿ][a-zà-ÿ'’-]*(?:\s+[a-zà-ÿ][a-zà-ÿ'’-]*)?[,.:!]?$/i,
+    // A greeting to TWO OR MORE readers with a title ANYWHERE in the list:
+    // "Dear Mr and Mrs Hughes,", "Dear Mr Hughes and Mrs Hughes,", "Dear Mr
+    // Hughes and Anna,", "Dear Dr Ali and Dr Chen,". A letter to a couple, or to
+    // two named readers, is ordinary General Training material (landlords,
+    // hosts, the neighbours you kept awake), and the single-title row above
+    // matches only ONE reader — so without this row a learner who plainly wrote
+    // a greeting to two readers was told, by an ERROR, that they had written no
+    // greeting at all. Placed ABOVE the plain name-list row below, and both sit
+    // BELOW the "Dear Sir and Madam" row: read as a pair of names that row would
+    // license "Yours sincerely" and reject the "Yours faithfully" it actually
+    // calls for.
+    re: NAMED_FORMAL_LIST_RE,
     kind: 'named-formal',
     tones: ['formal', 'semi-formal'],
     label: 'Dear Mr/Ms + surname',
@@ -198,12 +228,14 @@ const SALUTATION_FORMS: readonly SalutationForm[] = [
     label: 'Dear + first name',
   },
   {
-    // TWO given names: "Dear Anna and Tom". The bare-name row above allows at
-    // most two tokens and no conjunction, so it read a perfectly good greeting to
-    // a couple as no greeting at all. Placed AFTER the bare-name row so nothing
-    // it already matched changes hands, and after the unnamed rows so "Dear Sir
-    // and Madam" is still `unnamed`.
-    re: /^dear\s+[a-zà-ÿ][a-zà-ÿ'’-]*\s+and\s+[a-zà-ÿ][a-zà-ÿ'’-]*[,.:!]?$/i,
+    // A greeting to TWO OR MORE UNTITLED readers: "Dear Anna and Tom,", "Dear
+    // Anna, Tom and Sam,". The bare-name row above matches only one reader, so
+    // it read a perfectly good greeting to several people as no greeting at
+    // all. Placed AFTER the titled-list row above (so a list carrying a title
+    // reads as formal, not informal) and after the unnamed rows so "Dear Sir
+    // and Madam" is still `unnamed` — read as a pair of names it would license
+    // "Yours sincerely" and reject the "Yours faithfully" it actually calls for.
+    re: NAMED_INFORMAL_LIST_RE,
     kind: 'named-informal',
     tones: ['semi-formal', 'informal'],
     label: 'Dear + first name',
@@ -281,14 +313,6 @@ const SALUTATION_KIND_DESCRIPTION: Record<SalutationKind, string> = {
 /**
  * Purpose markers. A strong letter states why it is being written in the opening
  * paragraph, and the phrasings that do it are a short closed set.
- *
- * `i wanted to` and its neighbours are in this shared list rather than the
- * informal one below on purpose. They are the phrasings `OVERFORMAL_MARKERS`
- * tells an informal writer to switch TO — "I am writing to express" → "I wanted
- * to tell you" — and a learner who obeyed one rule then earned a warning from
- * another for doing so. Two rules must not point in opposite directions. They
- * are tone-neutral in any case: "I wanted to enquire about the charge on my
- * statement" states a purpose in a letter to a bank just as plainly.
  */
 const PURPOSE_MARKERS: readonly string[] = [
   'i am writing to',
@@ -306,11 +330,6 @@ const PURPOSE_MARKERS: readonly string[] = [
   'this letter is to',
   'the purpose of this letter',
   'i am contacting you',
-  'i wanted to',
-  'i just wanted to',
-  'i thought i would',
-  "i thought i'd",
-  'i thought i’d',
 ]
 
 /**
@@ -349,6 +368,34 @@ function purposeRe(markers: readonly string[]): RegExp {
 
 const PURPOSE_RE = purposeRe(PURPOSE_MARKERS)
 const INFORMAL_PURPOSE_RE = purposeRe([...PURPOSE_MARKERS, ...INFORMAL_PURPOSE_MARKERS])
+
+/**
+ * Purpose markers accepted only at a SENTENCE START.
+ *
+ * These say "why I am writing" when they open a sentence — "I wanted to enquire
+ * about the charge on my statement" — and say nothing at all in the middle of
+ * one: "When I bought a washing machine last month I wanted to have a reliable
+ * appliance" is a narrative clause, and an unanchored substring match read it as
+ * a stated purpose, silenced gt-purpose-missing and ticked the rail's gt-purpose
+ * check GREEN on a formal letter that never says why it exists.
+ *
+ * They stay accepted (rather than moving to the informal list) because
+ * OVERFORMAL_MARKERS tells an informal writer to replace "I am writing to
+ * express" with exactly "I wanted to tell you" — two rules must never point in
+ * opposite directions.
+ */
+const SENTENCE_INITIAL_PURPOSE_MARKERS: readonly string[] = [
+  'i wanted to',
+  'i just wanted to',
+  'i thought i would',
+  "i thought i'd",
+  'i thought i’d',
+]
+
+const SENTENCE_INITIAL_PURPOSE_RE = new RegExp(
+  `(?:^|[.!?]["'”’)\\]]?\\s|\\n\\s*)(?:${SENTENCE_INITIAL_PURPOSE_MARKERS.map(escapeRegExp).join('|')})`,
+  'i',
+)
 
 /**
  * The contraction forms that are wrong in a formal or semi-formal letter.
@@ -397,7 +444,7 @@ const FORMAL_VIOLATION_MARKERS: readonly { re: RegExp; fix: string }[] = [
   { re: /\b(?:cheers|thanks a lot|thanks a million|no worries)\b/gi, fix: "write 'thank you' or 'I would be grateful'" },
   {
     // 'no problem' is flagged ONLY in its INTERJECTION reading — a whole clause
-    // on its own, "No problem, I will arrange it." Everywhere else it is
+    // on its own, "No problem. I will arrange it." Everywhere else it is
     // perfectly good formal English: "that will be no problem", "the delay poses
     // no problem", "no problem has arisen with the replacement". Telling a
     // learner that their correct formal sentence is slang is exactly the false
@@ -408,10 +455,19 @@ const FORMAL_VIOLATION_MARKERS: readonly { re: RegExp; fix: string }[] = [
     // list would never be complete:
     //   - lookBEHIND: it must OPEN a sentence, so "that will be no problem" is
     //     out of reach;
-    //   - lookAHEAD: it must END there, so the noun phrase — "no problem
-    //     arises", "no problem with the account" — is out of reach too.
+    //   - lookAHEAD: it must END the sentence there, so the noun phrase — "no
+    //     problem arises", "no problem with the account" — is out of reach too.
     // Both are zero-width, so the highlighted span stays on the phrase itself.
-    re: /(?<=^|[.!?]["'”’)\]]?\s)no problem(?=\s*[,.!?;:—–-]|$)/gim,
+    //
+    // The lookahead admits '.', '!' and '?' ONLY — not ',', ';', ':' or a dash.
+    // Both readings survive a comma or a semicolon: "No problem, however, has
+    // arisen with the delivery" and "No problem; the refund was issued in full"
+    // are the noun phrase, but "No problem, I will arrange it." is genuinely the
+    // interjection. Nothing available here tells the two apart — it would need
+    // to know whether what follows the comma opens a new clause — so this is a
+    // DELIBERATE false negative: "No problem, I will arrange it." is now silent.
+    // A false negative here costs nothing; a false accusation costs trust.
+    re: /(?<=^|[.!?]["'”’)\]]?\s)no problem(?=\s*[.!?]|$)/gim,
     fix: "write 'thank you' or 'I would be grateful'",
   },
   { re: /\b(?:awesome|cool|great stuff|super)\b/gi, fix: "use 'excellent' or 'very welcome'" },
@@ -539,12 +595,20 @@ export interface LetterParts {
  * a false accusation. So the first line is tried twice: as a whole, and clipped
  * at its first comma when that comma is close enough to the start to be ending a
  * greeting rather than separating clauses.
+ *
+ * The WHOLE line is tried FIRST. Every `SALUTATION_FORMS` pattern is
+ * `$`-anchored, so a genuine run-on line (the whole line was never a match) still
+ * falls through to the clipped candidate — this guard is unaffected. What
+ * changes is the case where BOTH match: "Dear Anna, Tom and Sam," used to clip
+ * to "Dear Anna," first, which matched the bare-name row and threw away "Tom and
+ * Sam" — reading a three-reader greeting as a warmer one-reader greeting and
+ * then rejecting the sign-off it actually called for.
  */
 function salutationCandidates(line: Line): Line[] {
   const out: Line[] = [line]
   const comma = line.text.indexOf(',')
   if (comma > 0 && comma < SALUTATION_COMMA_WINDOW && comma < line.text.length - 1) {
-    out.unshift({
+    out.push({
       text: line.text.slice(0, comma + 1),
       start: line.start,
       end: line.start + comma + 1,
@@ -590,10 +654,37 @@ function matchSalutation(line: Line): FoundSalutation | null {
  * the first paragraph and the window can never reach the body — the tight-window
  * guarantee is kept, and only the signature block is admitted.
  */
+
+/**
+ * Is this line a closing line — a SIGNOFF_FORM at its start with, at most, a
+ * name after it?
+ *
+ * Shared by the window and the matcher on purpose. When only `matchSignoff`
+ * knew what a closing looked like, `signoffCandidates` happily extended the
+ * window PAST one, and the first match walking forward was then a short body
+ * line above the real sign-off: "Best wishes to you." two lines above "Yours
+ * faithfully," raised gt-signoff-pairing — an ERROR, −0.5 TA — against a letter
+ * that had closed perfectly correctly.
+ */
+function isClosingLine(line: Line): SignoffForm | null {
+  for (const form of SIGNOFF_FORMS) {
+    const m = form.re.exec(line.text)
+    if (!m) continue
+    const trailing = line.text.slice(m[0].length).replace(/^[\s,.:;!-]+/, '')
+    if (wordsIn(trailing) > SIGNOFF_TRAILING_WORDS_MAX) continue
+    return form
+  }
+  return null
+}
+
 function signoffCandidates(lines: Line[]): Line[] {
   let first = Math.max(0, lines.length - SIGNOFF_TAIL_LINES_MIN)
+  // Stop as soon as the window CONTAINS a closing. Extending past one is what
+  // let a short body line outrank the real sign-off; the reference/enclosure
+  // tail this extension exists for always sits BELOW the closing, never above.
   while (
     first > 0 &&
+    !lines.slice(first).some((l) => isClosingLine(l) !== null) &&
     lines.length - first < SIGNOFF_TAIL_LINES_MAX &&
     wordsIn(lines[first - 1].text) <= SIGNOFF_TAIL_WORDS_MAX
   ) {
@@ -615,17 +706,14 @@ function matchSignoff(lines: Line[], salutation: FoundSalutation | null): FoundS
     // The greeting is never also the sign-off. In a two-line draft ("Dear Anna,"
     // / "…") the greeting would otherwise fall inside the search window.
     if (salutation && line.start <= salutation.start && line.end >= salutation.end) continue
-    for (const form of SIGNOFF_FORMS) {
-      const m = form.re.exec(line.text)
-      if (!m) continue
-      const trailing = line.text.slice(m[0].length).replace(/^[\s,.:;!-]+/, '')
-      if (wordsIn(trailing) > SIGNOFF_TRAILING_WORDS_MAX) continue
-      return {
-        form,
-        start: line.start + m.index,
-        end: line.start + m.index + m[0].length,
-        text: m[0],
-      }
+    const form = isClosingLine(line)
+    if (!form) continue
+    const m = form.re.exec(line.text)!
+    return {
+      form,
+      start: line.start + m.index,
+      end: line.start + m.index + m[0].length,
+      text: m[0],
     }
   }
   return null
@@ -717,10 +805,15 @@ function openingText(parts: LetterParts): string {
  * `tone` widens the accepted phrasings for an informal letter only — see
  * `INFORMAL_PURPOSE_MARKERS`. It is optional so a caller that has no tone to
  * hand gets exactly the formal set, which is the stricter of the two.
+ *
+ * `SENTENCE_INITIAL_PURPOSE_RE` is checked in addition, at every tone — it is
+ * anchored, so unlike the two lists above it cannot match inside a narrative
+ * clause and therefore needs no tone-specific widening.
  */
 export function hasPurposeStatement(parts: LetterParts, tone?: LetterTone): boolean {
   const re = tone === 'informal' ? INFORMAL_PURPOSE_RE : PURPOSE_RE
-  return re.test(openingText(parts))
+  const opening = openingText(parts)
+  return re.test(opening) || SENTENCE_INITIAL_PURPOSE_RE.test(opening)
 }
 
 /** True when a greeting and a sign-off were both found AND they pair correctly. */

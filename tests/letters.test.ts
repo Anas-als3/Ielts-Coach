@@ -303,11 +303,15 @@ describe('register is judged against the tone the prompt fixes', () => {
     "I can't pretend I have any confidence",
   )
 
-  it('flags a contraction in a formal letter', () => {
+  it('flags a contraction in a formal letter ONCE, as gt-tone-mismatch', () => {
+    // A contraction in a formal letter used to draw BOTH `gt-tone-mismatch` and
+    // the shared `contraction` rule on the same span — one mistake shown as two,
+    // and one about ACADEMIC writing, a genre the learner was not asked to
+    // produce. `gt-tone-mismatch` owns it now, because it is the rule that knows
+    // which register this letter is being marked against.
     const a = analyzeLetter(letter('Dear Sir or Madam,', WITH_CONTRACTION), FORMAL)
     expect(categories(a)).toContain('gt-tone-mismatch')
-    // The shared contraction rule still applies at this register too.
-    expect(categories(a)).toContain('contraction')
+    expect(categories(a)).not.toContain('contraction')
   })
 
   it('flags NOTHING for the same contraction in an informal letter', () => {
@@ -376,10 +380,11 @@ describe('register is judged against the tone the prompt fixes', () => {
 
   it("still flags 'No problem' as an interjection, with the same message", () => {
     // TRUE POSITIVE: the guard is a sentence boundary on each side, so the
-    // reading it was written for is untouched.
+    // reading it was written for is untouched. A full stop, not a comma — the
+    // lookahead no longer admits a comma, because both readings survive one.
     const body = FORMAL_BODY.replace(
       'I would be grateful if you could confirm',
-      'No problem, I will collect the replacement myself. I would be grateful if you could confirm',
+      'No problem. I will collect the replacement myself. I would be grateful if you could confirm',
     )
     const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
     expect(messagesFor(a, 'gt-tone-mismatch')).toEqual([
@@ -762,6 +767,38 @@ I would be grateful if you could confirm in writing which of these two options y
   })
 })
 
+/* ------------------- one mistake, one issue — the invariant ------------------- */
+
+describe('a letter never reports two non-info issues on the same span', () => {
+  it('holds even when can’t, guys, gonna, ! and No problem all fire at once', () => {
+    // This is the invariant steps 4 and 5 restore: FORMAL_VIOLATION_MARKERS in
+    // `letterAchievement.ts` and REGISTER_LEXICON / EXCLAMATION_RE in
+    // `lexical.ts` overlap by construction, and every span they share must end
+    // up owned by exactly ONE rule. Round one fixed eight false accusations
+    // this way and introduced four more, one marker at a time, because nothing
+    // constrained the rules as a SET. This test is that constraint: it is what
+    // stops the next marker being added to both lists.
+    const body = `${FORMAL_BODY} I can't accept a further delay! The guys are not gonna be happy about it. No problem. I will arrange it myself.`
+    const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+
+    const bySpan = new Map<string, number>()
+    for (const i of a.issues) {
+      if (i.severity === 'info' || i.start === null) continue
+      const key = `${i.start},${i.end}`
+      bySpan.set(key, (bySpan.get(key) ?? 0) + 1)
+    }
+    for (const [span, count] of bySpan) {
+      expect(count, span).toBe(1)
+    }
+    // And it has teeth: every marker in the fixture actually fired.
+    expect(a.issues.some((i) => i.excerpt === "can't")).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === 'guys')).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === 'gonna')).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === '!')).toBe(true)
+    expect(a.issues.some((i) => i.excerpt === 'No problem')).toBe(true)
+  })
+})
+
 /* ------------------------- the tone guard must not leak ----------------------- */
 
 describe('the lexical tone guard is confined to letters', () => {
@@ -814,6 +851,129 @@ In conclusion, governments should price roads and fund buses. Your journey to wo
     expect(messagesFor(a, 'informal-register')).toContain(
       'Rhetorical questions weaken academic tone — turn this question into a statement.',
     )
+  })
+})
+
+/* ------------------------- round two: five false accusations ------------------ */
+/**
+ * Every case below FAILS on the code as it stood at `ae92bac`, before any of
+ * plan 015's fixes. Each is modelled on the real `analyzeLetter` pipeline, per
+ * the file's own convention, and each comment names the false accusation (or
+ * false negative) the case prevents.
+ */
+
+describe('015-a: the sign-off window must not walk past a real closing', () => {
+  it("does not mistake 'Best wishes to you.' for the sign-off, above the real closing", () => {
+    // FALSE POSITIVE: 'Best wishes to you.' is four words — short enough to
+    // extend the search window backwards — and once inside the window it
+    // outranked the real closing below it. 'Yours faithfully' after an unnamed
+    // greeting is correct; 'Best wishes' is not, so a perfectly closed letter
+    // was accused of a pairing error it never made.
+    const body = `${FORMAL_BODY}\n\nBest wishes to you.`
+    const a = analyzeLetter(letter('Dear Sir or Madam,', body, 'Yours faithfully'), FORMAL)
+    expect(categories(a)).not.toContain('gt-signoff-pairing')
+    expect(a.structure.find((c) => c.id === 'gt-signoff')?.detail).toContain('Yours faithfully')
+  })
+})
+
+describe('015-b: "I wanted to" only states a purpose at a sentence start', () => {
+  it('still asks for a purpose statement when "I wanted to" sits inside a narrative clause', () => {
+    // FALSE NEGATIVE: the unanchored substring match let 'I wanted to' silence
+    // gt-purpose-missing wherever it sat in the opening, including inside a
+    // narrative clause ("…last month I wanted to have a reliable appliance…")
+    // that never actually says why the letter exists — and the rail's
+    // gt-purpose check ticked green along with it.
+    const body = FORMAL_BODY.replace(
+      'I am writing to complain about a washing machine which I purchased from your Bridge Street branch on 4 March, and which was delivered to my flat the following week.',
+      'When I bought a washing machine from your Bridge Street branch last month I wanted to have a reliable appliance in the kitchen for the whole family to use.',
+    )
+    const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+    expect(a.stats.wordCount).toBeGreaterThanOrEqual(150)
+    expect(categories(a)).toContain('gt-purpose-missing')
+    expect(checkSatisfied(a, 'gt-purpose')).toBe(false)
+  })
+})
+
+describe('015-e: "no problem" must not fire on the noun-phrase reading', () => {
+  it('leaves the comma and semicolon noun-phrase readings alone', () => {
+    // FALSE POSITIVE: the lookahead admitted ',' and ';', and both readings
+    // survive them — 'No problem, however, has arisen' is a noun phrase, not
+    // the interjection the rule exists to catch, but it was flagged all the
+    // same.
+    for (const clause of [
+      'No problem, however, has arisen with the delivery.',
+      'No problem; the refund was issued in full.',
+    ]) {
+      const body = `${FORMAL_BODY} ${clause}`
+      const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+      expect(messagesFor(a, 'gt-tone-mismatch'), clause).toEqual([])
+    }
+  })
+})
+
+describe('015-c: one mistake, one issue in a letter', () => {
+  // FALSE POSITIVE (duplicate): `gt-tone-mismatch` and the shared essay-register
+  // rules (`contraction`, `informal-register`) used to cover the same span, so
+  // one mistake showed up twice in the panel — once about academic writing, a
+  // genre the learner was not asked to produce — and was charged twice to the
+  // LR register count.
+  const CASES: Array<[string, string]> = [
+    ["can't", "I can't accept a further delay."],
+    ['guys', 'The guys came to inspect the machine.'],
+    ['gonna', 'We are not gonna wait another month.'],
+  ]
+
+  for (const [excerpt, sentence] of CASES) {
+    it(`flags '${excerpt}' exactly once, as gt-tone-mismatch`, () => {
+      const body = `${FORMAL_BODY} ${sentence}`
+      const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+      const hits = a.issues.filter((i) => i.severity !== 'info' && i.excerpt === excerpt)
+      expect(hits, excerpt).toHaveLength(1)
+      expect(hits[0].category, excerpt).toBe('gt-tone-mismatch')
+    })
+  }
+})
+
+describe('015-d: the two-name greeting table covers all four shapes', () => {
+  // FALSE POSITIVE: `gt-salutation-missing` is an ERROR worth −0.5 Task
+  // Achievement, and it was telling learners who plainly wrote a greeting to
+  // two titled readers that they had written no greeting at all — because the
+  // table only knew "title + surname" shared by both, or two bare given names.
+  //
+  // Judgment call: the plan text for this block names 'Yours faithfully' as the
+  // sign-off for the three titled cases, but a titled two-reader greeting reads
+  // as `named-formal`, which pairs with 'Yours sincerely' (PAIRING_FIX), not
+  // 'Yours faithfully' (unnamed only) — pairing these with 'Yours faithfully'
+  // would itself raise a genuine gt-signoff-pairing error. Using 'Yours
+  // sincerely' here matches the already-fixed single-title row and the existing
+  // 'Dear Mr and Mrs Hughes,' case in the block above.
+  const TITLED_TWO_READER_CASES = [
+    'Dear Mr Hughes and Mrs Hughes,',
+    'Dear Mr Hughes and Anna,',
+    'Dear Dr Ali and Dr Chen,',
+  ]
+
+  for (const salutation of TITLED_TWO_READER_CASES) {
+    it(`accepts '${salutation}' as a titled greeting to two readers`, () => {
+      // A title present anywhere in the list means at least semi-formal — the
+      // conservative direction — so this reads as `named-formal` and pairs
+      // with 'Yours sincerely', exactly like the single-title row it extends.
+      const a = analyzeLetter(letter(salutation, FORMAL_BODY, 'Yours sincerely'), FORMAL)
+      expect(categories(a), salutation).not.toContain('gt-salutation-missing')
+      expect(categories(a), salutation).not.toContain('gt-salutation-tone')
+      expect(categories(a), salutation).not.toContain('gt-signoff-pairing')
+    })
+  }
+
+  it("accepts 'Dear Anna, Tom and Sam,' as an informal greeting to three readers", () => {
+    // FALSE POSITIVE, and a second bug in the same greeting: the comma-clipped
+    // candidate was tried BEFORE the whole line, so 'Dear Anna,' matched the
+    // bare-name row first and threw away 'Tom and Sam' — reading a three-reader
+    // greeting as a warmer one-reader greeting and then rejecting the sign-off
+    // it actually called for.
+    const a = analyzeLetter(letter('Dear Anna, Tom and Sam,', INFORMAL_BODY, 'Best wishes', 'Sam'), INFORMAL)
+    expect(categories(a)).not.toContain('gt-salutation-tone')
+    expect(categories(a)).not.toContain('gt-signoff-pairing')
   })
 })
 
