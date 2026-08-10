@@ -1618,3 +1618,21 @@ has risen" and "Support from **central government**" both draw a determiner sugg
 escape is deliberately conditioned on the noun being a verb's direct object, and widening it to bare
 nouns after a preposition would suppress genuine errors ("he walked to shop"). Out of scope for plan
 006; belongs in the corpus the day it is fixed.
+
+## Teaching content (plan 030)
+
+### Band descriptor paraphrases (`analysis/bandDescriptors.ts`)
+
+- 32 original strings: 4 criteria × bands 5–8 × {task2, task1}. The official
+  IELTS band descriptors are copyright of the IELTS partners; every string is
+  an original paraphrase and MUST stay one. Never paste official or prep-site
+  wording. `tests/bandDescriptors.test.ts` greps the strings for signature
+  official phrases as a tripwire.
+- The report tile's disclosure teaches `nextDescriptorBand(band)` =
+  clamp(floor(band)+1, 5, 8). No band-9 entry exists on purpose: a form-only
+  engine cannot say what moves 8 → 9.
+- The disclosure carries its own hedge ("Paraphrased guidance, not official
+  wording — and this engine checks form, not meaning"), adjacent to the claim,
+  matching the band hero's hedge.
+- The `TR` slot is one slot with two names (`criterionLabel`); the `task1`
+  strings serve both the Academic chart and the GT letter.

@@ -8,6 +8,7 @@ import type {
   WritingSessionRecord,
 } from '../types'
 import { CATEGORY_META, criterionLabel } from '../meta'
+import { descriptorFor } from '../analysis/bandDescriptors'
 import './Report.css'
 
 /* --------------------------------- helpers -------------------------------- */
@@ -523,6 +524,7 @@ export default function Report({
         <div className="rp-tiles">
           {CRITERIA.map((c) => {
             const bullets = analysis.band.rationale[c] ?? []
+            const next = descriptorFor(c, analysis.band.byCriterion[c], session.task)
             return (
               <div key={c} className="rp-tile card">
                 <p className="rp-tile-label">{criterionLabel(c, session.task).label}</p>
@@ -540,6 +542,16 @@ export default function Report({
                     ))}
                   </ul>
                 )}
+                <details className="rp-tile-next">
+                  <summary>
+                    What moves {next.targetBand - 1} → {next.targetBand}
+                  </summary>
+                  <p className="rp-tile-next-text">{next.text}</p>
+                  <p className="rp-tile-next-hedge">
+                    Paraphrased guidance, not official wording — and this engine checks form, not
+                    meaning.
+                  </p>
+                </details>
               </div>
             )
           })}

@@ -199,6 +199,35 @@
   margin-top: 3px;
 }
 
+.rp-tile-next {
+  margin-top: 2px;
+}
+
+.rp-tile-next summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.rp-tile-next summary:hover {
+  color: var(--ink);
+}
+
+.rp-tile-next-text {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.rp-tile-next-hedge {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
 /* ------------------------------------------------------- clean-essay note */
 .rp-clean {
   padding: 14px 18px;
