@@ -28,6 +28,7 @@ import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/
 import type { WritingDraft } from './profile/draft'
 import { computeProfile, computeTrends } from './profile/profile'
 import { isBefore } from './profile/chronology'
+import { loadPrefs, updatePrefs } from './profile/prefs'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
@@ -173,6 +174,11 @@ export default function App({
   // The exact text last written to the draft key — what beforeunload compares
   // against to know whether closing the tab would lose anything.
   const draftTextRef = useRef('')
+  // One read on mount, like `sessions` above: prefs are only ever written
+  // through dismissIntro, so no effect or subscription is needed.
+  const [introDismissed, setIntroDismissed] = useState<boolean>(
+    () => loadPrefs().introDismissedAtISO != null,
+  )
 
   const taskConstants = TASK_CONSTANTS[task]
   // Task 2 is marked identically in both exams, so the only module-dependent
@@ -782,6 +788,11 @@ export default function App({
     setFocusIssueId(null)
   }
 
+  function dismissIntro() {
+    setIntroDismissed(true)
+    updatePrefs({ introDismissedAtISO: new Date().toISOString() })
+  }
+
   function handleImport(json: string) {
     importData(json)
     setSessions(loadSessions())
@@ -1228,6 +1239,38 @@ export default function App({
 
           {mode === 'coach' && (
             <aside className="panel-zone">
+              {/* First-run intro. It lives in the panel column ON PURPOSE:
+                  the column is its own grid track, so dismissing the card
+                  reflows only this column — the editor never moves under the
+                  learner's cursor. Rendering inside the coach aside also makes
+                  "never in exam mode, never off the write view" structural
+                  rather than a condition someone can break. */}
+              {!introDismissed && (
+                <section className="intro-card card" aria-label="How IELTS Coach works">
+                  <p className="eyebrow">First time here</p>
+                  <ul className="intro-points">
+                    <li>
+                      <strong>Academic or General</strong> — the toggle in the top bar
+                      picks the exam you are practising. It decides your Task 1 (a chart
+                      in Academic, a letter in General Training) and which Reading papers
+                      you see.
+                    </li>
+                    <li>
+                      <strong>Coach or Exam</strong> — Coach gives live feedback while
+                      you write. Exam is the real thing: a countdown, no feedback, and
+                      the full report when you submit.
+                    </li>
+                    <li>
+                      <strong>Honest numbers</strong> — band estimates come from fixed
+                      rules about form, not an examiner. Your real band is likely the
+                      estimate or lower. Everything stays in your browser.
+                    </li>
+                  </ul>
+                  <button className="btn" onClick={dismissIntro}>
+                    Got it
+                  </button>
+                </section>
+              )}
               {/* The cheat sheet is Task 2 content. Rather than show a tab that
                   teaches the wrong task, Task 1 gets the feedback panel alone
                   until a Task 1 sheet is written. */}

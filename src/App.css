@@ -159,6 +159,19 @@
   min-height: 0;
 }
 
+/* First-run intro (plan 026). Sits above the coach tabs; `.panel-zone >
+   :last-child` keeps its flex:1 because this card is never the last child. */
+.intro-card {
+  padding: 14px 16px;
+}
+
+.intro-card .intro-points {
+  margin: 8px 0 12px;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
 /* The tab panel the coach tabs name. It is a wrapper, never a surface: the
    feedback panel, cheat sheet and model answer each own their own scrolling,
    so this must pass the height it is given straight through or they lose it. */
