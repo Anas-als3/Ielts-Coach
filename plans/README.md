@@ -22,7 +22,7 @@ sessions on the same plan.
 | 004 | Task 1 analysis pipeline | P1 | L | 003 | DONE |
 | 005 | Wire Task 1 into the app | P1 | M | 004 | DONE |
 | **007** | **Deflake the UI suite; grade the worked answer against its own prompt** | **P0** | S | — | DONE |
-| **006** | **Stop the engine accusing correct English — five guards + golden corpus** | **P0** | M | — | TODO |
+| **006** | **Stop the engine accusing correct English — five guards + golden corpus** | **P0** | M | — | DONE |
 | 014 | Make the error profile do something — the drill loop | P1 | M | 006 | TODO |
 | 008 | Academic / General Training module switch | P1 | M | — | TODO |
 | 009 | General Training Task 1 — letters | P1 | L | 008 | TODO |
