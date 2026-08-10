@@ -747,6 +747,9 @@ export interface ReportProps {
   onRedraft: () => void;
   onNewEssay: () => void;
   onViewDashboard: () => void;
+  /** The learner's target overall band, when set — the report shows the gap
+   *  beside the estimate. Optional: no target, no chip. */
+  targetOverall?: number;
 }
 
 export interface DashboardProps {

@@ -1391,6 +1391,7 @@ export default function App({
             onRedraft={() => handleRedraft(reportSession)}
             onNewEssay={() => startNewEssay()}
             onViewDashboard={() => setView('dashboard')}
+            targetOverall={prefs.targetOverall}
           />
         </main>
       )}
