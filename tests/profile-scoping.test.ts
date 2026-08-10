@@ -52,6 +52,7 @@ function session(
   module: Module = 'academic',
 ): SessionRecord {
   return {
+    section: 'writing',
     id,
     dateISO,
     mode: 'coach',
@@ -66,6 +67,21 @@ function session(
     pasteAttempts: null,
     analysis,
   }
+}
+
+/**
+ * Strips `section` from an otherwise-valid session, producing the RAW wire
+ * shape a pre-v4 record actually had — `section` did not exist yet, so it is
+ * absent from the payload rather than present-and-wrong. Declared `unknown`,
+ * not `Partial<SessionRecord>`, because typing it as a session (even a partial
+ * one) would have the compiler assert the very field being removed; this
+ * mirrors `makeSession`'s `unknown` return type in `tests/store.test.ts`,
+ * which feeds the same pre-migration shape to the real migration ladder.
+ */
+function withoutSection(s: SessionRecord): unknown {
+  const copy: Record<string, unknown> = { ...s }
+  delete copy.section
+  return copy
 }
 
 /** An analysis carrying exactly the issues named, over `words` words. */
@@ -430,11 +446,7 @@ describe('a Reading session never dilutes a writing weakness', () => {
     // default to writing anyway — a record that reaches the profile without the
     // field must keep counting exactly as it did before Reading shipped, which
     // is what every case above this block relies on.
-    const preV4 = ESSAYS.map((s) => {
-      const copy = { ...s } as Record<string, unknown>
-      delete copy.section
-      return copy as SessionRecord
-    })
+    const preV4 = ESSAYS.map((s) => withoutSection(s) as SessionRecord)
 
     expect(computeProfile(preV4).totalSessions).toBe(3)
     expect(computeProfile(preV4).categories['no-position']?.total).toBe(3)
@@ -624,11 +636,7 @@ describe('the writing guard names every section explicitly', () => {
     // The documented default, unchanged: an absent field predates every
     // section, so it can only be an essay. Only a present-but-unknown VALUE is
     // treated as an answer key.
-    const preV4 = ESSAYS.map((s) => {
-      const copy = { ...s } as Record<string, unknown>
-      delete copy.section
-      return copy as SessionRecord
-    })
+    const preV4 = ESSAYS.map((s) => withoutSection(s) as SessionRecord)
 
     expect(computeProfile(preV4).totalSessions).toBe(3)
   })

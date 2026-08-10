@@ -150,7 +150,7 @@ the editor — Coach Mode only; it disappears with everything else under exam co
 ```bash
 npm install
 npm run dev
-npm run typecheck   # tsc --noEmit over src/ — strict, and not covered by npm test
+npm run typecheck   # tsc --noEmit over src/ AND tests/ — strict, and not covered by npm test
 npm test            # everything
 npm run test:engine # analysis + storage, Node, no DOM
 npm run test:ui     # components, jsdom + Testing Library
@@ -164,6 +164,10 @@ and drives it the way a learner would.
 
 CI runs `typecheck`, `test` and `build` on every push and pull request
 (`.github/workflows/ci.yml`); the Node version is pinned in `.nvmrc`.
+
+`typecheck`'s scope is `src` **and** `tests` (`tsconfig.json`'s `include`, since
+plan 024), so a test fixture that drifts from the type it claims to be fails
+the build the day it drifts, rather than compiling silently forever.
 
 ## Architecture
 

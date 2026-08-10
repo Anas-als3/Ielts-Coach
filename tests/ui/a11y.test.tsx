@@ -26,6 +26,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { FakeSpeechDriver } from '../../src/listening/speech'
+import { LISTENING_TEST_01 } from '../../src/listening/tests'
 import { loadSessions } from '../../src/profile/store'
 
 /* --------------------------------- helpers ---------------------------------- */
@@ -88,13 +89,21 @@ function assertTabPattern(tablistName: string): HTMLElement {
 
 async function startReadingPaper(user: User): Promise<void> {
   await user.click(navLink('Reading'))
-  await user.click(screen.getByRole('button', { name: 'Start this paper' }))
+  // Each module now lists more than one paper, so the start button is found
+  // through the first paper's own card.
+  const card = screen.getByText('Academic Reading Test 1').closest('.rdp-test') as HTMLElement
+  await user.click(within(card).getByRole('button', { name: 'Start this paper' }))
   await screen.findByRole('tab', { name: /Reading Passage 1/ })
 }
 
 async function startListeningPaper(user: User): Promise<void> {
   await user.click(navLink('Listening'))
-  await user.click(screen.getByRole('button', { name: 'Sit under exam conditions' }))
+  // Scoped to test 1's card: the picker lists every authored paper, and each
+  // card carries its own pair of start buttons.
+  const card = screen
+    .getByRole('heading', { name: LISTENING_TEST_01.title })
+    .closest('.lsp-test') as HTMLElement
+  await user.click(within(card).getByRole('button', { name: 'Sit under exam conditions' }))
   await screen.findByRole('tab', { name: /Section 1/ })
 }
 

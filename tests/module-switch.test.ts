@@ -21,6 +21,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { importData, loadSessions, saveSession } from '../src/profile/store'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from '../src/prompts/bank'
+import { isWritingSession } from '../src/types'
 import type { Module, SessionRecord, TaskKind } from '../src/types'
 
 /* --------------------------------- helpers ---------------------------------- */
@@ -113,6 +114,18 @@ function backupKeys(): string[] {
   return Array.from(store.keys()).filter((k) => k.startsWith(BACKUP_PREFIX))
 }
 
+// Every fixture in this file is a Writing (task2/task1 essay) record — the
+// migration cases exercise `task`/`module`, neither of which `SessionRecord`
+// carries unconditionally (`task` is Writing-only; `module` is absent on
+// Listening). Narrow with `isWritingSession` rather than casting, per
+// `src/types.ts`'s guard contract.
+function writingTask(s: SessionRecord): TaskKind | undefined {
+  return isWritingSession(s) ? s.task : undefined
+}
+function writingModule(s: SessionRecord): Module | undefined {
+  return isWritingSession(s) ? s.module : undefined
+}
+
 /* ------------------------------- v2 migration ------------------------------- */
 
 describe('v2 -> v3 migration', () => {
@@ -129,9 +142,9 @@ describe('v2 -> v3 migration', () => {
     expect(sessions).toHaveLength(4)
     expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c', 'd'])
     // Everything written before v3 was Academic, because that was the only exam.
-    expect(sessions.every((s) => s.module === 'academic')).toBe(true)
+    expect(sessions.every((s) => writingModule(s) === 'academic')).toBe(true)
     // The v2 rung's work is still there: the task discriminator survived.
-    expect(sessions.map((s) => s.task)).toEqual(['task2', 'task1', 'task2', 'task2'])
+    expect(sessions.map(writingTask)).toEqual(['task2', 'task1', 'task2', 'task2'])
   })
 
   it('round-trips a v3 store and preserves a general record', () => {
@@ -141,12 +154,12 @@ describe('v2 -> v3 migration', () => {
     ])
 
     const sessions = loadSessions()
-    expect(sessions.map((s) => s.module)).toEqual(['academic', 'general'])
+    expect(sessions.map(writingModule)).toEqual(['academic', 'general'])
 
     // A general record survives a write untouched — the migration must not
     // re-stamp records that already carry the field.
     saveSession(newRecord('c', '2026-01-03T10:00:00.000Z', 'task2', 'general'))
-    expect(loadSessions().map((s) => s.module)).toEqual(['academic', 'general', 'general'])
+    expect(loadSessions().map(writingModule)).toEqual(['academic', 'general', 'general'])
   })
 
   it('drops only the record whose module value is invalid', () => {
@@ -173,8 +186,8 @@ describe('v1 -> v3 in a single read', () => {
     const sessions = loadSessions()
 
     expect(sessions).toHaveLength(2)
-    expect(sessions.every((s) => s.task === 'task2')).toBe(true)
-    expect(sessions.every((s) => s.module === 'academic')).toBe(true)
+    expect(sessions.every((s) => writingTask(s) === 'task2')).toBe(true)
+    expect(sessions.every((s) => writingModule(s) === 'academic')).toBe(true)
 
     // Reads stay pure: the raw payload is still v1 until something writes.
     const raw = JSON.parse(store.get(STORAGE_KEY) as string)
@@ -192,7 +205,7 @@ describe('v1 -> v3 in a single read', () => {
     saveSession(newRecord('d', '2026-01-04T10:00:00.000Z', 'task2', 'general'))
 
     expect(loadSessions().map((s) => s.id)).toEqual(['a', 'b', 'c', 'd'])
-    expect(loadSessions().map((s) => s.module)).toEqual([
+    expect(loadSessions().map(writingModule)).toEqual([
       'academic',
       'academic',
       'academic',
@@ -244,8 +257,8 @@ describe('importData', () => {
 
     const sessions = loadSessions()
     expect(sessions.map((s) => s.id)).toEqual(['x', 'y'])
-    expect(sessions.every((s) => s.module === 'academic')).toBe(true)
-    expect(sessions.map((s) => s.task)).toEqual(['task2', 'task1'])
+    expect(sessions.every((s) => writingModule(s) === 'academic')).toBe(true)
+    expect(sessions.map(writingTask)).toEqual(['task2', 'task1'])
   })
 })
 
