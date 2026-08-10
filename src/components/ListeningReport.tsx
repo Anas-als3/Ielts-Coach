@@ -27,10 +27,12 @@ import type {
   ListeningFormat,
   ListeningFormatAccuracy,
   ListeningQuestion,
+  ListeningSection,
 } from '../listening/types'
 import type { ReadingQuestionResult } from '../reading/types'
 import { LISTENING_BANDS, listeningRawToBand } from '../listening/bandTable'
 import { LISTENING_FORMAT_META, wordLimitLabel } from '../meta'
+import { sectionCues } from '../listening/speech'
 import './ListeningReport.css'
 
 /* --------------------------------- helpers --------------------------------- */
@@ -311,6 +313,25 @@ export default function ListeningReport({
           </ol>
         )}
       </section>
+
+      {/* 5 — the tapescript, collapsed. After submission the paper is over,
+          so showing the script is the practice-book back-matter, not
+          subtitles: the runner's never-show-mid-test rule is about the
+          sitting, and this screen only exists once the sitting has ended.
+          Collapsed by default because the score and the review stay primary —
+          the script is where a learner goes to find a specific lost mark. */}
+      {test !== null && (
+        <section className="lrp-tapescripts card" aria-label="Tapescript">
+          <h2 className="eyebrow">Tapescript</h2>
+          <p className="lrp-tapescripts-lead">
+            The full script of each section, exactly as spoken. Open the section where you lost a
+            mark and find the line that carried the answer.
+          </p>
+          {test.sections.map((section) => (
+            <TapescriptSection key={section.id} section={section} />
+          ))}
+        </section>
+      )}
     </div>
   )
 }
@@ -376,5 +397,52 @@ function AnswerRow({
         <p className="lrp-answer-note">{question.explanation}</p>
       )}
     </li>
+  )
+}
+
+/* ------------------------------ tapescript section --------------------------- */
+
+/**
+ * One section's script, collapsed behind a native `<details>`.
+ *
+ * No `open` attribute: collapsed is the default and the point — the score and
+ * the review stay primary, and the script is where a learner goes on purpose
+ * to find a specific lost mark, not something to scroll past. Static and
+ * complete, unlike the runner's incremental reveal: there is no now-playing
+ * state to track once the sitting is over.
+ */
+function TapescriptSection({ section }: { section: ListeningSection }): JSX.Element {
+  const cues = sectionCues(section)
+
+  return (
+    <details className="lrp-tapescript">
+      <summary className="lrp-tapescript-summary">
+        <svg
+          className="lrp-tapescript-caret"
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M3.5 2 6.5 5 3.5 8"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        {section.heading} — {section.rubric}
+      </summary>
+      <ol className="lrp-cues">
+        {cues.map((cue) => (
+          <li key={cue.id} className="lrp-cue">
+            <span className="lrp-cue-speaker mono">{cue.speaker}</span>
+            <span className="lrp-cue-text">{cue.text}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
   )
 }
