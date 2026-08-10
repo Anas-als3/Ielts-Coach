@@ -1096,6 +1096,32 @@ learner a finished answer mid-exam defeats the exercise.
   `tests/model-answers.test.ts` asserts 8.0+ for all 40 through that exact path.
 - The panel also warns against reusing the wording, since examiners discount memorised phrasing.
 
+### Library (`components/ModelLibrary.tsx`)
+
+A `Models` library view, reached from the topbar nav, lists all three banks grouped — 40 Task 2
+essays, 15 General Training letters, 12 Academic Task 1 charts — and badges the 5 exact Task 2
+answers and the 3 exact letters, marking every Task 1 answer as generated from its own chart's
+numbers.
+
+- Each entry renders the SAME `ModelAnswer` component the coach panel uses — engine-graded
+  scorecard, fallback honesty notice and memorisation warning included — so the library can never
+  show something that disagrees with the panel; there is exactly one place that logic lives.
+  Badges are computed from `task2ModelFor` / `letterModelFor`, the same functions `ModelAnswer`
+  itself calls, never a re-implementation of the exact/fallback rule.
+- Only the OPEN entry renders `ModelAnswer` and is graded — the engine never runs for all 67
+  entries on view load, only for whichever one the learner expanded.
+- "Practise this prompt" pins task, exam module and the chosen prompt on the writing desk in coach
+  mode with a blank answer sheet (`App.tsx`'s `handlePractiseFromLibrary`) — not
+  `startNewEssay(prompt)`, whose random draw only reaches the Task 2 slot, and not `handleRedraft`,
+  which restores a session's essay text rather than starting blank. Letters are General Training
+  only, so picking one also sets the module. Discarding a non-empty essay already on the desk asks
+  the same consent `switchTask`/`switchModule` ask, and clears the draft explicitly for the same
+  reason those two do.
+- The library link lives in the nav, which the cleared desk (`deskCleared`) removes — the same gate
+  that already hides Progress — so the exam-mode contract above ("never rendered in exam mode")
+  holds unchanged: the library is never reachable while a writing exam, Reading paper or Listening
+  section is running.
+
 ### UI
 Task switcher in the topbar beside the mode toggle, same markup and styling. Switching task CLEARS the
 answer sheet (a Task 2 essay scored by Task 1 rules produces confidently wrong feedback) and refuses to
