@@ -11,18 +11,25 @@
  * The second block is the important one: it pins `TASK1_ONLY_CATEGORIES` and
  * `TASK2_ONLY_CATEGORIES` against what the two pipelines ACTUALLY emit, so the
  * declared sets cannot silently drift away from the code.
+ *
+ * The third block extends both halves to the LETTER pipeline, which needed the
+ * scope to grow a module dimension: Academic Task 1 (a chart) and General
+ * Training Task 1 (a letter) share the id `'task1'` and share almost no rules,
+ * so `TaskKind` alone cannot say which of them a category belongs to.
  */
 import { describe, expect, it } from 'vitest'
-import { analyzeEssay, analyzeTask1 } from '../src/analysis/engine'
+import { analyzeEssay, analyzeLetter, analyzeTask1 } from '../src/analysis/engine'
 import { computeProfile, computeTrends } from '../src/profile/profile'
 import {
+  LETTER_ONLY_CATEGORIES,
   TASK1_ONLY_CATEGORIES,
   TASK2_ONLY_CATEGORIES,
   categoryAppliesTo,
 } from '../src/meta'
 import { PROMPTS } from '../src/prompts/bank'
 import { TASK1_PROMPTS } from '../src/prompts/task1Bank'
-import type { Analysis, IssueCategory, SessionRecord, TaskKind } from '../src/types'
+import { LETTER_PROMPTS } from '../src/prompts/letterBank'
+import type { Analysis, IssueCategory, Module, SessionRecord, TaskKind } from '../src/types'
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -31,12 +38,17 @@ function session(
   dateISO: string,
   task: TaskKind,
   analysis: Analysis,
+  // Optional and defaulted, so every existing case below keeps meaning exactly
+  // what it meant before letters existed: Academic was the only exam whose
+  // Task 1 the app implemented.
+  module: Module = 'academic',
 ): SessionRecord {
   return {
     id,
     dateISO,
     mode: 'coach',
     task,
+    module,
     promptId: null,
     promptText: '',
     questionType: null,
@@ -195,5 +207,113 @@ In my opinion the reason of this problem is 47 per cent of people, therefore it 
     for (const c of TASK1_ONLY_CATEGORIES) {
       expect(TASK2_ONLY_CATEGORIES.has(c), `"${c}" is in both sets`).toBe(false)
     }
+  })
+})
+
+/* ------------------- the letter pipeline, scoped by MODULE ------------------- */
+
+describe('letter categories are scoped to General Training Task 1', () => {
+  /** Every category the letter pipeline emits across a broad sample of inputs. */
+  function emittedByLetters(texts: string[]): Set<IssueCategory> {
+    const out = new Set<IssueCategory>()
+    for (const prompt of LETTER_PROMPTS.slice(0, 5)) {
+      for (const t of texts) for (const i of analyzeLetter(t, prompt).issues) out.add(i.category)
+    }
+    return out
+  }
+
+  // Deliberately bad letters: no greeting, the wrong sign-off for the greeting,
+  // slang in a formal letter, bullets left unanswered.
+  const CLASHING = `Hi Dave,
+
+hey mate, i wanted to say that the thing you sold me is rubbish and i cant use it. it stopped working and thats not ok. loads of my friends said the same.
+
+Yours faithfully,
+
+Sam`
+  const NO_GREETING = `The washing machine I bought has broken twice, and nobody has come to look at it. The engineer promised a visit and never arrived, which is not acceptable at all. I have been without a machine for three weeks now, and the shop has not replied to either of my messages.`
+
+  const texts = ['', 'Short.', CLASHING, NO_GREETING, `${NO_GREETING}\n\n${NO_GREETING}`]
+
+  it('emits no Task-2-only category from the letter pipeline', () => {
+    for (const c of emittedByLetters(texts)) {
+      expect(TASK2_ONLY_CATEGORIES.has(c), `letters emitted Task-2-only "${c}"`).toBe(false)
+    }
+  })
+
+  it('emits no Academic-Task-1-only category from the letter pipeline', () => {
+    // A letter has no chart, so nothing in the t1-* family can apply to it.
+    for (const c of emittedByLetters(texts)) {
+      expect(TASK1_ONLY_CATEGORIES.has(c), `letters emitted chart-only "${c}"`).toBe(false)
+    }
+  })
+
+  it('every letter-only category it emits is declared letter-only', () => {
+    for (const c of emittedByLetters(texts)) {
+      if (!c.startsWith('gt-')) continue
+      expect(LETTER_ONLY_CATEGORIES.has(c), `"${c}" is emitted but not declared`).toBe(true)
+      expect(categoryAppliesTo(c, 'task1', 'general')).toBe(true)
+      expect(categoryAppliesTo(c, 'task1', 'academic')).toBe(false)
+      expect(categoryAppliesTo(c, 'task2', 'general')).toBe(false)
+    }
+  })
+
+  it('emits no letter-only category from either Academic pipeline', () => {
+    for (const prompt of PROMPTS.slice(0, 5)) {
+      for (const i of analyzeEssay(CLASHING, prompt).issues) {
+        expect(LETTER_ONLY_CATEGORIES.has(i.category), `essay emitted "${i.category}"`).toBe(false)
+      }
+    }
+    for (const prompt of TASK1_PROMPTS.slice(0, 5)) {
+      for (const i of analyzeTask1(CLASHING, prompt).issues) {
+        expect(LETTER_ONLY_CATEGORIES.has(i.category), `chart emitted "${i.category}"`).toBe(false)
+      }
+    }
+  })
+
+  it('declares the three sets as pairwise disjoint', () => {
+    for (const c of LETTER_ONLY_CATEGORIES) {
+      expect(TASK1_ONLY_CATEGORIES.has(c), `"${c}" is in two sets`).toBe(false)
+      expect(TASK2_ONLY_CATEGORIES.has(c), `"${c}" is in two sets`).toBe(false)
+    }
+  })
+
+  it('keeps a chart category out of a General Training Task 1 session', () => {
+    // The two tasks share the id 'task1'. Without the module dimension, a
+    // learner who moved from Academic chart practice to General Training letters
+    // would see their `t1-overview-missing` rate fall towards zero and drop out
+    // of their focus list — not because they had fixed anything, but because a
+    // letter never evaluates that rule at all.
+    const sessions: SessionRecord[] = [
+      session('a', '2026-01-01T00:00:00Z', 'task1', fakeAnalysis(['t1-overview-missing'], 180)),
+      session('b', '2026-01-02T00:00:00Z', 'task1', fakeAnalysis(['t1-overview-missing'], 180)),
+      ...Array.from({ length: 4 }, (_, i) =>
+        session(`g${i}`, `2026-02-0${i + 1}T00:00:00Z`, 'task1', fakeAnalysis([], 180), 'general'),
+      ),
+    ]
+
+    const stat = computeProfile(sessions).categories['t1-overview-missing']
+    // Averaged over the two Academic sessions only: 1 issue per 180 words.
+    expect(stat?.recentRate).toBeCloseTo((1 / 180) * 100, 5)
+    expect(stat?.total).toBe(2)
+  })
+
+  it('scopes a letter weakness to the letters, not to every Task 1 session', () => {
+    const sessions: SessionRecord[] = [
+      session('a', '2026-01-01T00:00:00Z', 'task1', fakeAnalysis(['gt-signoff-pairing'], 180), 'general'),
+      session('b', '2026-01-02T00:00:00Z', 'task1', fakeAnalysis(['gt-signoff-pairing'], 180), 'general'),
+      ...Array.from({ length: 4 }, (_, i) =>
+        session(`t${i}`, `2026-02-0${i + 1}T00:00:00Z`, 'task1', fakeAnalysis([], 180)),
+      ),
+    ]
+
+    const stat = computeProfile(sessions).categories['gt-signoff-pairing']
+    expect(stat?.total).toBe(2)
+    expect(stat?.recentRate).toBeCloseTo((1 / 180) * 100, 5)
+    expect(computeProfile(sessions).focusCategories).toContain('gt-signoff-pairing')
+
+    // And the trend series plots only the sessions that could have produced it.
+    const trend = computeTrends(sessions).find((t) => t.category === 'gt-signoff-pairing')
+    expect(trend?.perSession.map((p) => p.sessionId)).toEqual(['a', 'b'])
   })
 })

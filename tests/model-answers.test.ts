@@ -3,18 +3,20 @@
  *
  * A model answer that the engine would mark down is worse than no model answer:
  * the learner is shown a target, follows it, and is then penalised for the very
- * thing the example did. So every example — the twelve generated Task 1 answers
- * and the five hand-written Task 2 ones — is run back through the real analyser
- * here and has to come out clean.
+ * thing the example did. So every example — the twelve generated Task 1 answers,
+ * the five hand-written Task 2 ones and the three hand-written letters — is run
+ * back through the real analyser here and has to come out clean.
  *
  * This is also the drift alarm. If a rule is tightened later and an example
  * stops passing, this file fails rather than the learner finding out.
  */
 import { describe, expect, it } from 'vitest'
-import { analyzeEssay, analyzeTask1 } from '../src/analysis/engine'
+import { analyzeEssay, analyzeLetter, analyzeTask1 } from '../src/analysis/engine'
 import { buildTask1ModelAnswer } from '../src/answers/task1Model'
+import { LETTER_MODELS, letterModelFor } from '../src/answers/letterModels'
 import { TASK2_MODELS, task2ModelFor } from '../src/answers/task2Models'
 import { TASK1_PROMPTS } from '../src/prompts/task1Bank'
+import { LETTER_PROMPTS } from '../src/prompts/letterBank'
 import { PROMPTS } from '../src/prompts/bank'
 import type { Analysis } from '../src/types'
 
@@ -163,5 +165,86 @@ describe('task2ModelFor', () => {
 
   it('returns null rather than guessing when there is no prompt', () => {
     expect(task2ModelFor(null)).toBeNull()
+  })
+})
+
+/* ------------------------------ letter answers ------------------------------- */
+
+describe('every hand-written letter passes the same engine', () => {
+  for (const model of LETTER_MODELS) {
+    describe(`${model.sourcePromptId} (${model.tone})`, () => {
+      const prompt = LETTER_PROMPTS.find((p) => p.id === model.sourcePromptId)
+      const analysis = analyzeLetter(model.text, prompt!)
+
+      it('answers a prompt that exists in the bank', () => {
+        expect(prompt, `${model.sourcePromptId} is not in LETTER_PROMPTS`).toBeDefined()
+        expect(prompt?.tone).toBe(model.tone)
+      })
+
+      it('raises no errors or warnings', () => {
+        expect(faults(analysis)).toEqual([])
+      })
+
+      it('satisfies every structure check', () => {
+        expect(unmetChecks(analysis)).toEqual([])
+      })
+
+      it('scores at least 8.0 overall', () => {
+        expect(analysis.band.overall).toBeGreaterThanOrEqual(8)
+      })
+
+      it('sits inside the Task 1 word-count target', () => {
+        expect(analysis.stats.wordCount).toBeGreaterThanOrEqual(160)
+        expect(analysis.stats.wordCount).toBeLessThanOrEqual(220)
+      })
+
+      it('covers every bullet point the task sets', () => {
+        expect(analysis.issues.filter((i) => i.category === 'gt-bullet-uncovered')).toEqual([])
+      })
+
+      it('pairs its greeting with its sign-off', () => {
+        expect(analysis.issues.filter((i) => i.category === 'gt-signoff-pairing')).toEqual([])
+      })
+
+      it('never assigns a conclusion paragraph — a sign-off is not a conclusion', () => {
+        expect(analysis.paragraphs.map((p) => p.role)).not.toContain('conclusion')
+      })
+    })
+  }
+
+  it('covers all three tones', () => {
+    expect(new Set(LETTER_MODELS.map((m) => m.tone))).toEqual(
+      new Set(['formal', 'semi-formal', 'informal']),
+    )
+  })
+
+  it('shows an answer scoring 8.0+ for EVERY prompt in the letter bank', () => {
+    // The panel offers a worked letter for all fifteen prompts, falling back to
+    // the model for the same TONE. Each is graded against the prompt it was
+    // WRITTEN for — grading a fallback against the learner's bullet points would
+    // report the app's own exemplar as failing the task, which is exactly the
+    // defect the Task 2 block below was written for.
+    for (const prompt of LETTER_PROMPTS) {
+      const m = letterModelFor(prompt)
+      expect(m, prompt.id).not.toBeNull()
+      const source = LETTER_PROMPTS.find((p) => p.id === m!.sourcePromptId)!
+      const analysis = analyzeLetter(m!.text, source)
+      expect(analysis.band.overall, `${prompt.id} -> ${m!.sourcePromptId}`).toBeGreaterThanOrEqual(8)
+      expect(faults(analysis), `${prompt.id} -> ${m!.sourcePromptId}`).toEqual([])
+    }
+  })
+
+  it('marks a fallback as not exact, and returns null rather than guessing', () => {
+    const exact = letterModelFor(LETTER_PROMPTS.find((p) => p.id === 'gt-01')!)
+    expect(exact?.exact).toBe(true)
+    expect(exact?.sourcePromptId).toBe('gt-01')
+
+    // gt-02 is formal but has no worked letter of its own, so the formal model
+    // is offered with the honest flag.
+    const fallback = letterModelFor(LETTER_PROMPTS.find((p) => p.id === 'gt-02')!)
+    expect(fallback?.exact).toBe(false)
+    expect(fallback?.sourcePromptId).toBe('gt-01')
+
+    expect(letterModelFor(null)).toBeNull()
   })
 })
