@@ -123,6 +123,30 @@ function verdict(question: LintableQuestion, candidate: string): 'accepted' | 'm
   return marked.correct ? 'accepted' : 'missing'
 }
 
+/**
+ * The one shape all three classes share: check `candidate` against the real
+ * marker, and push a finding only when it comes back missing — accepted and
+ * over-limit candidates are both silently dropped, never reported.
+ */
+function pushIfMissing(
+  findings: KeyLintFinding[],
+  question: LintableQuestion,
+  klass: KeyLintClass,
+  candidate: string,
+  from: string,
+  reason: string,
+): void {
+  if (verdict(question, candidate) !== 'missing') return
+  findings.push({
+    questionId: question.id,
+    questionNumber: question.number,
+    klass,
+    missing: candidate,
+    from,
+    reason,
+  })
+}
+
 /* ----------------------------------- time ------------------------------------ */
 
 /** Anchored at both ends, and run over `normaliseAnswer(answer)`. */
@@ -198,17 +222,7 @@ function timeFindings(question: LintableQuestion, consumed: Set<string>): KeyLin
   ]
 
   const findings: KeyLintFinding[] = []
-  for (const candidate of candidates) {
-    if (verdict(question, candidate) !== 'missing') continue
-    findings.push({
-      questionId: question.id,
-      questionNumber: question.number,
-      klass: 'time',
-      missing: candidate,
-      from,
-      reason: TIME_REASON,
-    })
-  }
+  for (const candidate of candidates) pushIfMissing(findings, question, 'time', candidate, from, TIME_REASON)
   return findings
 }
 
@@ -406,15 +420,7 @@ function numberFindings(question: LintableQuestion, consumedByTime: Set<string>)
     const whole = wholeAnswerValue(normalised, dateGap)
     if (whole !== null) {
       for (const candidate of numberCandidatesFor(whole, dateGap)) {
-        if (verdict(question, candidate) !== 'missing') continue
-        findings.push({
-          questionId: question.id,
-          questionNumber: question.number,
-          klass: 'number',
-          missing: candidate,
-          from: answer,
-          reason: numberReason(dateGap),
-        })
+        pushIfMissing(findings, question, 'number', candidate, answer, numberReason(dateGap))
       }
       continue
     }
@@ -426,15 +432,7 @@ function numberFindings(question: LintableQuestion, consumedByTime: Set<string>)
     const firstValue = cardinalValue(tokens[0])
     if (firstValue === null) continue
     for (const candidate of numberCandidatesFor(firstValue, false, tokens[1])) {
-      if (verdict(question, candidate) !== 'missing') continue
-      findings.push({
-        questionId: question.id,
-        questionNumber: question.number,
-        klass: 'number',
-        missing: candidate,
-        from: answer,
-        reason: numberReason(false),
-      })
+      pushIfMissing(findings, question, 'number', candidate, answer, numberReason(false))
     }
   }
 
@@ -538,17 +536,7 @@ function unitFindings(question: LintableQuestion): KeyLintFinding[] {
       for (const cardinal of bareWords) targets.add(`${cardinal} ${ctx.afterUnit}`)
     }
 
-    for (const candidate of targets) {
-      if (verdict(question, candidate) !== 'missing') continue
-      findings.push({
-        questionId: question.id,
-        questionNumber: question.number,
-        klass: 'unit',
-        missing: candidate,
-        from: answer,
-        reason: UNIT_REASON,
-      })
-    }
+    for (const candidate of targets) pushIfMissing(findings, question, 'unit', candidate, answer, UNIT_REASON)
   }
 
   return findings
