@@ -100,7 +100,7 @@ export default function FeedbackPanel({
   }
 
   const { stats, band, issues } = analysis
-  const tooShort = stats.wordCount < 150
+  const tooShort = stats.wordCount < minWordsForEstimate
   const errors = groupFor(issues, 'error', profile)
   const warnings = groupFor(issues, 'warning', profile)
   const infos = groupFor(issues, 'info', profile)

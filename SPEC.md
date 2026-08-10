@@ -431,6 +431,41 @@ biodiversity science, political participation, globalisation), and BOTH when in 
 `PROMPTS: PromptSpec[]`, `randomPrompt(module?): PromptSpec`, `promptsForModule(module)` and
 `suitsModule(prompt, module)`.
 
+## Preferences (`ielts-coach.prefs.v1`) & first-run intro
+
+`src/profile/prefs.ts` holds device-local UI preferences under localStorage key `ielts-coach.prefs.v1`
+— `{ introDismissedAtISO?: string }` today. This key is deliberately OUTSIDE the session store's world:
+no `schemaVersion`, no migration rung, never exported, never imported by `exportData`/`importData`.
+A learner moving browsers re-sees one intro card; that is cheaper than teaching the import/export path
+about a second key, and losing a UI flag costs nothing a learner would call "my work" the way a lost
+essay would.
+
+**Contract (plan 026 defines it, plan 027's goals extend it additively): one flat JSON object; fields
+are ADDITIVE and optional; nothing is renamed or repurposed. Reads validate field-by-field against
+hostile data — a malformed blob or a wrong-typed field is discarded, never crashed on, because losing a
+dismissed-intro flag costs one extra card while throwing on mount costs the app. Writes MERGE over the
+raw stored object, so a field this build does not know about (e.g. one written by a newer build)
+survives a round-trip.** `loadPrefs()` reads, `updatePrefs(patch)` writes; neither ever throws.
+
+**The first-run intro card** renders as the first child inside the coach panel `<aside>`, which makes
+two things structural rather than conventions someone could break: it can never appear in exam mode
+(the aside only mounts when `mode === 'coach'`) and never off the write view (the aside only mounts
+inside the write view's workspace). The panel column is its own grid track, so dismissing the card
+reflows only that column and the editor never moves under the learner's cursor. It states the three
+things a new learner has had no way to learn otherwise: the module toggle (Academic/General) picks the
+exam and therefore the Task 1 type and the Reading papers offered; Coach gives live feedback while Exam
+is a countdown with no feedback and paste blocked; band estimates are fixed-rule, form-only numbers,
+likely at or above the learner's real band. Dismissing it ("Got it") sets `introDismissedAtISO` and the
+card never returns on that device. The Coach/Exam toggle also carries a one-line `title` tooltip each
+(`WRITING_MODE_META` in `meta.ts`), matching the pattern `MODULE_META.blurb` already used for the
+Academic/General toggle.
+
+The browser tab title is the static `"IELTS Coach"` (was `"IELTS Coach — Writing Task 2"`, stale since
+Reading and Listening shipped). Per-view titles were evaluated and deliberately deferred: this is a
+single-tab localStorage app with no router and no URL change between views, so the title is the only
+tab identity and "IELTS Coach" stays accurate on every view; a `document.title` effect would add
+view-coupled code to `App.tsx` for a marginal benefit.
+
 ## Exam mode specifics
 Paste/drop blocked in the editor when `blockPaste` (count attempts via `onPasteBlocked`; report shows
 "paste attempts: N"). `spellCheck={false}` in exam, true in coach. Word-count sampling every 30 s into
@@ -1032,6 +1067,9 @@ Report: criterion labels come from `criterionLabel(criterion, session.task)`, so
 render for Task 1 — Task 1 has no position.
 FeedbackPanel takes `task` so the "estimates unlock at N words" hint matches the estimator's floor
 (100 for Task 1, 150 for Task 2). The editor placeholder is task-specific.
+The "estimates unlock at N words" copy and the panel's own too-short gate read the SAME
+`minWordsForEstimate` variable — N is always the engine floor (100 for Task 1 and letters, 150 for
+Task 2) — so the printed number and the gate that hides the estimate can never disagree.
 Dashboard: a Task column, and the Question column shows the chart kind for Task 1 rows. The band trend
 chart still mixes both tasks and says so in its caption.
 
