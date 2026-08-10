@@ -1,0 +1,65 @@
+# The gate this repo did not have.
+#
+# 48 commits, 11 of them merges, 21 branches pushed to the remote — a PR-shaped
+# workflow where the only thing between a red suite and `main` was whether
+# someone remembered to run it. The three checks below are the three commands a
+# developer already runs, in the order that fails fastest and most informatively:
+# a type error is a one-line report, a test failure names the behaviour, a build
+# failure is usually neither.
+#
+# Cost, measured locally at ae92bac: typecheck 1.1s, tests 7.6s, build 1.5s.
+# Roughly ten seconds of compute; the job is dominated by `npm ci`.
+name: CI
+
+on:
+  # Every branch, not just main: this repo pushes named branches directly, so a
+  # gate that only watched pull requests would watch nothing most of the time.
+  push:
+    branches: ['**']
+  # And pull requests, so a PR from a fork (which the push trigger does not
+  # cover) is still checked. A same-repo PR therefore runs this job twice. That
+  # duplication is accepted deliberately: ten seconds of compute is a smaller
+  # cost than an ungated branch.
+  pull_request:
+
+# A second push to the same branch makes the first run irrelevant. Cancel it
+# rather than queue it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # node-version-file, not a hardcoded version: .nvmrc is the single place
+      # the Node version is recorded, and jsdom 30 rejects Node 20 outright
+      # (engines: ^22.22.2 || ^24.15.0 || >=26.0.0), so the default runner
+      # version is not safe to rely on.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `npm ci`, never `npm install`: it installs exactly what
+      # package-lock.json says and fails if the lockfile and package.json
+      # disagree. Reproducing the developer's tree is the only thing that makes
+      # a green CI run mean anything.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Both vitest projects: `engine` (Node, no DOM) and `ui` (jsdom). The UI
+      # suite was flaky before plan 007 and is now stable across ten consecutive
+      # runs; if it ever flakes here, fix the flake rather than retrying the job.
+      - name: Tests
+        run: npm test
+
+      # Last because it is the slowest to interpret when it fails, and because
+      # `tsc -b` inside it is redundant with the typecheck above — what this
+      # step actually proves is that Vite can bundle the app.
+      - name: Build
+        run: npm run build
