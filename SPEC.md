@@ -1151,7 +1151,8 @@ Two exported constants carry that honesty so it cannot quietly go missing:
 `noticeFor(driver.kind)` picks between them. One of the two is on screen the whole time a Listening
 paper is open, and again on the picker before the learner commits 40 minutes. The runner shows the
 transcript text **only** under the fallback driver: printing the script while a voice speaks would be
-subtitling, and a subtitled listening test is a reading test.
+subtitling, and a subtitled listening test is a reading test. The rule ends when the paper does — the
+report prints the full tapescript after submission, which is what the practice books do.
 
 `SpeechDriver` is an interface so the runner can be tested without a speech engine. `FakeSpeechDriver`
 uses no timers, no globals and no randomness. **No test may depend on a real `speechSynthesis`** —
@@ -1308,7 +1309,9 @@ people, prices and telephone details are invented.
   that produced it, how many more correct answers the next band needed, per-**format** accuracy weakest
   first, and every question against the key with **where the answer went past in the recording** — the
   single most useful line on the screen for Listening, because a learner who cannot replay the audio
-  has no other way to find out what they missed.
+  has no other way to find out what they missed. Below the review, the full tapescript of every
+  section, collapsed by default and speakers labelled — the practice-book back-matter, shown only
+  after submission.
 
 Formats with fewer than 3 questions rank last however badly they went, as Reading's types do.
 
