@@ -110,16 +110,28 @@ function buildSegments(text: string, para: ParaSlice, marks: InlineIssue[]): Seg
 }
 
 function clampBand(n: number): number {
-  return Math.min(9, Math.max(4, Number.isFinite(n) ? n : 4))
+  return Math.min(9, Math.max(4, n))
 }
 
-function formatBand(n: number): string {
-  return clampBand(n).toFixed(1)
+/**
+ * Is `n` a band this app can actually report? A `Record<Criterion, number>`
+ * types `byCriterion[c]` as `number` even for a record that slipped past a
+ * loosened validator with the key absent — the runtime value is `undefined`.
+ * Narrowing here, rather than flooring in `clampBand`, is what lets
+ * `formatBand`/`bandPct` tell "no value" apart from "band 4.0".
+ */
+function isFiniteBand(n: number | undefined): n is number {
+  return typeof n === 'number' && Number.isFinite(n)
 }
 
-/** Position of a band value on the 4-to-9 scale, as a 0–100 percentage. */
-function bandPct(n: number): number {
-  return ((clampBand(n) - 4) / 5) * 100
+/** '—' when `n` is not a finite number, so a missing band never reads as a confident 4.0. */
+function formatBand(n: number | undefined): string {
+  return isFiniteBand(n) ? clampBand(n).toFixed(1) : '—'
+}
+
+/** Position of a band value on the 4-to-9 scale, as a 0–100 percentage. 0 (empty bar) when not finite. */
+function bandPct(n: number | undefined): number {
+  return isFiniteBand(n) ? ((clampBand(n) - 4) / 5) * 100 : 0
 }
 
 const SCALE_TICKS = [4, 5, 6, 7, 8, 9]

@@ -360,3 +360,19 @@
   outline: 2px solid var(--exam-navy);
   outline-offset: 1px;
 }
+
+/* --------------------------------------------------- save-failure banner */
+.save-failure-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--wash-red);
+  border-bottom: 1px solid var(--marking-red);
+}
+
+.save-failure-banner p {
+  font-size: 14px;
+  max-width: 80ch;
+}

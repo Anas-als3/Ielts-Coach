@@ -122,6 +122,15 @@ export default function App({
   const [essayText, setEssayText] = useState('')
   const [sessions, setSessions] = useState<SessionRecord[]>(() => loadSessions())
   const [reportSessionId, setReportSessionId] = useState<string | null>(null)
+  /**
+   * Set when `saveSession` reports a failed write, from any of the three
+   * submit handlers (Writing, Reading, Listening) — one banner for all three,
+   * per `SaveResult`'s doc comment: a fourth section should wire into this
+   * same state rather than invent a second banner. Stays on screen until the
+   * learner dismisses it; a save failure loses work, so it is not a toast that
+   * can quietly time out while they are reading their report.
+   */
+  const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null)
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null)
   const [examState, setExamState] = useState<ExamState>('idle')
   const [examSecondsLeft, setExamSecondsLeft] = useState(TASK_CONSTANTS.task2.examDurationSec)
@@ -347,7 +356,8 @@ export default function App({
       pasteAttempts: mode === 'exam' ? pasteAttemptsRef.current : null,
       analysis: finalAnalysis,
     }
-    saveSession(record)
+    const result = saveSession(record)
+    if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
     setSessions(loadSessions())
     setReportSessionId(record.id)
@@ -502,7 +512,8 @@ export default function App({
       result: markAnswerKey(test, answers),
       durationSec,
     }
-    saveSession(record)
+    const result = saveSession(record)
+    if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
     setSessions(loadSessions())
     setReadingSessionId(record.id)
@@ -563,7 +574,8 @@ export default function App({
       // app's own state has since moved on.
       practice,
     }
-    saveSession(record)
+    const result = saveSession(record)
+    if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
     setSessions(loadSessions())
     setListeningSessionId(record.id)
@@ -839,6 +851,20 @@ export default function App({
         )}
       </header>
 
+      {/* Urgent rather than a status: a save failure loses a learner's work,
+          not merely reports progress — `role="status"` is what the Listening
+          transfer notice uses for a non-urgent one. Persists until dismissed:
+          a toast that vanishes while the report is on screen is not a
+          warning. */}
+      {saveFailureMessage && (
+        <div className="save-failure-banner" role="alert">
+          <p>{saveFailureMessage}</p>
+          <button className="btn" onClick={() => setSaveFailureMessage(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {view === 'write' && (
         <main className="workspace">
           {mode === 'coach' && (
@@ -1063,6 +1089,36 @@ export default function App({
             onNewEssay={() => startNewEssay()}
             onViewDashboard={() => setView('dashboard')}
           />
+        </main>
+      )}
+
+      {/* A failed save (see the banner above) still navigates here, and so
+          does opening a session id the store no longer has — this branch and
+          the one above are mutually exclusive on `reportSession`, so exactly
+          one <main> renders rather than a header over a blank page. */}
+      {view === 'report' && reportSession === null && (
+        <main className="page">
+          {/* Same shell as the "Exam conditions" start card — a centred
+              message plus action buttons — reused rather than duplicated: the
+              layout this fallback needs already exists. `.rp-actions` is
+              Report.css's button row, loaded unconditionally because Report
+              is always imported above. */}
+          <div className="exam-start card">
+            <h2>This essay could not be loaded</h2>
+            <p>
+              This can happen when a save does not go through, or when the essay was removed
+              elsewhere. If you just finished writing, check the banner above — your work may
+              not be saved, so export your history from Progress before writing anything new.
+            </p>
+            <div className="rp-actions">
+              <button className="btn btn-primary" onClick={() => startNewEssay()}>
+                Back to the editor
+              </button>
+              <button className="btn" onClick={() => setView('dashboard')}>
+                View progress
+              </button>
+            </div>
+          </div>
         </main>
       )}
 

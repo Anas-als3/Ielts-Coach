@@ -29,7 +29,7 @@
  * never crashes the app — we warn on the console and keep going.
  */
 
-import type { SessionRecord, SessionSection } from '../types'
+import type { Criterion, SaveResult, SessionRecord, SessionSection } from '../types'
 import { isWritingSession } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
@@ -59,6 +59,20 @@ const BACKUP_KEY_PREFIX = 'ielts-coach.backup.'
  * `writeStore` already survives a full quota by warning rather than throwing.
  */
 const MAX_SESSIONS_PER_SECTION = 200
+/**
+ * How many timestamped backup copies to keep.
+ *
+ * Backups exist so nothing is destroyed without a recoverable copy — but a copy
+ * is a full serialisation of the store, and MEASURED at ae92bac a store can
+ * reach several megabytes against a typical ~5 MB origin quota. Unbounded
+ * copies fill the quota holding the essays they exist to protect, which turns
+ * the safety net into the thing that breaks the save.
+ *
+ * Newest N wins: a learner recovering by hand wants the most recent readable
+ * state, and an old copy of a store that has since been read successfully many
+ * times is not the one they will reach for.
+ */
+const MAX_BACKUPS = 5
 const EXPORT_FILENAME = 'ielts-coach-data.json'
 
 interface StoreShape {
@@ -69,6 +83,16 @@ interface StoreShape {
 function isRecordObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
+
+/**
+ * Every `Criterion`, derived from a totality-checked record rather than a
+ * hard-coded array of four strings. Adding a member to `Criterion` without
+ * adding it to `CRITERION_PRESENT` is a COMPILE failure, so `looksLikeSession`
+ * below cannot silently keep checking only the original four keys once a
+ * fifth criterion exists.
+ */
+const CRITERION_PRESENT: Record<Criterion, true> = { TR: true, CC: true, LR: true, GRA: true }
+const CRITERIA = Object.keys(CRITERION_PRESENT) as Criterion[]
 
 /**
  * Shape check for a stored READING session: the answer sheet and a complete
@@ -178,7 +202,21 @@ function looksLikeSession(value: unknown): value is SessionRecord {
   if (!isRecordObject(a.stats) || typeof (a.stats as Record<string, unknown>).wordCount !== 'number') return false
   const band = a.band
   if (!isRecordObject(band)) return false
-  return isRecordObject(band.byCriterion) && isRecordObject(band.rationale) && typeof band.overall === 'number'
+  if (!isRecordObject(band.byCriterion) || !isRecordObject(band.rationale)) return false
+  if (typeof band.overall !== 'number') return false
+  // `byCriterion` must carry all four criteria as finite numbers.
+  //
+  // `isRecordObject(band.byCriterion)` alone accepted `{}`, and the report
+  // then read `undefined` through `clampBand`, which floored a non-finite
+  // value to 4 — so an imported record rendered a confident "Task Response
+  // 4.0" with a filled bar and a matching aria-label for a band the record
+  // does not contain. `src/reading/bandTable.ts:104-106` states this
+  // project's policy on exactly this: a band that low is exactly the number
+  // someone acts on.
+  const byCriterion = band.byCriterion
+  return CRITERIA.every(
+    (c) => typeof byCriterion[c] === 'number' && Number.isFinite(byCriterion[c]),
+  )
 }
 
 /**
@@ -336,6 +374,83 @@ function hasIdenticalBackup(raw: string): boolean {
 }
 
 /**
+ * A backup key that is not already taken.
+ *
+ * `toISOString()` has millisecond resolution and `setItem` overwrites, so two
+ * DIFFERENT payloads backed up inside the same millisecond used to collapse
+ * into one key — the first was destroyed while the console said a copy had been
+ * kept. Measured: three damaged payloads read in sequence on a frozen clock
+ * produced ONE key holding only the third. This module's contract is that
+ * nothing is ever destroyed without a recoverable copy; this was the line that
+ * broke it.
+ *
+ * The suffix is a counter rather than a random salt so the keys still sort by
+ * age as text, which is what the pruning in `pruneBackups` relies on.
+ */
+function nextBackupKey(): string {
+  const stamp = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
+  if (window.localStorage.getItem(stamp) === null) return stamp
+  // Guard the loop with a small bound so a pathological store cannot spin
+  // forever. Exhausting it throws, which the caller (`backupRaw`) already
+  // treats as a best-effort failure — losing the backup is bad, but crashing
+  // the read or write that triggered it would be worse.
+  const BOUND = 1000
+  // Zero-padded to BOUND's own width: an UNPADDED counter sorts "-10" before
+  // "-9" as text, which would make `pruneBackups` evict a NEWER same-
+  // millisecond backup while keeping an older one — the exact ordering bug
+  // this suffix scheme exists to avoid. Padding keeps every suffix in this
+  // function's range the same length, so text order stays numeric order.
+  const width = String(BOUND).length
+  for (let i = 1; i <= BOUND; i++) {
+    const key = `${stamp}-${String(i).padStart(width, '0')}`
+    if (window.localStorage.getItem(key) === null) return key
+  }
+  throw new Error(`IELTS Coach: could not find a free backup key after ${BOUND} attempts.`)
+}
+
+/** How many timestamped backup keys currently exist. */
+function backupCount(): number {
+  const storage = window.localStorage
+  let n = 0
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    if (key !== null && key.startsWith(BACKUP_KEY_PREFIX)) n++
+  }
+  return n
+}
+
+/**
+ * Delete the oldest timestamped backups until at most `keep` remain.
+ *
+ * Keys sort by age as plain text — see `nextBackupKey` — so the oldest are
+ * simply the first `length - keep` after a lexicographic sort.
+ *
+ * This is the ONE function in the codebase that deletes a learner's data.
+ * Routing every eviction through it — including the single-backup eviction
+ * the write retry needs (`pruneBackups(backupCount() - 1)`) — keeps that
+ * scrutiny in one place instead of a second, easier-to-miss deletion site.
+ *
+ * Wrapped in ITS OWN try/catch, separate from `backupRaw`'s: a failure here
+ * must never read back as "could not back up saved data" — the backup this
+ * call follows already succeeded — and it must never block the read or write
+ * that triggered it either.
+ */
+function pruneBackups(keep: number): void {
+  try {
+    const storage = window.localStorage
+    const keys: string[] = []
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i)
+      if (key !== null && key.startsWith(BACKUP_KEY_PREFIX)) keys.push(key)
+    }
+    keys.sort()
+    for (let i = 0; i < keys.length - keep; i++) storage.removeItem(keys[i])
+  } catch (err) {
+    console.warn('IELTS Coach: could not prune old backup copies.', err)
+  }
+}
+
+/**
  * Copy the raw stored string to a timestamped backup key. Used whenever this
  * build is about to lose sight of stored data — because it could not parse it,
  * could not migrate it, had to drop some of its records, or is replacing it
@@ -352,12 +467,13 @@ function hasIdenticalBackup(raw: string): boolean {
 function backupRaw(raw: string, reason: string): void {
   try {
     if (hasIdenticalBackup(raw)) return
-    const key = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
+    const key = nextBackupKey()
     window.localStorage.setItem(key, raw)
     console.warn(
       `IELTS Coach: ${reason} ` +
         `A copy of the data as it was stored was kept at localStorage key "${key}".`,
     )
+    pruneBackups(MAX_BACKUPS)
   } catch (err) {
     console.warn('IELTS Coach: could not back up saved data before replacing it.', err)
   }
@@ -443,17 +559,92 @@ function readStore(): StoreShape | null {
   }
 }
 
-function writeStore(sessions: SessionRecord[]): void {
+/**
+ * `err` is the DOMException `setItem` throws when a write exceeds the
+ * origin's storage quota. Distinguished from every other write failure
+ * (storage disabled, private-browsing restrictions, a non-browser
+ * environment) so the learner-facing message can say which one happened.
+ */
+function isQuotaError(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === 'QuotaExceededError' ||
+      // Firefox's legacy name for the same condition.
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+  )
+}
+
+function quotaFailure(): SaveResult {
+  return {
+    ok: false,
+    reason: 'quota',
+    message:
+      "Your device is out of storage space, so this could not be saved. Export your data now " +
+      "from Progress, before you write anything else — once space frees up you can import it back.",
+  }
+}
+
+function unavailableFailure(): SaveResult {
+  return {
+    ok: false,
+    reason: 'unavailable',
+    message:
+      'Your browser storage is unavailable right now (private browsing can do this), so this ' +
+      'could not be saved. Export your data now from Progress, before you write anything else, ' +
+      'so nothing is lost.',
+  }
+}
+
+/**
+ * Write the store and report what happened — `saveSession` returns this so a
+ * caller can tell the learner rather than have a failed save look identical
+ * to a successful one.
+ *
+ * On failure, tries ONCE more after evicting the oldest backup.
+ *
+ * A quota failure is the one case where this module is holding something it
+ * can give up: an old backup copy. Evicting the oldest and retrying once
+ * spends a recovery copy to save the thing the copies exist to protect — a
+ * learner's essay, which is 40 minutes of work and cannot be re-run, against
+ * a snapshot of a store that has since been read successfully.
+ * ONCE, not in a loop: if a second attempt fails too, the store is full of
+ * sessions rather than of backups, and the honest answer is to tell the
+ * learner rather than to keep deleting their history to make room.
+ */
+function writeStore(sessions: SessionRecord[]): SaveResult {
   const store: StoreShape = { schemaVersion: SCHEMA_VERSION, sessions }
+  const json = JSON.stringify(store)
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
-  } catch (err) {
-    // Quota exceeded or storage blocked — the app keeps working in memory.
-    console.warn(
-      'IELTS Coach: could not save your session (storage is full or unavailable). ' +
-        'The app keeps working, but this change will not persist.',
-      err,
-    )
+    window.localStorage.setItem(STORAGE_KEY, json)
+    return { ok: true }
+  } catch {
+    // Evict exactly one backup — the oldest — rather than re-applying the
+    // whole cap: a quota failure needs ONE slot back to try again, not every
+    // backup but MAX_BACKUPS - 1 gone. `pruneBackups` never throws, so this
+    // can never turn a save failure into a crash — but `backupCount` reads
+    // `storage.length` / `.key()` OUTSIDE that guard, and storage being
+    // unavailable (rather than merely full) can make those throw too. Wrapped
+    // here so counting the backups can fail exactly like everything else in
+    // this module: best-effort, never the thing that turns a save failure
+    // into a crash instead of a reported one.
+    try {
+      const count = backupCount()
+      if (count > 0) pruneBackups(count - 1)
+    } catch (evictErr) {
+      console.warn('IELTS Coach: could not evict an old backup to make room for this save.', evictErr)
+    }
+    try {
+      window.localStorage.setItem(STORAGE_KEY, json)
+      return { ok: true }
+    } catch (retryErr) {
+      // Quota exceeded or storage blocked — the app keeps working in memory.
+      console.warn(
+        'IELTS Coach: could not save your session (storage is full or unavailable). ' +
+          'The app keeps working, but this change will not persist.',
+        retryErr,
+      )
+      return isQuotaError(retryErr) ? quotaFailure() : unavailableFailure()
+    }
   }
 }
 
@@ -463,13 +654,18 @@ export function loadSessions(): SessionRecord[] {
   return store ? store.sessions : []
 }
 
-/** Append a session, keep the list sorted by date, cap at 200 (oldest dropped). */
-export function saveSession(s: SessionRecord): void {
+/**
+ * Append a session, keep the list sorted by date, cap at
+ * MAX_SESSIONS_PER_SECTION per section (oldest of that section dropped), and
+ * report whether the write actually persisted — callers used to get `void`
+ * here and had no way to tell a silent failure from a success.
+ */
+export function saveSession(s: SessionRecord): SaveResult {
   // Replace any record with the same id so a double-save never duplicates.
   const sessions = loadSessions().filter((existing) => existing.id !== s.id)
   sessions.push(s)
   sessions.sort(byDateAscending)
-  writeStore(capSessions(sessions))
+  return writeStore(capSessions(sessions))
 }
 
 /** Remove one session by id. Unknown ids are a no-op. */

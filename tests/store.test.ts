@@ -829,6 +829,16 @@ describe('backup when only SOME records fail validation', () => {
   it('does not mint a second backup of a payload it has already copied', () => {
     // Reads are pure, so the damaged payload is seen again on every render.
     // One backup per read would fill the quota holding the surviving essays.
+    //
+    // Fake timers PROVE the three reads below share a millisecond — without
+    // them, this assertion held whether or not `hasIdenticalBackup` existed
+    // (measured: 199 of 200 real-clock runs landed all three reads inside one
+    // millisecond), which is a vacuous test wearing a real one's assertion.
+    // 016-d makes colliding keys distinct, which is exactly what would turn
+    // this test from vacuous into actively wrong if it were not pinned here.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
     seed(5, [
       makeSession('good', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
       makeSession('damaged', '2026-01-02T10:00:00.000Z', { section: 'writing', analysis: undefined }),
@@ -839,6 +849,8 @@ describe('backup when only SOME records fail validation', () => {
     loadSessions()
 
     expect(backupKeys()).toHaveLength(1)
+
+    vi.useRealTimers()
   })
 
   it('backs nothing up when every record validates', () => {
@@ -1026,5 +1038,230 @@ describe('saveSession replaces a record with the same id', () => {
     const sessions = loadSessions()
     expect(sessions).toHaveLength(1)
     expect(sessions[0].section === 'writing' && sessions[0].essayText).toBe('The rewritten essay.')
+  })
+})
+
+/* -------------------- 016-d: colliding backup keys -------------------- */
+
+describe('016-d: the backup key no longer collides inside one millisecond', () => {
+  it('keeps all three backups when three different payloads are read on a frozen clock', () => {
+    // Reproduces the measured bug exactly: three DIFFERENT damaged payloads,
+    // read in sequence with the clock frozen to one millisecond, used to
+    // collapse into ONE key holding only the third — A and B were destroyed
+    // while the console said a copy had been kept for each.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    const payloadFor = (id: string) => ({
+      schemaVersion: 99, // unrecognised future version -> whole payload backed up
+      sessions: [makeSession(id, '2026-01-01T10:00:00.000Z')],
+    })
+
+    store.set(STORAGE_KEY, JSON.stringify(payloadFor('a')))
+    loadSessions()
+    store.set(STORAGE_KEY, JSON.stringify(payloadFor('b')))
+    loadSessions()
+    store.set(STORAGE_KEY, JSON.stringify(payloadFor('c')))
+    loadSessions()
+
+    const keys = backupKeys()
+    expect(keys).toHaveLength(3)
+    const recoveredIds = keys
+      .map((k) => JSON.parse(store.get(k) as string).sessions[0].id)
+      .sort()
+    expect(recoveredIds).toEqual(['a', 'b', 'c'])
+
+    vi.useRealTimers()
+  })
+})
+
+/* -------------------- 016-a: backups are capped and pruned -------------------- */
+
+describe('016-a: backups are capped and pruned, newest kept', () => {
+  it('never keeps more backups than the cap, and the survivors are the newest', () => {
+    // MAX_BACKUPS is 5 and private to store.ts; this mirrors it the same way
+    // the existing per-section cap tests mirror MAX_SESSIONS_PER_SECTION as a
+    // bare 200 rather than importing it.
+    const CAP = 5
+    const MINTED = 8
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    for (let i = 0; i < MINTED; i++) {
+      store.set(
+        STORAGE_KEY,
+        JSON.stringify({ schemaVersion: 99, sessions: [makeSession(`s${i}`, '2026-01-01T10:00:00.000Z')] }),
+      )
+      loadSessions()
+      // A distinct millisecond per backup, so the cap — not the collision
+      // suffix — is what this test is pinning.
+      vi.advanceTimersByTime(1000)
+    }
+
+    const keys = backupKeys()
+    expect(keys.length).toBeLessThanOrEqual(CAP)
+    const survivorIds = keys
+      .map((k) => JSON.parse(store.get(k) as string).sessions[0].id)
+      .sort()
+    expect(survivorIds).toEqual(
+      Array.from({ length: CAP }, (_, i) => `s${MINTED - CAP + i}`).sort(),
+    )
+
+    vi.useRealTimers()
+  })
+})
+
+/* -------------------- 016-c: a failed write is reported -------------------- */
+
+/** Access to the localStorage stub `installLocalStorage` installed on `window`. */
+function fakeStorage(): {
+  setItem: (k: string, v: string) => void
+  getItem: (k: string) => string | null
+  removeItem: (k: string) => void
+  key: (i: number) => string | null
+  length: number
+} {
+  return (
+    globalThis as unknown as {
+      window: {
+        localStorage: {
+          setItem: (k: string, v: string) => void
+          getItem: (k: string) => string | null
+          removeItem: (k: string) => void
+          key: (i: number) => string | null
+          length: number
+        }
+      }
+    }
+  ).window.localStorage
+}
+
+function quotaExceededError(): DOMException {
+  return new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+}
+
+/**
+ * Make `setItem` throw for `key` on the next `times` calls, then behave
+ * normally again. Used to simulate a `writeStore` quota failure and, with
+ * `times: 1`, a failure the retry recovers from.
+ */
+function failSetItem(key: string, times: number): void {
+  const ls = fakeStorage()
+  const real = ls.setItem
+  let remaining = times
+  ls.setItem = (k: string, v: string) => {
+    if (k === key && remaining > 0) {
+      remaining--
+      throw quotaExceededError()
+    }
+    real(k, v)
+  }
+}
+
+describe('016-c: saveSession reports whether the write persisted', () => {
+  it('reports a quota failure instead of returning void', () => {
+    failSetItem(STORAGE_KEY, Number.POSITIVE_INFINITY)
+
+    const result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.reason).toBe('quota')
+      expect(result.message.length).toBeGreaterThan(0)
+    }
+    // Nothing was actually persisted.
+    expect(loadSessions()).toEqual([])
+  })
+
+  it('evicts the oldest backup and persists on the second attempt', () => {
+    const oldBackupKey = `${BACKUP_PREFIX}2020-01-01T00:00:00.000Z`
+    store.set(oldBackupKey, 'an old backup payload')
+    failSetItem(STORAGE_KEY, 1) // fails once, then behaves normally
+
+    const result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+
+    expect(result.ok).toBe(true)
+    expect(store.has(oldBackupKey)).toBe(false)
+    expect(loadSessions().map((s) => s.id)).toEqual(['a'])
+  })
+
+  it('does not retry more than once', () => {
+    let calls = 0
+    const ls = fakeStorage()
+    ls.setItem = (k: string) => {
+      if (k === STORAGE_KEY) {
+        calls++
+        throw quotaExceededError()
+      }
+    }
+
+    const result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+
+    expect(result.ok).toBe(false)
+    // One first attempt, one retry, and never a third — a second failure is
+    // reported, not retried again.
+    expect(calls).toBe(2)
+  })
+
+  it('reports a failure rather than crashing when counting backups itself fails', () => {
+    // Storage that is genuinely UNAVAILABLE (not merely full) can throw on
+    // `length`/`key` too, not only on `setItem` — the retry path counts
+    // backups before evicting one, and that count must be exactly as
+    // best-effort as everything else here. A crash out of `saveSession` would
+    // be worse than the write failure it was trying to recover from.
+    failSetItem(STORAGE_KEY, Number.POSITIVE_INFINITY)
+    const ls = fakeStorage()
+    Object.defineProperty(ls, 'length', {
+      configurable: true,
+      get() {
+        throw new Error('storage unavailable')
+      },
+    })
+
+    let result: ReturnType<typeof saveSession> | undefined
+    expect(() => {
+      result = saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+    }).not.toThrow()
+    expect(result?.ok).toBe(false)
+  })
+})
+
+/* -------------------- 016-e: byCriterion must be complete -------------------- */
+
+/** A writing record whose `analysis.band.byCriterion` is `byCriterion`. */
+function withByCriterion(byCriterion: Record<string, unknown>): unknown {
+  const record = makeSession('bad', '2026-01-01T10:00:00.000Z', {
+    task: 'task2',
+    section: 'writing',
+  }) as { analysis: { band: { byCriterion: Record<string, unknown> } } }
+  record.analysis.band.byCriterion = byCriterion
+  return record
+}
+
+describe('016-e: an imported or stored record must carry all four criteria', () => {
+  it('drops a record whose byCriterion is empty, and backs it up first', () => {
+    seed(5, [withByCriterion({})])
+
+    expect(loadSessions()).toEqual([])
+    expect(backupKeys()).toHaveLength(1)
+  })
+
+  it('drops a record whose byCriterion has a null criterion', () => {
+    seed(5, [withByCriterion({ TR: 7, CC: 7, LR: null, GRA: 7 })])
+
+    expect(loadSessions()).toEqual([])
+  })
+
+  it('rejects the same incomplete byCriterion on import', () => {
+    expect(() =>
+      importData(JSON.stringify({ schemaVersion: 5, sessions: [withByCriterion({})] })),
+    ).toThrow()
+  })
+
+  it('still loads a complete record', () => {
+    seed(5, [makeSession('good', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['good'])
   })
 })
