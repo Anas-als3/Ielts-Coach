@@ -27,3 +27,7 @@ coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# The worktree symlinks node_modules; the trailing-slash rule above does not
+# match a SYMLINK named node_modules, so name it without one too.
+node_modules
