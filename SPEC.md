@@ -167,6 +167,15 @@ conclusion. Longest-first single alternation regex, word boundaries, sentence-in
   unless preceded by and/but/or/so/yet or sentence opens with a subordinator; also
   /,\s*(however|therefore|moreover|nevertheless|consequently|furthermore|thus)\b/ mid-sentence →
   "use a semicolon or full stop before 'however'". Phrase as "check: are these two complete sentences?"
+  **Pattern A guards** (patterns B/C/D always had these; A did not, which is what let it misfire):
+  the shared `guardedBeforeComma` — a coordinator OR an auxiliary/copula right before the comma —
+  plus a **fronted-adverbial** guard. A sentence adjective adjunct (however, therefore, moreover,
+  furthermore, nevertheless, consequently, thus, in addition, for example, for instance, in my
+  opinion, in my view, on the other hand, as a result, overall, in conclusion, first(ly),
+  second(ly), finally, indeed, admittedly) followed by a pronoun subject introduces ONE clause,
+  not two: "However, it is clear that…" is among the commonest openings in IELTS writing and was
+  being reported as a splice. Anchored `\s*$` against the text BEFORE the comma, so the adverbial
+  must be the whole of it — "However, it is expensive, it is also slow" still reports its second comma.
 - `first-person-overuse` (info): body paragraphs only, > 1 sentence containing I/my/me per body.
 - `missing-hedging` (info, essay-level): 0 hedges AND ≥ 3 absolutes → "overgeneralised tone".
 
@@ -257,6 +266,16 @@ New IssueCategory ids exist in types.ts; CATEGORY_META has entries for all of th
 - A4 `fragment` (warning): dependent opener (optionally after a discourse marker) with no comma
   before the full stop: /^(?:(?:For example|For instance|In addition|Moreover),\s+)?(If|When|Whenever|While|Because|Although|Even though|Unless|Whereas|Since|Unlike|Which)\b[^,.]*\.$/im — run per sentence.
   Message phrased as "check: is this a complete sentence?"
+  **Main-clause guard**: the regex checks only for a comma, but a main clause can follow WITHOUT one —
+  "If a country invests in education it will prosper." was told "a main clause never arrives", which the
+  rule had never looked for. Before flagging, count finite verb GROUPS in the sentence; ≥ 2 means the
+  main clause arrived, so stay silent. Groups not verbs: "does not act" and "will get" are each ONE
+  finite verb, and counting them twice would silence a real fragment. A group is opened by an
+  auxiliary/modal/copula, by a listed frequent lexical verb (base and -s forms plus irregular pasts),
+  or by a word ≥ 5 chars ending -ed outside a small stop-list (need, indeed, succeed…); adverbs in -ly
+  and not/never/also/still keep the current group open. `view` is deliberately NOT a listed verb — in
+  IELTS it is overwhelmingly a noun, and reading it as a verb silenced "While others disagree with this
+  view." Ambiguity resolves toward a HIGHER count and therefore toward silence, the safe direction here.
 - A5 `article` (warning): token walk, not regex. COUNTABLE set (~40 nouns: period, term, system,
   situation, response, reaction, chance, result, sentence, crime, citizen, shop, group, trip, future,
   world, environment, government, company, city, country, school, reason, problem, student, child,
@@ -275,10 +294,35 @@ New IssueCategory ids exist in types.ts; CATEGORY_META has entries for all of th
   uncapped walk ran across whole clauses and reported noun phrases that were never there ("an and serious
   financial pressure can itself destroy job"). Exceeding the cap = stay SILENT, never flag. When the
   crossed words cannot belong to the noun phrase, the span and the suggestion shrink to the bare noun.
+  The cap is pinned by mutation in `tests/false-positives.test.ts` — raising it to 99 must turn that
+  block red. (It did not before 2026-08-10: the block's fixtures all stopped within two steps.)
+  **Mass-sense escape**: eight COUNTABLE nouns — crime, time, future, world, environment, home, way,
+  government — are MASS nouns in their commonest IELTS sense. They STAY in COUNTABLE ("a crime was
+  committed" is equally valid), so the escape is contextual: skip the flag when such a noun is the bare
+  direct object of a verb, i.e. the walk stopped at a stop-set verb or crossed one. "Governments must
+  act to reduce crime" drew "write 'a reduce crime'"; "who commit crime" and "save time" drew the same
+  class of nonsense. Cost, named because it is real: "protect environment" and "find way" are errors
+  this now stays silent about — the module's policy is that a false positive costs more than a miss.
+  **Verb-quote guard**: `usePhrase` rejected plurals and pronouns but not verbs, which is how a crossed
+  verb reached the suggestion. A span containing a verb-like token now falls back to the bare noun, the
+  same shape the walk cap already used. Verb-like = a listed crossable verb (the walk's stop-set holds
+  only the verbs that END the walk, so a crossed verb is never in it), or any word directly after a
+  modal / do / not / never. `to` is NOT a verb signal: it is an infinitive marker in "act to reduce
+  crime" but a preposition in "due to new prison system", and that second case must keep suggesting
+  'a new prison system'.
 - A6 `agreement` (warning): -ing subject + plural verb anywhere in the sentence:
   /\b(having|working|travell?ing|wearing|playing|making|learning|studying|shopping|punishing|educating|giving|teaching|reading|watching|buying|renting)\s+[^.,;]{0,60}?\s(add|make|unite|help|give|allow|cause|lead|reduce|improve|require|need|create|bring|save|cost|take)\b/gi
+  **Governing-verb guard**: the verb found must be the one the gerund subject governs. Skip when the
+  span BETWEEN the -ing word and the verb ends in a modal, `do/does/did` (optionally + not/never), `to`,
+  or a verb that itself takes a bare infinitive (help/let/make). A modal takes the bare infinitive, so
+  "Working from home can reduce commuting costs" is correct — the rule was answering it with "can
+  reduces". Testing only the in-between span leaves "Working from home reduce costs" caught.
 - B1 `agreement` (warning): singular determiner + plural noun:
   /\b(a|an|one|each|every|another)\s+(?:\w+\s+){0,2}(women|men|children|people|persons|criminals|killers|prisoners|students|employees|citizens|teachers|workers|parents|years|skills)\b/gi
+  Licensing middles (of, few, couple, dozen, several, many, number, lot, group, majority, pair, team,
+  range, and the spelled-out numbers) make it correct as written — **plus any DIGIT**. Nothing matched
+  a numeral, so "every 10 years" and "a further 20 years" were told to write "10 year". The numeral is
+  what licenses the plural; only a bare "every years" is an error.
 - B3 `agreement` (warning): plural subject + singular complement:
   /\b(are|were)\s+(a\s+)?(human being|citizen|student|employee|travell?er|criminal|teacher|worker|parent|adult)\b(?!s)/gi
 - B2 `who-for-people` (warning): /\b(person|people|citizen|man|woman|child|children|student|employee|travell?er|killer|prisoner|teacher|worker|friend|parent|shopper)s?\s+that\b/gi
@@ -481,3 +525,43 @@ chart's subject nouns. The adapter also injects TASK1_MEASUREMENT_VOCABULARY (ce
 percentage, proportion, figure, chart, graph, table, period, year, total …) — a 180-word percentage
 description says "per cent" five or six times because there is no synonym, and the engine must not
 penalise a learner for describing a percentage chart in percentages.
+
+## False positives (2026-08-10)
+
+**The engine had been telling learners to write ungrammatical English.** Five detector defects,
+reproduced through the real `analyzeEssay` pipeline; four of the five handed back a suggested fix that
+was itself wrong, which for a coaching product is worse than a miss and worse than silence.
+
+| Learner writes (correct) | App said | Guard |
+|---|---|---|
+| Working from home can **reduce** commuting costs | "'reduce' → 'reduces'" | A6 governing-verb guard |
+| Governments must act to **reduce crime** | "write 'a reduce crime'" | A5 mass-sense escape + verb-quote guard |
+| **However, it is clear that** the government should invest | comma splice | comma-splice pattern A fronted-adverbial guard |
+| **If a country invests in education it will prosper.** | "a main clause never arrives" | A4 main-clause guard |
+| Governments inspect factories every **10 years** | "years → year" | B1 numeral in the licensing middle |
+
+Each guard is specified in its rule's entry above. Every one only ever makes its rule QUIETER: none
+widens a pattern, and each true positive the rules were calibrated on still fires with an unchanged
+message (`tests/false-positive-corpus.test.ts`, "true positives still fire").
+
+### `tests/false-positive-corpus.test.ts` — the golden corpus
+Roughly 70 known-correct IELTS sentences, each carrying a one-line comment naming the rule it guards,
+all asserted to raise ZERO non-`info` issues. **This is the deliverable that stops the class
+recurring**: the five guards are small, the corpus is what makes the sixth defect fail a test before it
+ships. Every future false-positive report belongs here FIRST, as a failing entry, before the rule that
+caused it is touched.
+
+Entries are BARE single sentences, not padded essays: the assertion is "zero non-`info` issues", and
+padding manufactures its own (a letters-only pad is one long lowercase sentence → `capitalisation`,
+`long-sentence`, `word-count`; padding past 250 words → `paragraphing`, `linking-underuse`). A bare
+sentence sits under the 50-word floor that silences `word-count` and the 150-word floor that silences
+the essay-level rules, while every rule the corpus guards is span-level and live from the first word.
+The file's `true positives still fire` block runs genuine errors through the identical harness, so a
+corpus that went green because the harness stopped reaching the rules would fail there first.
+
+### Known remaining, same class, NOT fixed here
+`article` still flags a bare mass-sense noun that no verb governs — "**Government spending** on health
+has risen" and "Support from **central government**" both draw a determiner suggestion. The mass-sense
+escape is deliberately conditioned on the noun being a verb's direct object, and widening it to bare
+nouns after a preposition would suppress genuine errors ("he walked to shop"). Out of scope for plan
+006; belongs in the corpus the day it is fixed.

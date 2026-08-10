@@ -115,6 +115,32 @@ describe('article — the leftward walk', () => {
     expect(categoryOf(analyze(runaway, null), 'article')).toEqual([])
   })
 
+  /**
+   * The cap itself, pinned.
+   *
+   * This block used to be vacuous: its fixtures all stopped on a determiner or
+   * a stop-set verb within two steps, so `MAX_MODIFIER_WALK` could be raised
+   * from 3 to 99 with the whole suite still green — the constant it claimed to
+   * hold was not held by anything.
+   *
+   * Each sentence below puts FOUR or more crossable words between the countable
+   * noun and the nearest stop ("…pressure can itself undermine system"): none
+   * is a determiner, a preposition, a stop-set verb or a comma, so only the cap
+   * ends the walk. At 3 the rule gives up and says nothing, which is correct —
+   * there is no noun phrase here to name. Raise the constant and all three
+   * report one, which is how this test now fails if the cap goes.
+   */
+  it('gives up rather than walk further than a real adjective stack', () => {
+    const beyondTheCap = [
+      'Local councils spent carefully but sustained financial pressure can itself undermine system.',
+      'Ministers argued endlessly and repeated public consultation cannot quickly change result.',
+      'Students revised carefully but limited classroom support will not improve chance.',
+    ]
+    for (const text of beyondTheCap) {
+      expect(categoryOf(analyze(text, null), 'article'), text).toEqual([])
+    }
+  })
+
   it('never highlights more than a short noun phrase', () => {
     // 'find' and 'believe' are outside the walk's verb stop-set, so without the
     // cap the walk escapes leftward and drags the whole clause into the span.
