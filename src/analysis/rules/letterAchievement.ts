@@ -281,14 +281,6 @@ const SALUTATION_KIND_DESCRIPTION: Record<SalutationKind, string> = {
 /**
  * Purpose markers. A strong letter states why it is being written in the opening
  * paragraph, and the phrasings that do it are a short closed set.
- *
- * `i wanted to` and its neighbours are in this shared list rather than the
- * informal one below on purpose. They are the phrasings `OVERFORMAL_MARKERS`
- * tells an informal writer to switch TO — "I am writing to express" → "I wanted
- * to tell you" — and a learner who obeyed one rule then earned a warning from
- * another for doing so. Two rules must not point in opposite directions. They
- * are tone-neutral in any case: "I wanted to enquire about the charge on my
- * statement" states a purpose in a letter to a bank just as plainly.
  */
 const PURPOSE_MARKERS: readonly string[] = [
   'i am writing to',
@@ -306,11 +298,6 @@ const PURPOSE_MARKERS: readonly string[] = [
   'this letter is to',
   'the purpose of this letter',
   'i am contacting you',
-  'i wanted to',
-  'i just wanted to',
-  'i thought i would',
-  "i thought i'd",
-  'i thought i’d',
 ]
 
 /**
@@ -349,6 +336,34 @@ function purposeRe(markers: readonly string[]): RegExp {
 
 const PURPOSE_RE = purposeRe(PURPOSE_MARKERS)
 const INFORMAL_PURPOSE_RE = purposeRe([...PURPOSE_MARKERS, ...INFORMAL_PURPOSE_MARKERS])
+
+/**
+ * Purpose markers accepted only at a SENTENCE START.
+ *
+ * These say "why I am writing" when they open a sentence — "I wanted to enquire
+ * about the charge on my statement" — and say nothing at all in the middle of
+ * one: "When I bought a washing machine last month I wanted to have a reliable
+ * appliance" is a narrative clause, and an unanchored substring match read it as
+ * a stated purpose, silenced gt-purpose-missing and ticked the rail's gt-purpose
+ * check GREEN on a formal letter that never says why it exists.
+ *
+ * They stay accepted (rather than moving to the informal list) because
+ * OVERFORMAL_MARKERS tells an informal writer to replace "I am writing to
+ * express" with exactly "I wanted to tell you" — two rules must never point in
+ * opposite directions.
+ */
+const SENTENCE_INITIAL_PURPOSE_MARKERS: readonly string[] = [
+  'i wanted to',
+  'i just wanted to',
+  'i thought i would',
+  "i thought i'd",
+  'i thought i’d',
+]
+
+const SENTENCE_INITIAL_PURPOSE_RE = new RegExp(
+  `(?:^|[.!?]["'”’)\\]]?\\s|\\n\\s*)(?:${SENTENCE_INITIAL_PURPOSE_MARKERS.map(escapeRegExp).join('|')})`,
+  'i',
+)
 
 /**
  * The contraction forms that are wrong in a formal or semi-formal letter.
@@ -741,10 +756,15 @@ function openingText(parts: LetterParts): string {
  * `tone` widens the accepted phrasings for an informal letter only — see
  * `INFORMAL_PURPOSE_MARKERS`. It is optional so a caller that has no tone to
  * hand gets exactly the formal set, which is the stricter of the two.
+ *
+ * `SENTENCE_INITIAL_PURPOSE_RE` is checked in addition, at every tone — it is
+ * anchored, so unlike the two lists above it cannot match inside a narrative
+ * clause and therefore needs no tone-specific widening.
  */
 export function hasPurposeStatement(parts: LetterParts, tone?: LetterTone): boolean {
   const re = tone === 'informal' ? INFORMAL_PURPOSE_RE : PURPOSE_RE
-  return re.test(openingText(parts))
+  const opening = openingText(parts)
+  return re.test(opening) || SENTENCE_INITIAL_PURPOSE_RE.test(opening)
 }
 
 /** True when a greeting and a sign-off were both found AND they pair correctly. */

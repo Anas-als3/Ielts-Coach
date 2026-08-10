@@ -839,6 +839,24 @@ describe('015-a: the sign-off window must not walk past a real closing', () => {
   })
 })
 
+describe('015-b: "I wanted to" only states a purpose at a sentence start', () => {
+  it('still asks for a purpose statement when "I wanted to" sits inside a narrative clause', () => {
+    // FALSE NEGATIVE: the unanchored substring match let 'I wanted to' silence
+    // gt-purpose-missing wherever it sat in the opening, including inside a
+    // narrative clause ("…last month I wanted to have a reliable appliance…")
+    // that never actually says why the letter exists — and the rail's
+    // gt-purpose check ticked green along with it.
+    const body = FORMAL_BODY.replace(
+      'I am writing to complain about a washing machine which I purchased from your Bridge Street branch on 4 March, and which was delivered to my flat the following week.',
+      'When I bought a washing machine from your Bridge Street branch last month I wanted to have a reliable appliance in the kitchen for the whole family to use.',
+    )
+    const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+    expect(a.stats.wordCount).toBeGreaterThanOrEqual(150)
+    expect(categories(a)).toContain('gt-purpose-missing')
+    expect(checkSatisfied(a, 'gt-purpose')).toBe(false)
+  })
+})
+
 /* --------------------------------- the bank ----------------------------------- */
 
 describe('the letter prompt bank', () => {
