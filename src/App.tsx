@@ -1210,6 +1210,7 @@ export default function App({
         <main className="page">
           <Dashboard
             sessions={writingSessions}
+            allSessions={sessions}
             profile={profile}
             trends={trends}
             onOpenSession={(id) => {
