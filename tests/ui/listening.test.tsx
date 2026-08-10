@@ -575,4 +575,42 @@ describe('the Listening report', () => {
 
     expect(screen.queryByText(/Your Academic Reading results/i)).not.toBeInTheDocument()
   })
+
+  it('ships the tapescript per section, collapsed, below the review', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await sitPaper(user)
+
+    const details = document.querySelectorAll<HTMLDetailsElement>('details.lrp-tapescript')
+    expect(details).toHaveLength(4)
+    for (const d of details) expect(d.open).toBe(false)
+
+    // Content inside a closed <details> is still in the DOM — jest-dom's
+    // visibility assertion is what actually pins "collapsed", not presence.
+    expect(
+      screen.getByText('Good morning, Harbour View Cottages, Ross speaking.'),
+    ).not.toBeVisible()
+
+    // Below the review: the tapescript is back-matter, not competing with it.
+    const review = document.querySelector('.lrp-review')
+    const tape = document.querySelector('.lrp-tapescripts')
+    expect(
+      review!.compareDocumentPosition(tape!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('expanding a tapescript section reveals the authored script', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await sitPaper(user)
+
+    await user.click(document.querySelector('.lrp-tapescript-summary') as HTMLElement)
+
+    expect(document.querySelector<HTMLDetailsElement>('details.lrp-tapescript')!.open).toBe(true)
+    expect(
+      screen.getByText('Good morning, Harbour View Cottages, Ross speaking.'),
+    ).toBeVisible()
+    // ROSS speaks many cues in section 1, so this must be getAllByText.
+    expect(screen.getAllByText('ROSS').length).toBeGreaterThan(0)
+  })
 })
