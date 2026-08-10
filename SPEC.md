@@ -564,10 +564,21 @@ Greetings resolve to one of three kinds; each closing declares which kinds it li
 | Kind/Warm/Best regards · Regards · Best wishes | `named-formal` · `named-informal` |
 | All the best · See you soon · Take care · Love | `named-informal` ONLY |
 
-Greeting kinds: `unnamed` (Dear Sir or Madam · Dear Sir/Madam · Dear Sir · To whom it may concern) ·
-`named-formal` (Dear + Mr/Mrs/Ms/Miss/Dr/Prof + surname) · `named-informal` (Dear + first name ·
-Hi/Hello/Hey + first name). The list is ORDERED and the first match wins, so "Dear Sir" reads as
-`unnamed` rather than as a letter to somebody called Sir.
+Greeting kinds: `unnamed` (Dear Sir or Madam · Dear Sir/Madam · Dear Sir · Dear Sir and Madam · To
+whom it may concern) · `named-formal` (Dear + Mr/Mrs/Ms/Miss/Dr/Prof + surname, and **Dear Mr and Mrs
++ surname**) · `named-informal` (Dear + first name · Hi/Hello/Hey + first name, and the **two-name**
+forms of both: Dear Anna and Tom · Hi Anna and Tom). The list is ORDERED and the first match wins, so
+"Dear Sir" reads as `unnamed` rather than as a letter to somebody called Sir.
+
+**The two-name rows exist because the single-name rows allow at most two tokens and no conjunction**,
+so "Dear Anna and Tom," and "Dear Mr and Mrs Hughes," drew `gt-salutation-missing` — an ERROR telling
+a learner who had plainly written a greeting that they had not. Writing to a couple is ordinary
+General Training material (landlords, hosts, the neighbours you kept awake). Each new row carries the
+same `kind` and the same `tones` as the single-reader row it mirrors, so nothing that used to be
+flagged escapes; this is the "fix a false positive by ADDING a row" discipline above, applied.
+`Dear Sir and Madam` is `unnamed` and is ORDERED ABOVE the two-name rows on purpose: read as a pair of
+names it would license "Yours sincerely" and reject the "Yours faithfully" the greeting actually calls
+for, converting a correct letter into a `gt-signoff-pairing` ERROR.
 
 ### `analysis/rules/letterAchievement.ts` — exports `letterAchievementRules(doc, prompt)`
 Takes a `LetterPromptSpec`, so it is NOT a `RuleFn` — same reasoning as `task1AchievementRules`.
@@ -579,9 +590,17 @@ Takes a `LetterPromptSpec`, so it is NOT a `RuleFn` — same reasoning as `task1
   one run-on line is still a greeting; reporting an ERROR for a formatting habit is a false accusation.
 - `gt-salutation-tone` (warning, inline): the greeting's `tones` do not include `prompt.tone`.
   "Hi Dave" in a formal letter; "Dear Sir or Madam" in a letter to a friend.
-- `gt-signoff-missing` (error, ≥ 100 words): no closing in the last two non-empty lines. Two lines is
-  the standard shape — closing, then signature — and keeping the window tight is what stops a
-  mid-letter "regards" or "love" being mistaken for the sign-off. Second GUARD: a line with more than
+- `gt-signoff-missing` (error, ≥ 100 words): no closing in the sign-off window. The window is the last
+  **2** non-empty lines — the standard shape, closing then signature — and keeping it tight is what
+  stops a mid-letter "regards" or "love" being mistaken for the sign-off. It is EXTENDED backwards,
+  to at most **4** lines, and only across trailing lines of **≤ 4 words**. That extension exists
+  because standard business layout puts a reference or enclosure line under the signature
+  ("Yours faithfully," / "Daniel Whitfield" / "Order reference 44718"); with a flat two-line window the
+  closing fell outside it, and a correctly formatted letter drew an ERROR worth −0.5 TA while the
+  pairing check — which needs both halves — went silent. gt-01's own bullet-1 keywords include
+  `receipt` and `order`, so this is not a rare shape. The extension is gated on line LENGTH rather
+  than on line count alone: the walk stops dead at the first paragraph, so however many lines the cap
+  allows, the window can never reach into the body. Second GUARD, unchanged: a line with more than
   four words left over after the match is prose, not a closing.
 - `gt-signoff-pairing` (error, inline on the closing): the matrix above is violated. **GUARD — fires
   only when BOTH a greeting and a closing were found.** With half the evidence the correct pairing is
@@ -597,8 +616,22 @@ Takes a `LetterPromptSpec`, so it is NOT a `RuleFn` — same reasoning as `task1
   that they failed it, which is the worst thing this app can output.**
 - `gt-purpose-missing` (warning, ≥ 100 words): no purpose marker (`I am writing to` · `I am writing
   regarding` · `I am writing in connection with` · `I would like to` · `I wish to` · `this letter is
-  to` · …) in the first **60** words of the body. Sixty is deliberately generous: a greeting on its own
-  line plus a short scene-setting sentence can legitimately reach word 40 before the purpose arrives.
+  to` · `I wanted to` · …) in the first **60** words of the body. Sixty is deliberately generous: a
+  greeting on its own line plus a short scene-setting sentence can legitimately reach word 40 before
+  the purpose arrives.
+  `I wanted to` and its neighbours (`I just wanted to`, `I thought I would/I'd`) are in the SHARED
+  list, not the informal one, because `gt-tone-mismatch` tells an informal writer to replace "I am
+  writing to express" with exactly "I wanted to tell you" — a learner who obeyed one rule was then
+  warned by another for obeying it, and two rules must never point in opposite directions. They are
+  tone-neutral anyway ("I wanted to enquire about the charge on my statement").
+  An INFORMAL letter additionally accepts a second, tone-scoped list: `you will never guess` ·
+  `guess what` · `I have some news` · `I have to tell you` · `let me tell you` · … A letter to a friend
+  states its purpose by ANNOUNCING it rather than by declaring an intention, and "You will never guess
+  what has happened" is as clear about why the letter exists as "I am writing to inform you". The list
+  is kept SEPARATE rather than merged, because none of it states a purpose in a formal letter — a
+  complaint that opens "Guess what" has not said why it is writing, and the rule must still say so.
+  `hasPurposeStatement(parts, tone?)` therefore takes the tone, and `letterStructure.ts` passes it too,
+  so the rail and the feedback panel cannot disagree about whether the purpose was stated.
 - `gt-tone-mismatch` (warning, inline, body only): register markers wrong for the tone, in BOTH
   directions. Formal/semi-formal → contractions, `hey`, `guys`, `mate`, `wanna`, `cheers`, `fed up`,
   `sort out`, exclamation marks. Informal → officialese: `henceforth`, `aforementioned`, `hereby`,
@@ -608,6 +641,20 @@ Takes a `LetterPromptSpec`, so it is NOT a `RuleFn` — same reasoning as `task1
   closing have their own rules — flagging "Hi Dave" twice would report one mistake as two. The overlap
   with `contraction` in a formal letter is DELIBERATE: the two say different things, one teaching the
   full form and one teaching that this letter has a register to hold.
+  Three details the rule depends on:
+  - **Both apostrophes.** The contraction alternation is BUILT from a list with `['’]` substituted for
+    `'`, exactly as `lexical.ts` builds its own. A hard-coded straight apostrophe flagged `can't` and
+    missed `can’t` — the macOS/iOS default — so the same learner making the same mistake got different
+    coaching depending on the keyboard.
+  - **`!` is owned HERE and nowhere else.** `informal-register` stands down for it in every letter (see
+    the tone guard below), so one exclamation mark is one issue and is charged to the LR register count
+    once. This is the same one-mistake-one-issue policy as the "Hi Dave" rule above.
+  - **`no problem` is the interjection only.** It is matched with a lookbehind (it must OPEN a
+    sentence) and a lookahead (it must END there), so "No problem, I will arrange it" is flagged while
+    "that will be no problem", "the delay poses no problem" and "no problem has arisen" — all perfectly
+    good formal English — are not. Boundaries rather than a word list, because the set of words that
+    may legitimately surround the noun-phrase reading is open-ended. Both are zero-width, so the
+    highlighted span and the message are unchanged for the reading the marker was written for.
 
 ### `analysis/rules/letterStructure.ts` — exports `buildLetterStructure(doc, prompt)`
 Paragraph roles: paragraph 0 = `introduction` (greeting plus purpose), all others = `body`. **Never
@@ -626,11 +673,23 @@ good letters. Balance compares paragraphs carrying NEITHER the greeting NOR the 
 tokenizer merges those fragments into the first and last paragraphs, and measuring a 60-word middle
 paragraph against a closing line plus a two-word signature would flag the correct shape as unbalanced.
 
+**Every letter constant is pinned by a test that fails when the constant moves.** `CLOSE_WORDS` 160 ·
+`OVER_WORDS` 220 · `SALUTATION_COMMA_WINDOW` 45 · `SIGNOFF_TRAILING_WORDS_MAX` 4 · the sign-off window
+(2 lines, extended to at most 4 across lines of ≤ 4 words) · `COMPLEX_TARGET` 4 · `BALANCE_GATE_WORDS`
+150 · the balance ratio 2×. They were all documented and none was exercised: each could be mutated to
+an absurd value (220 → 2200, 45 → 1, 150 → 15000) with the whole suite still green, which means the
+prose above was the only thing holding them. `tests/letters.test.ts` now names the mutation each test
+fails under, and the greeting/signature exclusion in `bulletCoverage` carries TWO keywords on each
+side of the body range, because with one the assertion passed whether or not the exclusion existed.
+
 ### `analysis/letterBandEstimate.ts` — exports `estimateLetterBand(partial, doc)`
 Imports the shared helpers from `bandEstimate.ts` rather than copying them, so the three estimators
 cannot drift apart arithmetically. CC, LR and GRA are scored as Academic Task 1, except the CC shape
 reward targets **3–5** paragraphs, and the LR register count includes `gt-tone-mismatch` alongside
-`informal-register` and `contraction`. Under **100** words → all criteria 4.0.
+`informal-register` and `contraction`. Because that count SUMS the three, no single span may appear in
+more than one of them unless the two messages teach different things — the `contraction` overlap is
+deliberate on those grounds, and `!` is owned by `gt-tone-mismatch` alone for want of them.
+Under **100** words → all criteria 4.0.
 TA (the 'TR' slot): `gt-word-count` error → cap 5.0 · `gt-bullet-uncovered` ≥ 1 → **cap 5.5** (an
 unanswered bullet is an unanswered part of the task, the weight `question-coverage` carries in Task 2)
 · `gt-salutation-missing` → −0.5 · `gt-signoff-missing` → −0.5 · `gt-signoff-pairing` → −0.5 ·
@@ -641,8 +700,9 @@ satisfied.
 ### The `lexical.ts` tone guard — the one tone-dependent branch in the engine
 
 `lexicalRules` takes an optional trailing `LetterTone`, exactly as `cohesionRules` takes an optional
-`TaskKind`. It is supplied ONLY by `analyzeLetter`. Two clauses stand down, and each is a case where
-the Task 2 rule gives actively WRONG advice about a letter:
+`TaskKind`. It is supplied ONLY by `analyzeLetter`, so the mere PRESENCE of a tone — at any register —
+is the signal "this answer is a letter, not an essay". FOUR clauses stand down, and each is a case
+where the Task 2 rule gives actively WRONG advice about a letter:
 
 1. **`contraction`, when the tone is `informal`.** "I can't wait to see you" is correct English at that
    register — an informal General Training letter is the one place in IELTS Writing where it is right.
@@ -652,11 +712,35 @@ the Task 2 rule gives actively WRONG advice about a letter:
    'individuals'" — is nonsense inside "I would be grateful if you could confirm". Measured against a
    correct 150-word formal complaint it fired four times. A letter ADDRESSES its reader; that is what a
    letter is for.
+3. **The rhetorical-question clause of `informal-register`, for EVERY letter tone.** The worst of the
+   four, because the engine was penalising exactly what the task ORDERED. General Training bullets say
+   "ask what your friend has been doing" (gt-13), "ask for advice about where to stay" and "ask what
+   you should see" (gt-15), "ask for the help you need" (gt-09) — and a formal letter asks too ("Could
+   you confirm which of these two options you are able to offer?"). A learner who complied was told
+   "Rhetorical questions weaken **academic tone** — turn this question into a statement"; a learner who
+   then complied with THAT lost the bullet to `gt-bullet-uncovered`, an ERROR capping Task Achievement
+   at 5.5, because the covering keywords live inside the question. No narrower guard is available:
+   nothing in the engine can tell a rhetorical question from the one the task demanded, and in a letter
+   the demanded one is the common case. The clause keeps its full force for Task 2 and Academic Task 1,
+   where a question genuinely is rhetorical. **Nothing replaces it for letters** — a letter is entitled
+   to ask, at every register.
+4. **The exclamation clause of `informal-register`, for EVERY letter tone.** Two reasons, one per
+   direction of the tone system, and both are false accusations. INFORMAL: `!` is correct in a letter
+   to a friend ("come and stay whenever you like!"), and the message is about a genre — academic
+   writing — the learner was not asked to produce. FORMAL/SEMI-FORMAL: `!` really is wrong, and
+   `gt-tone-mismatch` already says so, inline, on the SAME span, with the SAME fix ("end the sentence
+   with a full stop"), and naming the register this particular letter must hold. Both firing reported
+   ONE mistake as TWO in the panel and charged it TWICE in the band estimate, where the LR register
+   count sums `informal-register`, `contraction` and `gt-tone-mismatch`. `gt-tone-mismatch` owns `!`
+   inside a letter because it is the rule that knows which register the letter is being marked
+   against — the same one-mistake-one-issue policy `letterAchievement.ts` states for "Hi Dave".
+   (The `contraction` overlap in point 1's counterpart is different, and stays: those two messages
+   teach different things. These two said the same thing.)
 
 Nothing else in the module changes, and no other caller can be affected: `analyzeEssay` and
 `analyzeTask1` pass no tone and reach identical code. `tests/letters.test.ts` pins that directly by
-asserting both rules still fire for Task 2 and Academic Task 1 on a fixed input — the only way this
-guard can go wrong is by leaking, so that is what is tested.
+asserting all four clauses still fire for Task 2 and Academic Task 1 on a fixed input — the only way
+this guard can go wrong is by leaking, so that is what is tested.
 
 ### Engine and error profile
 `analyzeLetter(text, prompt)` in `analysis/engine.ts`, beside an UNCHANGED `analyzeEssay` and an

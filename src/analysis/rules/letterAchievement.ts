@@ -73,6 +73,33 @@ const PURPOSE_SCAN_WORDS = 60
 /** A sign-off line carries the closing plus, at most, a signature. */
 const SIGNOFF_TRAILING_WORDS_MAX = 4
 
+/**
+ * The sign-off search window, in non-empty lines counted back from the end.
+ *
+ * TWO is the standard shape — the closing, then the signature — and it is the
+ * window every letter gets for free. Keeping it tight is what stops a mid-letter
+ * "regards" or "love" from being mistaken for the closing.
+ *
+ * `MAX` is how far the window may be EXTENDED backwards, and it exists because
+ * standard business layout puts more than a name under the closing:
+ *
+ *     Yours faithfully,
+ *     Daniel Whitfield
+ *     Order reference 44718
+ *
+ * The extension is only ever taken across lines short enough to be part of that
+ * tail (`SIGNOFF_TAIL_WORDS_MAX`) — never across prose — so the window cannot
+ * reach into the body however many lines `MAX` allows.
+ */
+const SIGNOFF_TAIL_LINES_MIN = 2
+const SIGNOFF_TAIL_LINES_MAX = 4
+
+/**
+ * A trailing line this short is a signature, a reference number or an enclosure
+ * note, never a paragraph. It is the test the window extension is gated on.
+ */
+const SIGNOFF_TAIL_WORDS_MAX = 4
+
 /** How far into the first line a comma can sit and still end the greeting. */
 const SALUTATION_COMMA_WINDOW = 45
 
@@ -135,8 +162,30 @@ const SALUTATION_FORMS: readonly SalutationForm[] = [
     label: 'To whom it may concern',
   },
   {
+    // "Dear Sir and Madam" — the `and` variant of the row above. It sits here,
+    // ABOVE the two-name rows, because "Sir" and "Madam" are not names: read as
+    // `named-*` it would license "Yours sincerely" and reject the "Yours
+    // faithfully" this greeting actually calls for, turning a correct letter
+    // into a `gt-signoff-pairing` ERROR.
+    re: /^dear\s+sirs?\s+and\s+madams?[,.:!]?$/i,
+    kind: 'unnamed',
+    tones: ['formal'],
+    label: 'Dear Sir and Madam',
+  },
+  {
     // A title plus a surname: "Dear Mr Hughes", "Dear Dr. Ali", "Dear Ms Chen".
     re: /^dear\s+(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+[a-zà-ÿ][a-zà-ÿ'’-]*(?:\s+[a-zà-ÿ][a-zà-ÿ'’-]*)?[,.:!]?$/i,
+    kind: 'named-formal',
+    tones: ['formal', 'semi-formal'],
+    label: 'Dear Mr/Ms + surname',
+  },
+  {
+    // TWO titles sharing a surname: "Dear Mr and Mrs Hughes". A letter to a
+    // couple is ordinary General Training material (landlords, hosts, the
+    // neighbours you kept awake), and the single-title row above cannot match it
+    // — so without this row a learner who plainly wrote a greeting was told, by
+    // an ERROR, that they had not. Same kind and same tones as one title.
+    re: /^dear\s+(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+and\s+(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+[a-zà-ÿ][a-zà-ÿ'’-]*(?:\s+[a-zà-ÿ][a-zà-ÿ'’-]*)?[,.:!]?$/i,
     kind: 'named-formal',
     tones: ['formal', 'semi-formal'],
     label: 'Dear Mr/Ms + surname',
@@ -149,7 +198,26 @@ const SALUTATION_FORMS: readonly SalutationForm[] = [
     label: 'Dear + first name',
   },
   {
+    // TWO given names: "Dear Anna and Tom". The bare-name row above allows at
+    // most two tokens and no conjunction, so it read a perfectly good greeting to
+    // a couple as no greeting at all. Placed AFTER the bare-name row so nothing
+    // it already matched changes hands, and after the unnamed rows so "Dear Sir
+    // and Madam" is still `unnamed`.
+    re: /^dear\s+[a-zà-ÿ][a-zà-ÿ'’-]*\s+and\s+[a-zà-ÿ][a-zà-ÿ'’-]*[,.:!]?$/i,
+    kind: 'named-informal',
+    tones: ['semi-formal', 'informal'],
+    label: 'Dear + first name',
+  },
+  {
     re: /^(?:hi|hello|hey)\s+[a-zà-ÿ][a-zà-ÿ'’-]*[,.:!]?$/i,
+    kind: 'named-informal',
+    tones: ['informal'],
+    label: 'Hi/Hello + first name',
+  },
+  {
+    // "Hi Anna and Tom" — the two-name variant of the row above, for the same
+    // reason and with the same kind and tones.
+    re: /^(?:hi|hello|hey)\s+[a-zà-ÿ][a-zà-ÿ'’-]*\s+and\s+[a-zà-ÿ][a-zà-ÿ'’-]*[,.:!]?$/i,
     kind: 'named-informal',
     tones: ['informal'],
     label: 'Hi/Hello + first name',
@@ -213,6 +281,14 @@ const SALUTATION_KIND_DESCRIPTION: Record<SalutationKind, string> = {
 /**
  * Purpose markers. A strong letter states why it is being written in the opening
  * paragraph, and the phrasings that do it are a short closed set.
+ *
+ * `i wanted to` and its neighbours are in this shared list rather than the
+ * informal one below on purpose. They are the phrasings `OVERFORMAL_MARKERS`
+ * tells an informal writer to switch TO — "I am writing to express" → "I wanted
+ * to tell you" — and a learner who obeyed one rule then earned a warning from
+ * another for doing so. Two rules must not point in opposite directions. They
+ * are tone-neutral in any case: "I wanted to enquire about the charge on my
+ * statement" states a purpose in a letter to a bank just as plainly.
  */
 const PURPOSE_MARKERS: readonly string[] = [
   'i am writing to',
@@ -230,8 +306,73 @@ const PURPOSE_MARKERS: readonly string[] = [
   'this letter is to',
   'the purpose of this letter',
   'i am contacting you',
+  'i wanted to',
+  'i just wanted to',
+  'i thought i would',
+  "i thought i'd",
+  'i thought i’d',
 ]
-const PURPOSE_RE = new RegExp(`(${PURPOSE_MARKERS.map(escapeRegExp).join('|')})`, 'i')
+
+/**
+ * Purpose markers accepted ONLY in an informal letter.
+ *
+ * A letter to a friend announces its news rather than declaring an intention:
+ * "You will never guess what has happened" is exactly as clear about why the
+ * letter exists as "I am writing to inform you", and it is what the register
+ * asks for. Warning about a missing purpose there marks natural, correct English
+ * down for not sounding like a bank letter.
+ *
+ * Kept SEPARATE from the shared list rather than merged into it, because none of
+ * these states a purpose in a formal letter — a complaint to a shop that opens
+ * "Guess what" has not stated why it is writing, and `gt-purpose-missing` should
+ * still say so.
+ */
+const INFORMAL_PURPOSE_MARKERS: readonly string[] = [
+  'you will never guess',
+  "you'll never guess",
+  'you’ll never guess',
+  'guess what',
+  'i have some news',
+  'i have big news',
+  "i've got some news",
+  'i’ve got some news',
+  'i have to tell you',
+  'i must tell you',
+  'i had to tell you',
+  'let me tell you',
+  'i have news',
+]
+
+function purposeRe(markers: readonly string[]): RegExp {
+  return new RegExp(`(${markers.map(escapeRegExp).join('|')})`, 'i')
+}
+
+const PURPOSE_RE = purposeRe(PURPOSE_MARKERS)
+const INFORMAL_PURPOSE_RE = purposeRe([...PURPOSE_MARKERS, ...INFORMAL_PURPOSE_MARKERS])
+
+/**
+ * The contraction forms that are wrong in a formal or semi-formal letter.
+ *
+ * Written with a straight apostrophe and compiled with `['’]` in its place, the
+ * way `lexical.ts` builds its own contraction regex. A hard-coded `'` matched
+ * `can't` and missed `can’t` — and the curly form is what macOS and iOS type by
+ * default, so the same learner making the same mistake on a different keyboard
+ * got different coaching. Longest-first so no form is swallowed by a shorter one.
+ */
+const FORMAL_CONTRACTIONS: readonly string[] = [
+  "can't", "cannot've", "don't", "doesn't", "didn't", "won't", "wouldn't", "shouldn't",
+  "couldn't", "isn't", "aren't", "wasn't", "weren't", "hasn't", "haven't", "hadn't",
+  "i'm", "i've", "i'll", "i'd", "you're", "you've", "you'll", "you'd",
+  "we're", "we've", "we'll", "it's", "that's", "there's", "let's",
+]
+
+const CONTRACTION_RE = new RegExp(
+  `\\b(?:${[...FORMAL_CONTRACTIONS]
+    .sort((a, b) => b.length - a.length)
+    .map((form) => escapeRegExp(form).replace(/'/g, "['’]"))
+    .join('|')})\\b`,
+  'gi',
+)
 
 /**
  * Register markers that are wrong in a FORMAL or SEMI-FORMAL letter.
@@ -242,13 +383,37 @@ const PURPOSE_RE = new RegExp(`(${PURPOSE_MARKERS.map(escapeRegExp).join('|')})`
  * letter has a register to hold, which is the thing being marked in General
  * Training Task 1. In an INFORMAL letter neither fires — see the tone guard in
  * `lexical.ts` and the tone switch below.
+ *
+ * Exclamation marks are here and NOWHERE else. `informal-register` in
+ * `lexical.ts` used to report them too, on the same span with the same fix; it
+ * now stands down for every letter tone, so a single '!' is one issue and costs
+ * the band estimate once. See SPEC.md "The `lexical.ts` tone guard".
  */
 const FORMAL_VIOLATION_MARKERS: readonly { re: RegExp; fix: string }[] = [
-  { re: /\b(?:can't|cannot've|don't|doesn't|didn't|won't|wouldn't|shouldn't|couldn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|i'm|i've|i'll|i'd|you're|you've|you'll|you'd|we're|we've|we'll|it's|that's|there's|let's)\b/gi, fix: 'write the full form' },
+  { re: CONTRACTION_RE, fix: 'write the full form' },
   { re: /\b(?:hey|yo)\b/gi, fix: "start with 'Dear …'" },
   { re: /\b(?:guys|mate|mates|folks|buddy|pal)\b/gi, fix: "name the reader properly, or write 'colleagues'" },
   { re: /\b(?:wanna|gonna|gotta|kinda|sorta)\b/gi, fix: 'write it out in full' },
-  { re: /\b(?:cheers|thanks a lot|thanks a million|no worries|no problem)\b/gi, fix: "write 'thank you' or 'I would be grateful'" },
+  { re: /\b(?:cheers|thanks a lot|thanks a million|no worries)\b/gi, fix: "write 'thank you' or 'I would be grateful'" },
+  {
+    // 'no problem' is flagged ONLY in its INTERJECTION reading — a whole clause
+    // on its own, "No problem, I will arrange it." Everywhere else it is
+    // perfectly good formal English: "that will be no problem", "the delay poses
+    // no problem", "no problem has arisen with the replacement". Telling a
+    // learner that their correct formal sentence is slang is exactly the false
+    // accusation this module exists to avoid.
+    //
+    // Two boundaries do the work, because the set of words that may
+    // legitimately surround the noun-phrase reading is open-ended and a word
+    // list would never be complete:
+    //   - lookBEHIND: it must OPEN a sentence, so "that will be no problem" is
+    //     out of reach;
+    //   - lookAHEAD: it must END there, so the noun phrase — "no problem
+    //     arises", "no problem with the account" — is out of reach too.
+    // Both are zero-width, so the highlighted span stays on the phrase itself.
+    re: /(?<=^|[.!?]["'”’)\]]?\s)no problem(?=\s*[,.!?;:—–-]|$)/gim,
+    fix: "write 'thank you' or 'I would be grateful'",
+  },
   { re: /\b(?:awesome|cool|great stuff|super)\b/gi, fix: "use 'excellent' or 'very welcome'" },
   { re: /\b(?:fed up|sick of|a bit of a|pretty much|loads of|tons of)\b/gi, fix: 'state it plainly and formally' },
   { re: /\b(?:sort out|sort it out|check out|put up with)\b/gi, fix: "use a single formal verb ('resolve', 'examine', 'tolerate')" },
@@ -400,16 +565,52 @@ function matchSalutation(line: Line): FoundSalutation | null {
 }
 
 /**
- * The sign-off, searched in the last two non-empty lines.
+ * The lines the sign-off may be hiding in: the last two, extended backwards
+ * across any further SHORT trailing lines.
  *
- * Two lines is exactly the standard shape — "Yours faithfully," then the
- * signature — and keeping the window that tight is what stops a mid-letter
- * "regards" or "love" from being mistaken for the closing. The extra guard is
- * length: a closing line carries the closing and at most a name, so a line with
- * more than four words left over after the match is prose, not a sign-off.
+ * Two lines is the standard shape — "Yours faithfully," then the signature — and
+ * keeping the window tight is what stops a mid-letter "regards" or "love" from
+ * being mistaken for the closing.
+ *
+ * But two lines is not the whole of standard business layout, which puts a
+ * reference or an enclosure note under the signature:
+ *
+ *     Yours faithfully,
+ *     Daniel Whitfield
+ *     Order reference 44718
+ *
+ * With a flat two-line window the closing fell outside it, and a correctly
+ * formatted business letter was told by an ERROR (−0.5 Task Achievement) that it
+ * had no sign-off — while the pairing check, which needs both halves, went
+ * silent. It is not a rare shape either: gt-01's own bullet-1 keywords include
+ * `receipt` and `order`.
+ *
+ * The extension is deliberately not "look at more lines". It is taken ONLY
+ * across a line short enough to be part of the tail, so the walk stops dead at
+ * the first paragraph and the window can never reach the body — the tight-window
+ * guarantee is kept, and only the signature block is admitted.
+ */
+function signoffCandidates(lines: Line[]): Line[] {
+  let first = Math.max(0, lines.length - SIGNOFF_TAIL_LINES_MIN)
+  while (
+    first > 0 &&
+    lines.length - first < SIGNOFF_TAIL_LINES_MAX &&
+    wordsIn(lines[first - 1].text) <= SIGNOFF_TAIL_WORDS_MAX
+  ) {
+    first -= 1
+  }
+  return lines.slice(first)
+}
+
+/**
+ * The sign-off, searched in the window above.
+ *
+ * The second guard is length: a closing line carries the closing and at most a
+ * name, so a line with more than four words left over after the match is prose,
+ * not a sign-off.
  */
 function matchSignoff(lines: Line[], salutation: FoundSalutation | null): FoundSignoff | null {
-  const candidates = lines.slice(-2)
+  const candidates = signoffCandidates(lines)
   for (const line of candidates) {
     // The greeting is never also the sign-off. In a two-line draft ("Dear Anna,"
     // / "…") the greeting would otherwise fall inside the search window.
@@ -510,9 +711,16 @@ function openingText(parts: LetterParts): string {
   return parts.bodyText.slice(0, cut.index)
 }
 
-/** True when the opening says why the letter is being written. */
-export function hasPurposeStatement(parts: LetterParts): boolean {
-  return PURPOSE_RE.test(openingText(parts))
+/**
+ * True when the opening says why the letter is being written.
+ *
+ * `tone` widens the accepted phrasings for an informal letter only — see
+ * `INFORMAL_PURPOSE_MARKERS`. It is optional so a caller that has no tone to
+ * hand gets exactly the formal set, which is the stricter of the two.
+ */
+export function hasPurposeStatement(parts: LetterParts, tone?: LetterTone): boolean {
+  const re = tone === 'informal' ? INFORMAL_PURPOSE_RE : PURPOSE_RE
+  return re.test(openingText(parts))
 }
 
 /** True when a greeting and a sign-off were both found AND they pair correctly. */
@@ -637,9 +845,9 @@ function bulletRules(doc: TokenizedDoc, prompt: LetterPromptSpec, parts: LetterP
   })
 }
 
-function purposeRules(doc: TokenizedDoc, parts: LetterParts, out: Issue[]): void {
+function purposeRules(doc: TokenizedDoc, prompt: LetterPromptSpec, parts: LetterParts, out: Issue[]): void {
   if (doc.wordCount < LETTER_GATE_WORDS) return
-  if (hasPurposeStatement(parts)) return
+  if (hasPurposeStatement(parts, prompt.tone)) return
   out.push(
     mk(
       'gt-purpose-missing',
@@ -699,7 +907,7 @@ export function letterAchievementRules(doc: TokenizedDoc, prompt: LetterPromptSp
   salutationRules(doc, prompt, parts, issues)
   signoffRules(doc, parts, issues)
   bulletRules(doc, prompt, parts, issues)
-  purposeRules(doc, parts, issues)
+  purposeRules(doc, prompt, parts, issues)
   toneRules(prompt, parts, issues)
   return issues
 }

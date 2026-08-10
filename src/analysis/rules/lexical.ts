@@ -165,8 +165,9 @@ interface RegisterEntry {
   re: RegExp
   message: (f: Found) => string
   /**
-   * Marks the second-person clause, which is the only entry a letter has to
-   * stand down. See the tone guard in `registerIssues`.
+   * Marks the second-person clause — the only LEXICON entry a letter has to
+   * stand down. (The exclamation and rhetorical-question clauses stand down too,
+   * but they live outside this table.) See the tone guard in `registerIssues`.
    */
   addressesReader?: true
 }
@@ -246,14 +247,22 @@ const EXCLAMATION_RE = /!+/g
 const QUESTION_RE = /\?+/g
 
 function registerIssues(doc: TokenizedDoc, issues: Issue[], tone?: LetterTone): void {
+  // `tone` is supplied ONLY by `analyzeLetter`, so its mere presence — at ANY
+  // register — is the signal "this answer is a letter, not an essay". Three
+  // clauses below stand down on it, and each is a case where the Task 2 rule
+  // gives actively wrong advice about a letter. See SPEC.md "The `lexical.ts`
+  // tone guard".
+  const isLetter = tone !== undefined
+
   for (const entry of REGISTER_LEXICON) {
+    // STAND-DOWN 1 — the second-person clause, for EVERY letter tone.
     // A LETTER addresses its reader; that is what a letter is for. The
     // second-person clause exists because a Task 2 essay must argue
     // impersonally, and its fix ("write about 'people' or 'individuals'") is
     // actively wrong advice inside "I would be grateful if you could confirm".
     // Left in place it accuses a correct formal letter once per sentence, so it
     // stands down for every letter tone, not only the informal one.
-    if (entry.addressesReader && tone !== undefined) continue
+    if (entry.addressesReader && isLetter) continue
 
     for (const f of findAll(entry.re, doc.text)) {
       issues.push(issue('informal-register', 'warning', entry.message(f), f.start, f.end, doc))
@@ -261,20 +270,55 @@ function registerIssues(doc: TokenizedDoc, issues: Issue[], tone?: LetterTone): 
   }
 
   // '!' anywhere (one issue per run of !).
-  for (const f of findAll(EXCLAMATION_RE, doc.text)) {
-    issues.push(
-      issue(
-        'informal-register',
-        'warning',
-        'No exclamation marks in academic writing — end the sentence with a full stop.',
-        f.start,
-        f.end,
-        doc,
-      ),
-    )
+  //
+  // STAND-DOWN 2 — the exclamation clause, for EVERY letter tone. Two separate
+  // reasons, one per direction of the tone system, and both are false accusations:
+  //
+  //  - INFORMAL: '!' is correct English in a letter to a friend. "The spare room
+  //    is ready — come whenever you like!" is exactly the register the task asks
+  //    for, and this message ("No exclamation marks in ACADEMIC writing") is
+  //    about a genre the learner was not asked to write.
+  //  - FORMAL / SEMI-FORMAL: '!' really is wrong there, and `gt-tone-mismatch`
+  //    in `letterAchievement.ts` already says so — inline, on the same span,
+  //    with the same fix ("end the sentence with a full stop"), and naming the
+  //    register this particular letter has to hold. Leaving both in place
+  //    reported ONE mistake as TWO in the feedback panel and charged it twice in
+  //    the band estimate, where `letterBandEstimate.ts` counts `informal-register`
+  //    and `gt-tone-mismatch` into the same register total. That is the policy
+  //    `letterAchievement.ts` already states for "Hi Dave": one mistake, one
+  //    issue. `gt-tone-mismatch` owns '!' inside a letter because it is the rule
+  //    that knows which register this letter is being marked against.
+  if (!isLetter) {
+    for (const f of findAll(EXCLAMATION_RE, doc.text)) {
+      issues.push(
+        issue(
+          'informal-register',
+          'warning',
+          'No exclamation marks in academic writing — end the sentence with a full stop.',
+          f.start,
+          f.end,
+          doc,
+        ),
+      )
+    }
   }
 
   // '?' outside the first paragraph reads as a rhetorical question.
+  //
+  // STAND-DOWN 3 — the rhetorical-question clause, for EVERY letter tone. This
+  // is the one that mattered most, because the engine was penalising exactly
+  // what the task ORDERED. General Training bullets routinely say "ask what your
+  // friend has been doing" (gt-13), "ask for advice about where to stay" and
+  // "ask what you should see" (gt-15), "ask for the help you need" (gt-09) — and
+  // a formal letter asks too ("Could you confirm which option you can offer?").
+  // A learner who complied was told to turn the question into a statement; a
+  // learner who then complied with THAT lost the bullet to `gt-bullet-uncovered`,
+  // an ERROR that caps Task Achievement at 5.5. There is no narrower guard
+  // available: nothing here can tell a rhetorical question from the one the task
+  // demanded, and in a letter the demanded one is the common case. So the clause
+  // stands down for letters entirely and keeps its full force for Task 2 and
+  // Academic Task 1, where questions genuinely are rhetorical.
+  if (isLetter) return
   const firstParagraphEnd =
     doc.paragraphs.length > 0 ? doc.paragraphs[0].end : Number.POSITIVE_INFINITY
   for (const f of findAll(QUESTION_RE, doc.text)) {
