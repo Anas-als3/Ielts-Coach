@@ -303,11 +303,15 @@ describe('register is judged against the tone the prompt fixes', () => {
     "I can't pretend I have any confidence",
   )
 
-  it('flags a contraction in a formal letter', () => {
+  it('flags a contraction in a formal letter ONCE, as gt-tone-mismatch', () => {
+    // A contraction in a formal letter used to draw BOTH `gt-tone-mismatch` and
+    // the shared `contraction` rule on the same span — one mistake shown as two,
+    // and one about ACADEMIC writing, a genre the learner was not asked to
+    // produce. `gt-tone-mismatch` owns it now, because it is the rule that knows
+    // which register this letter is being marked against.
     const a = analyzeLetter(letter('Dear Sir or Madam,', WITH_CONTRACTION), FORMAL)
     expect(categories(a)).toContain('gt-tone-mismatch')
-    // The shared contraction rule still applies at this register too.
-    expect(categories(a)).toContain('contraction')
+    expect(categories(a)).not.toContain('contraction')
   })
 
   it('flags NOTHING for the same contraction in an informal letter', () => {
@@ -873,6 +877,29 @@ describe('015-e: "no problem" must not fire on the noun-phrase reading', () => {
       expect(messagesFor(a, 'gt-tone-mismatch'), clause).toEqual([])
     }
   })
+})
+
+describe('015-c: one mistake, one issue in a letter', () => {
+  // FALSE POSITIVE (duplicate): `gt-tone-mismatch` and the shared essay-register
+  // rules (`contraction`, `informal-register`) used to cover the same span, so
+  // one mistake showed up twice in the panel — once about academic writing, a
+  // genre the learner was not asked to produce — and was charged twice to the
+  // LR register count.
+  const CASES: Array<[string, string]> = [
+    ["can't", "I can't accept a further delay."],
+    ['guys', 'The guys came to inspect the machine.'],
+    ['gonna', 'We are not gonna wait another month.'],
+  ]
+
+  for (const [excerpt, sentence] of CASES) {
+    it(`flags '${excerpt}' exactly once, as gt-tone-mismatch`, () => {
+      const body = `${FORMAL_BODY} ${sentence}`
+      const a = analyzeLetter(letter('Dear Sir or Madam,', body), FORMAL)
+      const hits = a.issues.filter((i) => i.severity !== 'info' && i.excerpt === excerpt)
+      expect(hits, excerpt).toHaveLength(1)
+      expect(hits[0].category, excerpt).toBe('gt-tone-mismatch')
+    })
+  }
 })
 
 /* --------------------------------- the bank ----------------------------------- */

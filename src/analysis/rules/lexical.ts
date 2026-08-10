@@ -126,11 +126,19 @@ const CONTRACTION_RE = new RegExp(
 )
 
 function contractionIssues(doc: TokenizedDoc, issues: Issue[], tone?: LetterTone): void {
-  // Contractions are CORRECT at informal register. An informal General Training
-  // letter is the one place in IELTS Writing where "I can't wait to see you" is
-  // right, and flagging it would mark a correct answer down. Every other caller
-  // passes no tone and reaches the unchanged code below.
-  if (tone === 'informal') return
+  // STAND-DOWN — contractions, for EVERY letter tone. Two directions, both wrong
+  // to report here:
+  //  - INFORMAL: "I can't wait to see you" is correct English at that register.
+  //  - FORMAL / SEMI-FORMAL: it really is wrong, and `gt-tone-mismatch` already
+  //    says so — inline, on the SAME span, with the SAME fix ("write the full
+  //    form"), and naming the register THIS letter must hold. Both firing showed
+  //    one mistake as two in the panel and charged it twice to the LR register
+  //    count, which sums `informal-register`, `contraction` and
+  //    `gt-tone-mismatch` (letterBandEstimate.ts:219). This message is also
+  //    about ACADEMIC writing, a genre the learner was not asked to produce.
+  //    The severity drops from error to warning-only inside a letter; that is
+  //    the same trade '!' already took, and it is recorded in SPEC.md.
+  if (tone !== undefined) return
 
   for (const f of findAll(CONTRACTION_RE, doc.text)) {
     const key = f.text.toLowerCase().replace(/’/g, "'")
@@ -170,6 +178,13 @@ interface RegisterEntry {
    * but they live outside this table.) See the tone guard in `registerIssues`.
    */
   addressesReader?: true
+  /**
+   * Marks an entry whose span `gt-tone-mismatch` also covers in a letter
+   * (`letterAchievement.ts` FORMAL_VIOLATION_MARKERS carries `guys` and
+   * `gonna`/`wanna`). One mistake, one issue — see the tone guard in
+   * `registerIssues`.
+   */
+  ownedByToneRule?: true
 }
 
 // 'a lot of' / 'lots of' are handled by the vague-quantifier rule only, so one
@@ -193,10 +208,12 @@ const REGISTER_LEXICON: RegisterEntry[] = [
     re: /\b(?:gonna|wanna)\b/gi,
     message: (f) =>
       `'${f.text.toLowerCase()}' is spoken English — write '${f.text.toLowerCase() === 'gonna' ? 'going to' : 'want to'}'.`,
+    ownedByToneRule: true,
   },
   {
     re: /\bguys\b/gi,
     message: () => `'guys' is informal — use 'people' or 'individuals'.`,
+    ownedByToneRule: true,
   },
   {
     re: /\bok(?:ay)?\b/gi,
@@ -248,10 +265,12 @@ const QUESTION_RE = /\?+/g
 
 function registerIssues(doc: TokenizedDoc, issues: Issue[], tone?: LetterTone): void {
   // `tone` is supplied ONLY by `analyzeLetter`, so its mere presence — at ANY
-  // register — is the signal "this answer is a letter, not an essay". Three
-  // clauses below stand down on it, and each is a case where the Task 2 rule
-  // gives actively wrong advice about a letter. See SPEC.md "The `lexical.ts`
-  // tone guard".
+  // register — is the signal "this answer is a letter, not an essay". Four
+  // clauses below stand down on it: two because the Task 2 rule gives actively
+  // wrong advice about a letter (second-person address, rhetorical questions),
+  // and two because `gt-tone-mismatch` already owns the same span with the same
+  // fix (the exclamation clause below, and `guys`/`gonna`/`wanna` in the table
+  // above). See SPEC.md "The `lexical.ts` tone guard".
   const isLetter = tone !== undefined
 
   for (const entry of REGISTER_LEXICON) {
@@ -263,6 +282,13 @@ function registerIssues(doc: TokenizedDoc, issues: Issue[], tone?: LetterTone): 
     // Left in place it accuses a correct formal letter once per sentence, so it
     // stands down for every letter tone, not only the informal one.
     if (entry.addressesReader && isLetter) continue
+
+    // STAND-DOWN — entries `gt-tone-mismatch` already covers, for EVERY letter
+    // tone. `letterAchievement.ts` FORMAL_VIOLATION_MARKERS carries `guys` and
+    // `gonna`/`wanna` too, on the SAME span with the SAME fix. Left in place
+    // both fired, reporting one mistake as two and charging it twice to the LR
+    // register count (letterBandEstimate.ts:219).
+    if (entry.ownedByToneRule && isLetter) continue
 
     for (const f of findAll(entry.re, doc.text)) {
       issues.push(issue('informal-register', 'warning', entry.message(f), f.start, f.end, doc))
