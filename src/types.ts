@@ -416,6 +416,18 @@ export interface PromptPickerProps {
   onPick: (p: PromptSpec) => void;
 }
 
+export interface AppProps {
+  /**
+   * Initial Task 2 prompt. Production passes nothing and gets a random draw;
+   * tests pass a fixed prompt so `render(<App />)` is deterministic. Without
+   * this the UI suite drew a different question every run, and assertions that
+   * happened to be true for some draws failed for others.
+   */
+  initialPrompt?: PromptSpec;
+  /** Initial Task 1 prompt, for the same reason. */
+  initialTask1Prompt?: Task1PromptSpec;
+}
+
 export interface ModelAnswerProps {
   task: TaskKind;
   /** The active Task 2 prompt, when task is 'task2'. */

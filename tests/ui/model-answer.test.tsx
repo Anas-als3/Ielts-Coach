@@ -7,9 +7,9 @@
  * task on screen, and is honest when the example answers a different question.
  */
 import { describe, expect, it } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import App from '../../src/App'
+import { FALLBACK_PROMPT, LINE_CHART_PROMPT, renderApp } from './renderApp'
 import { TASK1_PROMPTS } from '../../src/prompts/task1Bank'
 
 function taskButton(name: 'Task 1' | 'Task 2'): HTMLElement {
@@ -27,7 +27,7 @@ async function openModelTab(user: ReturnType<typeof userEvent.setup>): Promise<v
 describe('the model answer tab', () => {
   it('is offered in coach mode for both tasks', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     expect(screen.getByRole('tab', { name: 'Model answer' })).toBeInTheDocument()
 
     await user.click(taskButton('Task 1'))
@@ -36,7 +36,7 @@ describe('the model answer tab', () => {
 
   it('is not reachable under exam conditions', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(modeButton('Exam'))
     // Handing over a finished answer mid-exam would defeat the exercise.
     expect(screen.queryByRole('tab', { name: 'Model answer' })).not.toBeInTheDocument()
@@ -44,19 +44,20 @@ describe('the model answer tab', () => {
 
   it('shows a Task 2 answer with the band the app itself gives it', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await openModelTab(user)
 
     expect(screen.getByText('A worked answer')).toBeInTheDocument()
     // The panel renders a curly apostrophe, so match around it.
     expect(screen.getByText(/scored by this app.s own engine/i)).toBeInTheDocument()
-    // Every stored answer is pinned at 8.0+ by tests/model-answers.test.ts.
-    expect(screen.getByText('8.0')).toBeInTheDocument()
+    // Scoped to the band element: a criterion tile can carry the same number,
+    // and an unscoped getByText then throws "found multiple elements".
+    expect(document.querySelector('.ma-band')?.textContent).toBe('8.0')
   })
 
   it('quotes real figures from the chart the learner is looking at', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     await user.selectOptions(screen.getByLabelText('Task 1 question'), 't1-01')
     await openModelTab(user)
@@ -72,7 +73,7 @@ describe('the model answer tab', () => {
 
   it('regenerates when the learner picks a different chart', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     await user.selectOptions(screen.getByLabelText('Task 1 question'), 't1-01')
     await openModelTab(user)
@@ -89,28 +90,32 @@ describe('the model answer tab', () => {
 
   it('warns against reusing the wording', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await openModelTab(user)
     expect(screen.getByText(/Read it for the method, not the wording/i)).toBeInTheDocument()
   })
 
-  it('says so when the example answers a different question of the same type', async () => {
+  it('shows no fallback notice when the answer was written for this question', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp() // seeded with op-01, which has an exact worked answer
     await openModelTab(user)
 
-    // The app opens on a random Task 2 prompt. Only op-01 has an exact answer,
-    // so the notice must appear for every other opinion prompt and never when
-    // the match is exact.
-    const notice = screen.queryByText(/answers a different question of the same type/i)
-    const isExactPrompt = document.body.textContent?.includes('university education should be free')
-    if (isExactPrompt) expect(notice).toBeNull()
-    else expect(notice).toBeInTheDocument()
+    expect(screen.queryByText(/answers a different question of the same type/i)).toBeNull()
+  })
+
+  it('says so when the example answers a different question of the same type', async () => {
+    const user = userEvent.setup()
+    renderApp({ initialPrompt: FALLBACK_PROMPT }) // op-05 has no exact answer
+    await openModelTab(user)
+
+    expect(
+      screen.getByText(/answers a different question of the same type/i),
+    ).toBeInTheDocument()
   })
 
   it('drops the cheat sheet tab but keeps the model tab in Task 1', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(screen.getByRole('tab', { name: 'Cheat sheet' }))
     await user.click(taskButton('Task 1'))
 

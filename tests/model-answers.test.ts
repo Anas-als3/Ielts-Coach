@@ -109,6 +109,25 @@ describe('every hand-written Task 2 answer passes the same engine', () => {
     })
   }
 
+  it('shows an answer scoring 8.0+ for EVERY prompt in the bank', () => {
+    // The panel offers a worked answer for all 40 prompts, falling back to the
+    // representative answer for the question type. Each must be graded against
+    // the prompt it was WRITTEN for — grading it against the learner's prompt
+    // marked the app's own exemplar down on 14 of 40. SPEC.md promises this
+    // cannot happen; until now nothing asserted it.
+    for (const prompt of PROMPTS) {
+      const m = task2ModelFor(prompt)
+      expect(m, prompt.id).not.toBeNull()
+      const source = PROMPTS.find((p) => p.id === m!.sourcePromptId)!
+      const analysis = analyzeEssay(m!.text, source)
+      expect(
+        analysis.band.overall,
+        `${prompt.id} -> ${m!.sourcePromptId}`,
+      ).toBeGreaterThanOrEqual(8)
+      expect(faults(analysis), `${prompt.id} -> ${m!.sourcePromptId}`).toEqual([])
+    }
+  })
+
   it('covers all five question types', () => {
     const covered = new Set(
       Object.keys(TASK2_MODELS).map((id) => PROMPTS.find((p) => p.id === id)?.type),

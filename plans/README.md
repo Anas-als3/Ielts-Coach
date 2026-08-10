@@ -21,7 +21,7 @@ sessions on the same plan.
 | 003 | Task 1 data model, prompt bank, SVG chart | P1 | M | 001 | DONE |
 | 004 | Task 1 analysis pipeline | P1 | L | 003 | DONE |
 | 005 | Wire Task 1 into the app | P1 | M | 004 | DONE |
-| **007** | **Deflake the UI suite; grade the worked answer against its own prompt** | **P0** | S | — | TODO |
+| **007** | **Deflake the UI suite; grade the worked answer against its own prompt** | **P0** | S | — | DONE |
 | **006** | **Stop the engine accusing correct English — five guards + golden corpus** | **P0** | M | — | TODO |
 | 014 | Make the error profile do something — the drill loop | P1 | M | 006 | TODO |
 | 008 | Academic / General Training module switch | P1 | M | — | TODO |

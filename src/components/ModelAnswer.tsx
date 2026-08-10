@@ -16,6 +16,7 @@ import { analyzeEssay, analyzeTask1 } from '../analysis/engine'
 import { buildTask1ModelAnswer } from '../answers/task1Model'
 import { task2ModelFor } from '../answers/task2Models'
 import { criterionLabel } from '../meta'
+import { PROMPTS } from '../prompts/bank'
 import type { Criterion } from '../types'
 import './ModelAnswer.css'
 
@@ -32,19 +33,29 @@ export default function ModelAnswer({ task, prompt, task1Prompt }: ModelAnswerPr
       return {
         text: buildTask1ModelAnswer(task1Prompt),
         exact: true,
+        // Generated from this very chart, so the source is always the prompt
+        // on screen.
+        sourcePrompt: null,
         sourceLabel: task1Prompt.chart.title,
       }
     }
     const m = task2ModelFor(prompt)
     if (!m) return null
-    return { text: m.text, exact: m.exact, sourceLabel: m.sourcePromptId }
+    // The prompt the answer was WRITTEN for, which is not always the one on
+    // screen — see `sourcePrompt` below.
+    const sourcePrompt = PROMPTS.find((p) => p.id === m.sourcePromptId) ?? prompt
+    return { text: m.text, exact: m.exact, sourcePrompt, sourceLabel: m.sourcePromptId }
   }, [task, prompt, task1Prompt])
 
   const analysis = useMemo(() => {
     if (!model) return null
-    return task === 'task1' && task1Prompt
-      ? analyzeTask1(model.text, task1Prompt)
-      : analyzeEssay(model.text, prompt)
+    if (task === 'task1' && task1Prompt) return analyzeTask1(model.text, task1Prompt)
+    // Graded against the prompt the answer was written for, never the one on
+    // screen. A fallback answer legitimately does not address the learner's
+    // question, and scoring it against that question made the app mark its own
+    // exemplar down on 14 of the 40 prompts — the exact failure SPEC.md's
+    // worked-answer section promises cannot happen.
+    return analyzeEssay(model.text, model.sourcePrompt)
   }, [model, task, prompt, task1Prompt])
 
   if (!model || !analysis) {

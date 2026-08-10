@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import type {
+  AppProps,
   Issue,
   IssueCategory,
   PromptSpec,
@@ -44,14 +45,16 @@ function countWords(text: string): number {
   return m ? m.length : 0
 }
 
-export default function App() {
+export default function App({ initialPrompt, initialTask1Prompt }: AppProps = {}) {
   const [view, setView] = useState<View>('write')
   const [mode, setMode] = useState<WritingMode>('coach')
   const [task, setTask] = useState<TaskKind>('task2')
-  const [prompt, setPrompt] = useState<PromptSpec | null>(() => randomPrompt())
+  const [prompt, setPrompt] = useState<PromptSpec | null>(() => initialPrompt ?? randomPrompt())
   // Two prompt slots rather than one union: switching task and switching back
   // should return the learner to the question they were already looking at.
-  const [task1Prompt, setTask1Prompt] = useState<Task1PromptSpec>(() => randomTask1Prompt())
+  const [task1Prompt, setTask1Prompt] = useState<Task1PromptSpec>(
+    () => initialTask1Prompt ?? randomTask1Prompt(),
+  )
   const [essayText, setEssayText] = useState('')
   const [sessions, setSessions] = useState<SessionRecord[]>(() => loadSessions())
   const [reportSessionId, setReportSessionId] = useState<string | null>(null)

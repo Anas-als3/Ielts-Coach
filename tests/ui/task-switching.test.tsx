@@ -10,9 +10,9 @@
  * engine and the rendered rail surfaces.
  */
 import { describe, expect, it } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import App from '../../src/App'
+import { FALLBACK_PROMPT, LINE_CHART_PROMPT, renderApp } from './renderApp'
 import { TASK1_PROMPTS } from '../../src/prompts/task1Bank'
 
 /* --------------------------------- helpers ---------------------------------- */
@@ -68,14 +68,14 @@ const PADDING = Array.from({ length: 130 }, (_, i) => {
 
 describe('the app opens on Task 2', () => {
   it('marks Task 2 active and keeps the 250-word target', () => {
-    render(<App />)
+    renderApp()
     expect(taskButton('Task 2')).toHaveClass('active')
     expect(taskButton('Task 1')).not.toHaveClass('active')
     expect(screen.getByTitle('Minimum 250 words')).toBeInTheDocument()
   })
 
   it('shows the Task 2 cheat sheet tab', () => {
-    render(<App />)
+    renderApp()
     expect(screen.getByRole('tab', { name: 'Cheat sheet' })).toBeInTheDocument()
   })
 })
@@ -83,7 +83,7 @@ describe('the app opens on Task 2', () => {
 describe('switching to Task 1', () => {
   it('renders the chart, retargets the word count and clears the sheet', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
 
     await type(user, 'A Task 2 essay in progress.')
     expect(sheet().value).not.toBe('')
@@ -98,14 +98,14 @@ describe('switching to Task 1', () => {
 
   it('hides the Task 2 cheat sheet', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     expect(screen.queryByRole('tab', { name: 'Cheat sheet' })).not.toBeInTheDocument()
   })
 
   it('shows no Conclusion group, because Task 1 has no conclusion', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     await settled()
 
@@ -120,7 +120,7 @@ describe('switching to Task 1', () => {
 describe('the overview check', () => {
   it('stays hollow without an overview and fills once one is written', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
 
     await type(user, `${PADDING}.`)
@@ -135,7 +135,7 @@ describe('the overview check', () => {
 describe('factual checking against the chart', () => {
   it('flags a figure the chart does not contain, and leaves a real one alone', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
 
     // Pin a data chart: the bank opens on a random prompt and the process
@@ -155,7 +155,7 @@ describe('factual checking against the chart', () => {
 describe('exam mode', () => {
   it('keeps the chart visible, because the chart is the question', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     await user.click(modeButton('Exam'))
 
@@ -165,7 +165,7 @@ describe('exam mode', () => {
 
   it('offers 20 minutes for Task 1 and 40 for Task 2', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
 
     await user.click(modeButton('Exam'))
     expect(screen.getByText(/40 minutes, no feedback/)).toBeInTheDocument()
@@ -176,7 +176,7 @@ describe('exam mode', () => {
 
   it('starts the Task 1 clock at 20:00', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     await user.click(modeButton('Exam'))
     await user.click(screen.getByRole('button', { name: 'Start the clock' }))
@@ -188,7 +188,7 @@ describe('exam mode', () => {
 describe('the report', () => {
   it('names Task Achievement and omits the position check', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     await type(user, `The chart shows information. Overall, values rose. ${PADDING}.`)
 
@@ -202,7 +202,7 @@ describe('the report', () => {
 
   it('names Task Response for a Task 2 essay', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await type(user, `I firmly believe this. ${PADDING}.`)
 
     await user.click(screen.getByRole('button', { name: 'Finish & review' }))
@@ -214,7 +214,7 @@ describe('the report', () => {
 describe('the progress table', () => {
   it('records which task each session answered', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
     await user.click(taskButton('Task 1'))
     await type(user, `The chart shows information. Overall, values rose. ${PADDING}.`)
     await user.click(screen.getByRole('button', { name: 'Finish & review' }))

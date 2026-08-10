@@ -397,6 +397,10 @@ learner a finished answer mid-exam defeats the exercise.
   ≥ 8.0. A model answer the engine would mark down is worse than none — the learner follows it and is
   then penalised for what it did. The panel shows that band and check count on screen, so the target
   is verifiable rather than asserted.
+- The panel grades the example against the prompt it was WRITTEN for (`sourcePromptId`), never the
+  one on screen. A fallback answer legitimately does not address the learner's question, and scoring
+  it against that question made the app mark its own exemplar down on 14 of the 40 prompts.
+  `tests/model-answers.test.ts` asserts 8.0+ for all 40 through that exact path.
 - The panel also warns against reusing the wording, since examiners discount memorised phrasing.
 
 ### UI
