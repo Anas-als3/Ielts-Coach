@@ -1618,3 +1618,53 @@ has risen" and "Support from **central government**" both draw a determiner sugg
 escape is deliberately conditioned on the noun being a verb's direct object, and widening it to bare
 nouns after a preposition would suppress genuine errors ("he walked to shop"). Out of scope for plan
 006; belongs in the corpus the day it is fixed.
+
+## Teaching content (plan 030)
+
+### Band descriptor paraphrases (`analysis/bandDescriptors.ts`)
+
+- 32 original strings: 4 criteria × bands 5–8 × {task2, task1}. The official
+  IELTS band descriptors are copyright of the IELTS partners; every string is
+  an original paraphrase and MUST stay one. Never paste official or prep-site
+  wording. `tests/bandDescriptors.test.ts` greps the strings for signature
+  official phrases as a tripwire.
+- The report tile's disclosure teaches `nextDescriptorBand(band)` =
+  clamp(floor(band)+1, 5, 8). No band-9 entry exists on purpose: a form-only
+  engine cannot say what moves 8 → 9.
+- The disclosure carries its own hedge ("Paraphrased guidance, not official
+  wording — and this engine checks form, not meaning"), adjacent to the claim,
+  matching the band hero's hedge.
+- The `TR` slot is one slot with two names (`criterionLabel`); the `task1`
+  strings serve both the Academic chart and the GT letter.
+
+### Task 1 study sheets (`components/ChartSheet.tsx`, `components/LetterSheet.tsx`)
+
+- The coach panel's sheet tab is now task-aware: Task 2 → the original cheat
+  sheet, Academic Task 1 → the chart sheet, GT Task 1 → the letter sheet. Tab
+  id and label are unchanged ('cheatsheet' / 'Cheat sheet').
+- The sheets teach only what the engine rewards, so the app never contradicts
+  itself: the letter sheet's pairing table mirrors `SIGNOFF_FORMS` licenses
+  ('Yours faithfully' ↔ unnamed reader only), states the two-keyword bullet
+  coverage rule and the 5.5 cap from `letterBandEstimate`; the chart sheet
+  restates the overview lever, the invented-figure rule and the
+  no-causes/no-conclusion shape from `CATEGORY_META`. If a rule constant
+  changes, the sheet copy is part of the change.
+- All copy is original prose (see the copyright rule under this section's
+  parent heading); both sheets end with a memorisation warning matching
+  `ModelAnswer.tsx`'s.
+
+### Question-type technique (`meta.ts` → `technique`)
+
+- `READING_TYPE_META` and `LISTENING_FORMAT_META` each carry a `technique`
+  string: an original 2–4 sentence method note per type/format, surfaced as a
+  disclosure on the per-type accuracy rows of the Reading and Listening
+  reports. The Record types make the field mandatory — a new question type
+  cannot ship without its technique.
+- Technique notes state only what the marking already enforces (e.g. the
+  completion note repeats `markAnswerKey`'s over-limit rule); they never
+  promise behaviour the engine does not have.
+- Listening's disclosure appears per row of `byFormat`, so only formats
+  present in the paper show one. All 13 strings are pinned by
+  `tests/technique-meta.test.ts`.
+- Future hook (plan 014): the drill loop can deep-link a technique disclosure
+  from a drill card. Nothing is built for that here.

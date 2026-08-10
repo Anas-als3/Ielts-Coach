@@ -268,6 +268,10 @@ export default function ListeningReport({
                 {entry.correct}/{entry.total}
               </span>
               <span className="lrp-format-pct mono">{percent(entry.accuracy)}%</span>
+              <details className="lrp-format-how">
+                <summary>How to attack it</summary>
+                <p>{LISTENING_FORMAT_META[entry.format].technique}</p>
+              </details>
             </li>
           ))}
         </ul>

@@ -259,41 +259,53 @@ export const TARGET_WORDS = TASK_CONSTANTS.task2.targetWords
  */
 export const READING_TYPE_META: Record<
   ReadingQuestionType,
-  { label: string; report: string; instruction: string }
+  { label: string; report: string; instruction: string; technique: string }
 > = {
   'true-false-notgiven': {
     label: 'True / False / Not Given',
     report: 'True / False / Not Given',
     instruction:
       'Do the following statements agree with the information given in the passage? Choose TRUE if the statement agrees, FALSE if it contradicts, and NOT GIVEN if there is no information about it.',
+    technique:
+      "Statements follow passage order, so find each one's territory before judging it. TRUE means the passage says the same thing in different words; FALSE means the passage states the opposite; NOT GIVEN means the passage takes no side — no evidence either way. Never answer from your own knowledge, and read extreme words (all, only, always) suspiciously: one of them can turn a nearly-true statement FALSE.",
   },
   'yes-no-notgiven': {
     label: 'Yes / No / Not Given',
     report: 'Yes / No / Not Given',
     instruction:
       "Do the following statements agree with the views of the writer? Choose YES if the statement agrees with the writer's views, NO if it contradicts them, and NOT GIVEN if it is impossible to say what the writer thinks.",
+    technique:
+      "Run the same three-way procedure as True/False, but judge against the writer's opinion, not the facts. A view the writer merely reports ('some researchers claim') is not the writer's own. If the writer never commits either way, the answer is NOT GIVEN, however plausible the statement sounds.",
   },
   'multiple-choice': {
     label: 'Multiple choice',
     report: 'Multiple choice',
     instruction: 'Choose the correct letter, A, B, C or D.',
+    technique:
+      "Read the stem and try to answer it from the passage before looking at the options. Wrong options usually recycle the passage's exact words with a twisted meaning, while the correct one paraphrases. Eliminate options that contradict or overreach the text rather than hunting for the one that sounds right.",
   },
   completion: {
     label: 'Completion',
     report: 'Completion',
     instruction: 'Complete the sentences below using words from the passage.',
+    technique:
+      'Read around each gap and predict what kind of word must fill it — a noun, a number, a name — before searching the passage. The answer is lifted from the passage exactly, so never change its form. Count words against the printed limit before moving on: an answer over the limit is marked wrong even when the content is right.',
   },
   'matching-headings': {
     label: 'Matching headings',
     report: 'Matching headings',
     instruction:
       'Choose the correct heading for each paragraph from the list below. There are more headings than paragraphs, so some will not be used.',
+    technique:
+      'Work by elimination: match the paragraphs you are sure of first and cross those headings out — the bank holds more headings than paragraphs, so every elimination shrinks the search. A heading must cover the paragraph\'s whole job, not echo one sentence; the trap headings quote a vivid detail.',
   },
   'matching-information': {
     label: 'Matching information',
     report: 'Matching information',
     instruction:
       'Which paragraph contains the following information? You may use any letter more than once.',
+    technique:
+      'These do not follow passage order, so scan rather than read forward. Decide what shape the information has — a reason, a figure, a comparison, an example — and scan each paragraph for that shape rather than for matching words. The same paragraph letter can be the answer more than once.',
   },
 }
 
@@ -323,15 +335,57 @@ export const READING_TYPE_META: Record<
  */
 export const LISTENING_FORMAT_META: Record<
   ListeningFormat,
-  { label: string; report: string; widget: 'text' | 'radio' | 'bank' }
+  { label: string; report: string; widget: 'text' | 'radio' | 'bank'; technique: string }
 > = {
-  'form-completion': { label: 'Form completion', report: 'Form completion', widget: 'text' },
-  'note-completion': { label: 'Note completion', report: 'Note completion', widget: 'text' },
-  'table-completion': { label: 'Table completion', report: 'Table completion', widget: 'text' },
-  'short-answer': { label: 'Short answer', report: 'Short answer', widget: 'text' },
-  'multiple-choice': { label: 'Multiple choice', report: 'Multiple choice', widget: 'radio' },
-  matching: { label: 'Matching', report: 'Matching', widget: 'bank' },
-  'map-labelling': { label: 'Plan labelling', report: 'Plan / map labelling', widget: 'bank' },
+  'form-completion': {
+    label: 'Form completion',
+    report: 'Form completion',
+    widget: 'text',
+    technique:
+      "Read the form before the audio starts and predict each gap's type: a name, a number, a date, a price. Answers arrive in order, and names and addresses are often spelled out letter by letter — write while you listen, not after. Keep to the printed word limit.",
+  },
+  'note-completion': {
+    label: 'Note completion',
+    report: 'Note completion',
+    widget: 'text',
+    technique:
+      "Use the notes' headings to track where the speaker is: when the talk moves on to the next heading, the gap you missed is gone. The words printed around a gap are paraphrased in the audio, so listen for the meaning arriving, not for the printed words.",
+  },
+  'table-completion': {
+    label: 'Table completion',
+    report: 'Table completion',
+    widget: 'text',
+    technique:
+      'Orient yourself before play: know what the rows and columns mean and where the gaps sit, because the recording walks the table in order. When a gap goes by, let it go — chasing a lost cell costs you the next one too.',
+  },
+  'short-answer': {
+    label: 'Short answer',
+    report: 'Short answer',
+    widget: 'text',
+    technique:
+      "Turn each question's content words into things to listen for, and predict the answer's type from the question word — 'where' expects a place, 'when' a time. The answer is usually spoken verbatim; write it within the word limit and move on.",
+  },
+  'multiple-choice': {
+    label: 'Multiple choice',
+    report: 'Multiple choice',
+    widget: 'radio',
+    technique:
+      "Read the options before the section plays — there is no time during it. Expect the recording to mention every option: the wrong ones get raised and then corrected or discarded, so the answer is the option left standing after words like 'actually' or 'instead'.",
+  },
+  matching: {
+    label: 'Matching',
+    report: 'Matching',
+    widget: 'bank',
+    technique:
+      'Read the bank of options first so each one is recognisable by meaning, not just wording. Speakers routinely raise one option and then reject it — the correction, not the first mention, is the answer. Cross off used options only if the instructions say each is used once.',
+  },
+  'map-labelling': {
+    label: 'Plan labelling',
+    report: 'Plan / map labelling',
+    widget: 'bank',
+    technique:
+      'Before the audio, orient the plan: find the entrance or starting point and any compass marks, then walk the route in your head as the speaker gives directions. The language to hold onto is relational — past, opposite, just beyond, on your left — and it flows without pause, so keep your pencil on your current position.',
+  },
 }
 
 /** Number words for the printed word limit. Limits above three do not occur. */
