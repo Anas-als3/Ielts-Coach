@@ -829,6 +829,16 @@ describe('backup when only SOME records fail validation', () => {
   it('does not mint a second backup of a payload it has already copied', () => {
     // Reads are pure, so the damaged payload is seen again on every render.
     // One backup per read would fill the quota holding the surviving essays.
+    //
+    // Fake timers PROVE the three reads below share a millisecond — without
+    // them, this assertion held whether or not `hasIdenticalBackup` existed
+    // (measured: 199 of 200 real-clock runs landed all three reads inside one
+    // millisecond), which is a vacuous test wearing a real one's assertion.
+    // 016-d makes colliding keys distinct, which is exactly what would turn
+    // this test from vacuous into actively wrong if it were not pinned here.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
     seed(5, [
       makeSession('good', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
       makeSession('damaged', '2026-01-02T10:00:00.000Z', { section: 'writing', analysis: undefined }),
@@ -839,6 +849,8 @@ describe('backup when only SOME records fail validation', () => {
     loadSessions()
 
     expect(backupKeys()).toHaveLength(1)
+
+    vi.useRealTimers()
   })
 
   it('backs nothing up when every record validates', () => {
@@ -1026,5 +1038,39 @@ describe('saveSession replaces a record with the same id', () => {
     const sessions = loadSessions()
     expect(sessions).toHaveLength(1)
     expect(sessions[0].section === 'writing' && sessions[0].essayText).toBe('The rewritten essay.')
+  })
+})
+
+/* -------------------- 016-d: colliding backup keys -------------------- */
+
+describe('016-d: the backup key no longer collides inside one millisecond', () => {
+  it('keeps all three backups when three different payloads are read on a frozen clock', () => {
+    // Reproduces the measured bug exactly: three DIFFERENT damaged payloads,
+    // read in sequence with the clock frozen to one millisecond, used to
+    // collapse into ONE key holding only the third — A and B were destroyed
+    // while the console said a copy had been kept for each.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    const payloadFor = (id: string) => ({
+      schemaVersion: 99, // unrecognised future version -> whole payload backed up
+      sessions: [makeSession(id, '2026-01-01T10:00:00.000Z')],
+    })
+
+    store.set(STORAGE_KEY, JSON.stringify(payloadFor('a')))
+    loadSessions()
+    store.set(STORAGE_KEY, JSON.stringify(payloadFor('b')))
+    loadSessions()
+    store.set(STORAGE_KEY, JSON.stringify(payloadFor('c')))
+    loadSessions()
+
+    const keys = backupKeys()
+    expect(keys).toHaveLength(3)
+    const recoveredIds = keys
+      .map((k) => JSON.parse(store.get(k) as string).sessions[0].id)
+      .sort()
+    expect(recoveredIds).toEqual(['a', 'b', 'c'])
+
+    vi.useRealTimers()
   })
 })

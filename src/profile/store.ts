@@ -336,6 +336,41 @@ function hasIdenticalBackup(raw: string): boolean {
 }
 
 /**
+ * A backup key that is not already taken.
+ *
+ * `toISOString()` has millisecond resolution and `setItem` overwrites, so two
+ * DIFFERENT payloads backed up inside the same millisecond used to collapse
+ * into one key — the first was destroyed while the console said a copy had been
+ * kept. Measured: three damaged payloads read in sequence on a frozen clock
+ * produced ONE key holding only the third. This module's contract is that
+ * nothing is ever destroyed without a recoverable copy; this was the line that
+ * broke it.
+ *
+ * The suffix is a counter rather than a random salt so the keys still sort by
+ * age as text, which is what the pruning added later relies on.
+ */
+function nextBackupKey(): string {
+  const stamp = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
+  if (window.localStorage.getItem(stamp) === null) return stamp
+  // Guard the loop with a small bound so a pathological store cannot spin
+  // forever. Exhausting it throws, which the caller (`backupRaw`) already
+  // treats as a best-effort failure — losing the backup is bad, but crashing
+  // the read or write that triggered it would be worse.
+  const BOUND = 1000
+  // Zero-padded to BOUND's own width: an UNPADDED counter sorts "-10" before
+  // "-9" as text, which would let a pruning step (added later) evict a NEWER
+  // same-millisecond backup while keeping an older one — the exact ordering
+  // bug this suffix scheme exists to avoid. Padding keeps every suffix in
+  // this function's range the same length, so text order stays numeric order.
+  const width = String(BOUND).length
+  for (let i = 1; i <= BOUND; i++) {
+    const key = `${stamp}-${String(i).padStart(width, '0')}`
+    if (window.localStorage.getItem(key) === null) return key
+  }
+  throw new Error(`IELTS Coach: could not find a free backup key after ${BOUND} attempts.`)
+}
+
+/**
  * Copy the raw stored string to a timestamped backup key. Used whenever this
  * build is about to lose sight of stored data — because it could not parse it,
  * could not migrate it, had to drop some of its records, or is replacing it
@@ -352,7 +387,7 @@ function hasIdenticalBackup(raw: string): boolean {
 function backupRaw(raw: string, reason: string): void {
   try {
     if (hasIdenticalBackup(raw)) return
-    const key = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
+    const key = nextBackupKey()
     window.localStorage.setItem(key, raw)
     console.warn(
       `IELTS Coach: ${reason} ` +
