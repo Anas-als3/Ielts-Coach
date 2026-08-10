@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+// Aliased: the plain name is the DOM's `KeyboardEvent`, which the
+// Cmd/Ctrl+Enter window listener below still uses.
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import './App.css'
 import type {
   AppProps,
@@ -54,6 +57,30 @@ type PanelTab = 'feedback' | 'cheatsheet' | 'model'
 type ReadingStage = 'picker' | 'running' | 'report'
 /** The same three places inside the Listening section. */
 type ListeningStage = 'picker' | 'running' | 'report'
+
+/** The coach panel's tabs and the labels they print, in printed order. */
+const PANEL_TAB_LABELS: Record<PanelTab, string> = {
+  feedback: 'Feedback',
+  cheatsheet: 'Cheat sheet',
+  model: 'Model answer',
+}
+
+/**
+ * The coach panel is a real ARIA tab pattern, not three buttons that look like
+ * tabs. `role="tab"` on its own announces "tab, selected" and names nothing
+ * that changed; WCAG 4.1.2 asks for the relationship between the tab and the
+ * content it swapped to be programmatically determinable, so each tab points at
+ * the panel it controls and the panel names the tab that labels it.
+ *
+ * One panel element, whose label follows the selection, because only the chosen
+ * tab's content is mounted — an `aria-controls` pointing at an element that is
+ * not in the document names nothing at all.
+ */
+const COACH_PANEL_ID = 'coach-panel'
+
+function panelTabId(tab: PanelTab): string {
+  return `panel-tab-${tab}`
+}
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value)
@@ -112,6 +139,8 @@ export default function App({
    */
   const [listeningPractice, setListeningPractice] = useState(false)
   const submittingRef = useRef(false)
+  // The coach tab buttons, so arrow keys can move focus with the selection.
+  const panelTabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({})
   const pacingRef = useRef<Array<{ t: number; words: number }>>([])
   const pasteAttemptsRef = useRef(0)
   const examDeadlineRef = useRef<number | null>(null)
@@ -556,7 +585,12 @@ export default function App({
 
   function handleDelete(id: string) {
     deleteSession(id)
-    setSessions((prev) => prev.filter((s) => s.id !== id))
+    // Re-read the store so in-memory state always matches persistence (cap,
+    // sort) — the same rule the other three mutations follow. Filtering the
+    // previous array instead reproduced the store's behaviour by hand, which
+    // is the one way the two can drift: `deleteSession` refuses a delete whose
+    // id it cannot find, and this used to remove the row anyway.
+    setSessions(loadSessions())
   }
 
   function handleStartPractice(_focus: IssueCategory | null) {
@@ -568,6 +602,40 @@ export default function App({
   }
 
   /* --------------------------------- render --------------------------------- */
+  // The cheat sheet teaches Task 2 specifically, so Task 1 is never offered it.
+  const panelTabsShown: PanelTab[] =
+    task === 'task2' ? ['feedback', 'cheatsheet', 'model'] : ['feedback', 'model']
+  /**
+   * The tab actually on screen. `panelTab` can name one that is not — Task 1
+   * hides the cheat sheet — and a panel labelled by a button that does not
+   * exist names nothing, so the fallback is resolved once here rather than
+   * re-derived at each place that reads it.
+   */
+  const activePanelTab: PanelTab = panelTabsShown.includes(panelTab) ? panelTab : 'feedback'
+
+  /**
+   * Arrow keys move between coach tabs, and focus moves with the selection.
+   *
+   * A tab strip is ONE tab stop, not one per tab: the roving `tabIndex` takes
+   * the unselected tabs out of the Tab order, so without these keys a keyboard
+   * user could not reach the model answer at all. Home and End jump to the
+   * ends, per the ARIA authoring practices.
+   */
+  function handlePanelTabKeys(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    const count = panelTabsShown.length
+    const here = panelTabsShown.indexOf(activePanelTab)
+    let next: number | null = null
+    if (event.key === 'ArrowRight') next = (here + 1) % count
+    else if (event.key === 'ArrowLeft') next = (here - 1 + count) % count
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = count - 1
+    if (next === null) return
+    event.preventDefault()
+    const tab = panelTabsShown[next]
+    setPanelTab(tab)
+    panelTabRefs.current[tab]?.focus()
+  }
+
   const reportSession = writingSessions.find((s) => s.id === reportSessionId) ?? null
   const previousSession = reportSession
     ? writingSessions.filter((s) => s.dateISO < reportSession.dateISO).slice(-1)[0] ?? null
@@ -592,10 +660,14 @@ export default function App({
           <span className="brand">
             IELTS <em>Coach</em>
           </span>
+          {/* `aria-current="page"` rather than `aria-pressed`: these are not
+              toggles but navigation, and the class that greys the other three
+              is otherwise the only statement of where the learner is. */}
           {!deskCleared && (
             <nav className="nav">
               <button
                 className={view === 'write' ? 'nav-link active' : 'nav-link'}
+                aria-current={view === 'write' ? 'page' : undefined}
                 onClick={() => {
                   submittingRef.current = false
                   setView('write')
@@ -605,18 +677,21 @@ export default function App({
               </button>
               <button
                 className={view === 'reading' ? 'nav-link active' : 'nav-link'}
+                aria-current={view === 'reading' ? 'page' : undefined}
                 onClick={openReading}
               >
                 Reading
               </button>
               <button
                 className={view === 'listening' ? 'nav-link active' : 'nav-link'}
+                aria-current={view === 'listening' ? 'page' : undefined}
                 onClick={openListening}
               >
                 Listening
               </button>
               <button
                 className={view === 'dashboard' ? 'nav-link active' : 'nav-link'}
+                aria-current={view === 'dashboard' ? 'page' : undefined}
                 onClick={() => setView('dashboard')}
               >
                 Progress
@@ -634,10 +709,23 @@ export default function App({
           <div className="topbar-right">
             {/* The exam type decides which papers exist AND which conversion
                 table marks them, so it belongs on screen wherever papers are
-                offered — not only on the writing desk. */}
+                offered — not only on the writing desk.
+
+                `aria-pressed` rather than a radiogroup, and the choice is the
+                same for every toggle in this app. A radio group is a VALUE
+                being chosen — it commits when the form does, it is one tab stop
+                with arrow keys inside, and it wants a submit. These buttons act
+                the instant they are pressed: pressing "General" swaps the
+                papers on screen and can throw up a confirm. Toggle buttons are
+                what that behaviour is, and each stays individually reachable by
+                Tab, which is how a segmented control of two is expected to
+                work. Without the attribute the navy fill was the ONLY statement
+                of which exam is live, and a non-sighted learner could not tell
+                which paper they were about to sit. */}
             <div className="mode-toggle module-toggle" role="group" aria-label="IELTS exam type">
               <button
                 className={module === 'academic' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={module === 'academic'}
                 onClick={() => switchModule('academic')}
                 title={MODULE_META.academic.blurb}
               >
@@ -645,6 +733,7 @@ export default function App({
               </button>
               <button
                 className={module === 'general' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={module === 'general'}
                 onClick={() => switchModule('general')}
                 title={MODULE_META.general.blurb}
               >
@@ -669,9 +758,12 @@ export default function App({
                 running={examState === 'running'}
               />
             )}
+            {/* Toggle buttons, for the reason given at the Reading section's
+                copy of this control. */}
             <div className="mode-toggle module-toggle" role="group" aria-label="IELTS exam type">
               <button
                 className={module === 'academic' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={module === 'academic'}
                 onClick={() => switchModule('academic')}
                 title={MODULE_META.academic.blurb}
               >
@@ -679,6 +771,7 @@ export default function App({
               </button>
               <button
                 className={module === 'general' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={module === 'general'}
                 onClick={() => switchModule('general')}
                 title={MODULE_META.general.blurb}
               >
@@ -688,12 +781,14 @@ export default function App({
             <div className="mode-toggle task-toggle" role="group" aria-label="IELTS task">
               <button
                 className={task === 'task1' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={task === 'task1'}
                 onClick={() => switchTask('task1')}
               >
                 Task 1
               </button>
               <button
                 className={task === 'task2' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={task === 'task2'}
                 onClick={() => switchTask('task2')}
               >
                 Task 2
@@ -702,12 +797,14 @@ export default function App({
             <div className="mode-toggle" role="group" aria-label="Writing mode">
               <button
                 className={mode === 'coach' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={mode === 'coach'}
                 onClick={() => switchMode('coach')}
               >
                 Coach
               </button>
               <button
                 className={mode === 'exam' ? 'mode-btn active' : 'mode-btn'}
+                aria-pressed={mode === 'exam'}
                 onClick={() => switchMode('exam')}
               >
                 Exam
@@ -884,52 +981,58 @@ export default function App({
               {/* The cheat sheet is Task 2 content. Rather than show a tab that
                   teaches the wrong task, Task 1 gets the feedback panel alone
                   until a Task 1 sheet is written. */}
-              <div className="panel-tabs" role="tablist" aria-label="Coach panel">
-                <button
-                  role="tab"
-                  aria-selected={panelTab === 'feedback'}
-                  className={panelTab === 'feedback' ? 'panel-tab active' : 'panel-tab'}
-                  onClick={() => setPanelTab('feedback')}
-                >
-                  Feedback
-                </button>
-                {/* The cheat sheet teaches Task 2 specifically. */}
-                {task === 'task2' && (
+              <div
+                className="panel-tabs"
+                role="tablist"
+                aria-label="Coach panel"
+                onKeyDown={handlePanelTabKeys}
+              >
+                {panelTabsShown.map((tab) => (
                   <button
+                    key={tab}
+                    ref={(el) => {
+                      panelTabRefs.current[tab] = el
+                    }}
+                    id={panelTabId(tab)}
                     role="tab"
-                    aria-selected={panelTab === 'cheatsheet'}
-                    className={panelTab === 'cheatsheet' ? 'panel-tab active' : 'panel-tab'}
-                    onClick={() => setPanelTab('cheatsheet')}
+                    aria-selected={activePanelTab === tab}
+                    aria-controls={COACH_PANEL_ID}
+                    // Roving tabindex: the strip is one tab stop, the arrows choose.
+                    tabIndex={activePanelTab === tab ? 0 : -1}
+                    className={activePanelTab === tab ? 'panel-tab active' : 'panel-tab'}
+                    onClick={() => setPanelTab(tab)}
                   >
-                    Cheat sheet
+                    {PANEL_TAB_LABELS[tab]}
                   </button>
-                )}
-                <button
-                  role="tab"
-                  aria-selected={panelTab === 'model'}
-                  className={panelTab === 'model' ? 'panel-tab active' : 'panel-tab'}
-                  onClick={() => setPanelTab('model')}
-                >
-                  Model answer
-                </button>
+                ))}
               </div>
-              {panelTab === 'cheatsheet' && task === 'task2' ? (
-                <CheatSheet />
-              ) : panelTab === 'model' ? (
-                <ModelAnswer
-                  task={task}
-                  prompt={prompt}
-                  task1Prompt={task === 'task1' && !isLetter ? task1Prompt : null}
-                  letterPrompt={isLetter ? letterPrompt : null}
-                />
-              ) : (
-                <FeedbackPanel
-                  analysis={analysis}
-                  profile={profile}
-                  onSelectIssue={handleSelectIssue}
-                  task={task}
-                />
-              )}
+              {/* The panel the tabs name. Wrapping rather than labelling the
+                  three components' own roots keeps the relationship stated in
+                  ONE place: a fourth tab cannot ship without a panel. */}
+              <div
+                className="panel-body"
+                role="tabpanel"
+                id={COACH_PANEL_ID}
+                aria-labelledby={panelTabId(activePanelTab)}
+              >
+                {activePanelTab === 'cheatsheet' ? (
+                  <CheatSheet />
+                ) : activePanelTab === 'model' ? (
+                  <ModelAnswer
+                    task={task}
+                    prompt={prompt}
+                    task1Prompt={task === 'task1' && !isLetter ? task1Prompt : null}
+                    letterPrompt={isLetter ? letterPrompt : null}
+                  />
+                ) : (
+                  <FeedbackPanel
+                    analysis={analysis}
+                    profile={profile}
+                    onSelectIssue={handleSelectIssue}
+                    task={task}
+                  />
+                )}
+              </div>
             </aside>
           )}
         </main>

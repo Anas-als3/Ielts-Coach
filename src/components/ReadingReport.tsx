@@ -254,15 +254,23 @@ export default function ReadingReport({
       <section className="rrp-review card" aria-label="Answer review">
         <div className="rrp-review-head">
           <h2 className="eyebrow">Answer review</h2>
+          {/* `aria-pressed`, as everywhere else in this app: the filter applies
+              the instant it is pressed rather than being a value committed with
+              a form. Without it the navy fill was the only statement of which
+              list is on screen, so a non-sighted learner reading forty rows
+              could not tell whether the twenty-seven right ones were being
+              hidden or had simply been answered wrong. */}
           <div className="rrp-filter" role="group" aria-label="Filter answers">
             <button
               className={filter === 'all' ? 'mode-btn active' : 'mode-btn'}
+              aria-pressed={filter === 'all'}
               onClick={() => setFilter('all')}
             >
               All {result.total}
             </button>
             <button
               className={filter === 'wrong' ? 'mode-btn active' : 'mode-btn'}
+              aria-pressed={filter === 'wrong'}
               onClick={() => setFilter('wrong')}
             >
               Wrong {wrongCount}

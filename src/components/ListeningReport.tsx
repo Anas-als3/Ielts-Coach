@@ -275,15 +275,19 @@ export default function ListeningReport({
       <section className="lrp-review card" aria-label="Answer review">
         <div className="lrp-review-head">
           <h2 className="eyebrow">Answer review</h2>
+          {/* Toggle buttons, for the reason the Reading report gives at its
+              copy of this control. */}
           <div className="lrp-filter" role="group" aria-label="Filter answers">
             <button
               className={filter === 'all' ? 'mode-btn active' : 'mode-btn'}
+              aria-pressed={filter === 'all'}
               onClick={() => setFilter('all')}
             >
               All {result.total}
             </button>
             <button
               className={filter === 'wrong' ? 'mode-btn active' : 'mode-btn'}
+              aria-pressed={filter === 'wrong'}
               onClick={() => setFilter('wrong')}
             >
               Wrong {wrongCount}
