@@ -31,6 +31,15 @@ type User = ReturnType<typeof userEvent.setup>
 
 const ACADEMIC_PAPER = 'Academic Reading Test 1'
 const GENERAL_PAPER = 'General Training Reading Test 1'
+const ACADEMIC_PAPER_2 = 'Academic Reading Test 2'
+const GENERAL_PAPER_2 = 'General Training Reading Test 2'
+
+/** The "Start this paper" button on one paper's card. Each module now lists
+ * more than one paper, so the button has to be found through its own card. */
+function startButtonFor(title: string): HTMLElement {
+  const card = screen.getByText(title).closest('.rdp-test') as HTMLElement
+  return within(card).getByRole('button', { name: 'Start this paper' })
+}
 
 function navLink(name: string): HTMLElement {
   return within(document.querySelector('.nav') as HTMLElement).getByText(name)
@@ -75,10 +84,10 @@ async function answerCorrectly(user: User, question: ReadingQuestion): Promise<v
   await answer(user, question, question.answers[0])
 }
 
-/** Open the Reading section and start the Academic paper. */
+/** Open the Reading section and start the first Academic paper. */
 async function startAcademicPaper(user: User): Promise<void> {
   await user.click(navLink('Reading'))
-  await user.click(screen.getByRole('button', { name: 'Start this paper' }))
+  await user.click(startButtonFor(ACADEMIC_PAPER))
   await screen.findByRole('tab', { name: /Reading Passage 1/ })
 }
 
@@ -89,17 +98,19 @@ function passageTab(name: string): HTMLElement {
 /* ------------------------------ paper selection ----------------------------- */
 
 describe('the Reading section offers only the active exam', () => {
-  it('lists the Academic paper and not the General Training one', async () => {
+  it('lists the Academic papers and not the General Training ones', async () => {
     const user = userEvent.setup()
     renderApp()
 
     await user.click(navLink('Reading'))
 
     expect(screen.getByText(ACADEMIC_PAPER)).toBeInTheDocument()
+    expect(screen.getByText(ACADEMIC_PAPER_2)).toBeInTheDocument()
     expect(screen.queryByText(GENERAL_PAPER)).not.toBeInTheDocument()
+    expect(screen.queryByText(GENERAL_PAPER_2)).not.toBeInTheDocument()
   })
 
-  it('swaps the paper when the learner switches exam type', async () => {
+  it('swaps the papers when the learner switches exam type', async () => {
     const user = userEvent.setup()
     renderApp()
     await user.click(navLink('Reading'))
@@ -107,9 +118,11 @@ describe('the Reading section offers only the active exam', () => {
     await user.click(moduleButton('General'))
 
     expect(screen.getByText(GENERAL_PAPER)).toBeInTheDocument()
-    // The Academic paper is structured differently and converts through a
-    // different table; offering it here would report the wrong band.
+    expect(screen.getByText(GENERAL_PAPER_2)).toBeInTheDocument()
+    // The Academic papers are structured differently and convert through a
+    // different table; offering one here would report the wrong band.
     expect(screen.queryByText(ACADEMIC_PAPER)).not.toBeInTheDocument()
+    expect(screen.queryByText(ACADEMIC_PAPER_2)).not.toBeInTheDocument()
   })
 
   it('does not destroy an essay in progress when the exam type changes', async () => {
@@ -251,8 +264,9 @@ describe('sitting a Reading paper', () => {
 
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(confirmSpy.mock.calls[0][0]).toMatch(/will not be saved/i)
-    // Back at the picker, with no result in the history list.
-    expect(screen.getByRole('button', { name: 'Start this paper' })).toBeInTheDocument()
+    // Back at the picker — one start button per Academic paper — with no
+    // result in the history list.
+    expect(screen.getAllByRole('button', { name: 'Start this paper' })).toHaveLength(2)
     expect(screen.queryByText(/Your Academic Reading results/i)).not.toBeInTheDocument()
   })
 })

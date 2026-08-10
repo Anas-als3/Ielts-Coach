@@ -88,7 +88,10 @@ function assertTabPattern(tablistName: string): HTMLElement {
 
 async function startReadingPaper(user: User): Promise<void> {
   await user.click(navLink('Reading'))
-  await user.click(screen.getByRole('button', { name: 'Start this paper' }))
+  // Each module now lists more than one paper, so the start button is found
+  // through the first paper's own card.
+  const card = screen.getByText('Academic Reading Test 1').closest('.rdp-test') as HTMLElement
+  await user.click(within(card).getByRole('button', { name: 'Start this paper' }))
   await screen.findByRole('tab', { name: /Reading Passage 1/ })
 }
 
