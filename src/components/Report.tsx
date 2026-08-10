@@ -5,7 +5,7 @@ import type {
   Issue,
   IssueCategory,
   ReportProps,
-  SessionRecord,
+  WritingSessionRecord,
 } from '../types'
 import { CATEGORY_META, criterionLabel } from '../meta'
 import './Report.css'
@@ -147,10 +147,10 @@ interface DeltaCell {
   badge: string
 }
 
-function buildDeltas(prev: SessionRecord, cur: SessionRecord): DeltaCell[] {
+function buildDeltas(prev: WritingSessionRecord, cur: WritingSessionRecord): DeltaCell[] {
   const cells: DeltaCell[] = []
 
-  const countSevere = (s: SessionRecord) =>
+  const countSevere = (s: WritingSessionRecord) =>
     s.analysis.issues.filter((i) => i.severity !== 'info').length
   const pe = countSevere(prev)
   const ce = countSevere(cur)
@@ -174,7 +174,7 @@ function buildDeltas(prev: SessionRecord, cur: SessionRecord): DeltaCell[] {
     badge: cSat === pSat ? 'no change' : cSat > pSat ? `${cSat - pSat} more` : `${pSat - cSat} fewer`,
   })
 
-  const pct = (s: SessionRecord) => {
+  const pct = (s: WritingSessionRecord) => {
     const ttr = s.analysis.stats.typeTokenRatio
     return Math.round((Number.isFinite(ttr) ? ttr : 0) * 100)
   }

@@ -1,0 +1,165 @@
+/* Reading section front door. Tokens from DESIGN.md; no --marking-red here —
+   nothing on this screen is an error. */
+
+.rdp {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.rdp-title {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.rdp-lead {
+  margin-top: 6px;
+  max-width: 66ch;
+  color: var(--ink-soft);
+}
+
+.rdp-exact {
+  margin-top: 10px;
+  max-width: 66ch;
+  padding-left: 12px;
+  border-left: 3px solid var(--ok-green);
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.55;
+}
+
+.rdp-scope {
+  margin-bottom: 10px;
+}
+
+.rdp-tests {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rdp-test {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+}
+
+.rdp-test-body {
+  min-width: 0;
+}
+
+/* The start button never wraps: "Start this / paper" over two lines reads as a
+   broken control rather than a deliberate one. */
+.rdp-test > .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.rdp-test-title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.rdp-test-meta {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.rdp-types {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rdp-types li {
+  padding: 2px 8px;
+  border: 1px solid var(--rule-line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.rdp-type-count {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.rdp-empty {
+  padding: 18px 20px;
+  max-width: 70ch;
+  color: var(--ink-soft);
+}
+
+/* -------------------------------------------------------------- history */
+.rdp-history {
+  padding: 16px 20px;
+}
+
+.rdp-history-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.rdp-history-row {
+  display: grid;
+  grid-template-columns: 46px 58px minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule-line);
+  font-size: 13.5px;
+}
+
+.rdp-history-row:first-child {
+  border-top: none;
+}
+
+.rdp-history-band {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--exam-navy);
+}
+
+.rdp-history-raw,
+.rdp-history-date {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.rdp-history-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .rdp-test {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .rdp-history-row {
+    grid-template-columns: 46px 58px minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+
+  .rdp-history-date {
+    display: none;
+  }
+}

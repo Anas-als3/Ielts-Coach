@@ -6,11 +6,16 @@ Contracts live in `src/types.ts` and `src/meta.ts` — code against them exactly
 ## Product
 
 Single-page React+TS app, one learner, IELTS Writing — Academic Task 1 and Task 2, plus General
-Training Task 1 (letters) and Task 2. Pure client-side,
+Training Task 1 (letters) and Task 2 — and IELTS **Reading**, both modules. Pure client-side,
 localStorage persistence, deterministic rule-based analysis (regex + word lists + arithmetic —
 no LLM, no server). Two modes: **Coach** (live inline feedback + structure rail + feedback panel)
 and **Exam** (40:00 countdown, zero feedback, paste blocked, full report at submit).
 The moat: IELTS-specific structural rules + a personal error profile tracked across sessions.
+
+Writing and Reading are scored on **different epistemic footings**, and the UI says so on every
+screen. A Writing band is a form-only estimate from a rule engine that cannot read meaning. A
+Reading band is an answer key plus a published conversion table — exactly right, with no hedging.
+See "Reading" below.
 
 ## Modules (Academic / General Training)
 
@@ -37,14 +42,19 @@ Consequences pinned here so no module re-derives them:
 - **`TASK_CONSTANTS` is NOT keyed by module.** General Training Task 1 allows the same 20 minutes and
   the same 150-word minimum as Academic Task 1; Task 2 is 40 minutes and 250 words in both. Only the
   task differs, never the clock.
-- **Storage is schemaVersion 3.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
-  because Academic was the only exam the app supported.
+- **Storage is schemaVersion 4.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
+  because Academic was the only exam the app supported; the v3 → v4 rung stamps `section: 'writing'`,
+  because Reading did not exist before it.
 - **The error profile is scoped by TASK and MODULE.** `categoryAppliesTo(category, task, module)` —
   `module` is optional and defaults to `'academic'`. It had to grow that dimension because Academic
   Task 1 (a chart description) and General Training Task 1 (a letter) share the id `'task1'` and share
   almost no rules, so `TaskKind` alone cannot say which of them a category belongs to.
 - **General Training Task 1 is a letter, and it is built.** Selecting General + Task 1 opens the letter
   sheet and routes analysis to `analyzeLetter`. See "General Training Task 1 (letters)" below.
+- **Reading is module-scoped absolutely.** `readingTestsForModule(module)` is the only way papers reach
+  the picker, and the band comes from the paper's OWN module, not from the topbar toggle. The two
+  exams' Reading papers are structured differently and converted by different tables; offering the
+  wrong one reports a band that is simply not the learner's.
 
 ## Canonical constants (single source of truth — no module invents its own)
 
@@ -210,17 +220,33 @@ criterion (`info` is advisory per the severity model and never blocks a reward).
 
 ### `profile/` (store.ts + profile.ts)
 localStorage key `ielts-coach.v1` (opaque; the version lives in the payload) →
-`{ schemaVersion: 3, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
-discarded: v1 → v2 stamps `task: 'task2'` on every record, v2 → v3 stamps `module: 'academic'`. The
-rungs are cumulative and apply in sequence, so a v1 store gains BOTH fields in one read; never reorder
-or collapse them. Anything this build cannot migrate (corrupt,
-or a newer version) is copied to `ielts-coach.backup.<ISO timestamp>` before the live key is replaced —
+`{ schemaVersion: 4, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
+discarded: v1 → v2 stamps `task: 'task2'` on every record, v2 → v3 stamps `module: 'academic'`,
+v3 → v4 stamps `section: 'writing'`. The rungs are cumulative and apply in sequence, so a v1 store
+gains ALL THREE fields in one read; never reorder or collapse them. Anything this build cannot
+migrate (corrupt, or a newer version — including v5, the version a newer build of this same app
+would write) is copied to `ielts-coach.backup.<ISO timestamp>` before the live key is replaced —
 a schemaVersion bump must never destroy a learner's history. Cap 200 sessions
 (drop oldest). `computeProfile`: per category, per-100-words rate per session; EWMA α = 0.35; trend from
 least-squares slope over last 6 sessions (improving < −0.05, worsening > 0.05); focusCategories = top 3 by
 EWMA × severity weight (error 3, warning 2, info 1), only when ≥ 2 sessions. `computeTrends`: per-session
 counts + per100Words for every category that ever fired. Export = JSON download of the whole store;
 import validates schemaVersion and replaces (confirm() before overwrite).
+
+**`SessionRecord` is a discriminated union on `section`** (schemaVersion 4): `WritingSessionRecord`
+carries the essay and its `Analysis`; `ReadingSessionRecord` carries `testId`, `testTitle`, the raw
+`answers` and a `ReadingResult`. A union rather than one record with every writing field made
+optional, because `analysis?` and `essayText?` would then propagate through the report, the dashboard
+and the profile, which read those fields on nearly every line. `isReadingSession` / `isWritingSession`
+in `types.ts` are the only narrowing anyone should use; both default a MISSING `section` to writing,
+so a record from a build between versions counts exactly as it did before Reading existed.
+
+**Both `computeProfile` and `computeTrends` drop Reading sessions before any arithmetic.** A Reading
+paper produces no `IssueCategory` at all, so to rate maths it is indistinguishable from a flawless
+essay: five Reading papers would pull every writing error rate towards zero and drag a real weakness
+out of the focus list. It is dropped from `totalSessions` too, which gates the focus list — a learner
+is not two sessions into their writing practice because they sat two Reading papers.
+`tests/profile-scoping.test.ts` pins it.
 
 ### `prompts/bank.ts`
 40 prompts (8 per question type), realistic Task 2 wording, topics spread across education, technology,
@@ -702,6 +728,144 @@ chart's subject nouns. The adapter also injects TASK1_MEASUREMENT_VOCABULARY (ce
 percentage, proportion, figure, chart, graph, table, period, year, total …) — a 180-word percentage
 description says "per cent" five or six times because there is no synonym, and the engine must not
 penalise a learner for describing a percentage chart in percentages.
+
+## Reading (both modules)
+
+Reading is the one section this app scores **exactly**. There is no natural-language analysis in it:
+a Reading test is an answer key, and a raw score becomes a band by table lookup. No heuristic, no
+false positive, no "form-only estimate" caveat. **The UI must state that the band is exact**, because
+a learner who has been told "estimate" on every Writing screen will otherwise discount this number
+too — and it is the only score in the app they can plan around.
+
+60 minutes, 40 questions, 3 sections, both modules. No transfer time (unlike Listening), so the clock
+is a single 60:00 countdown with no breaks. Every paper is worth 40 marks: no partial credit, and **no
+penalty for a wrong answer**, so a guess always beats a blank.
+
+### The conversion tables — CANONICAL DATA
+
+Both tables live in `src/reading/bandTable.ts` and are restated here. If IELTS revises them, those two
+places change together and nothing else does. `tests/reading-bands.test.ts` restates all 41 raw scores
+per module INDEPENDENTLY rather than deriving them from the table, so a mistyped boundary fails.
+
+| Band | Academic (raw/40) | General Training (raw/40) |
+|---|---|---|
+| 9.0 | 39–40 | 40 |
+| 8.5 | 37–38 | 39 |
+| 8.0 | 35–36 | 37–38 |
+| 7.5 | 33–34 | 36 |
+| 7.0 | 30–32 | 34–35 |
+| 6.5 | 27–29 | 32–33 |
+| 6.0 | 23–26 | 30–31 |
+| 5.5 | 19–22 | 27–29 |
+| 5.0 | 15–18 | 23–26 |
+| 4.5 | 13–14 | 19–22 |
+| 4.0 | 10–12 | 15–18 |
+
+General Training is markedly stricter — roughly **four more correct answers for the same band**. A
+candidate on 30/40 is a 7.0 in Academic and a 6.0 in General Training. Getting this wrong in either
+direction misleads a learner about their readiness, which is why the module is taken from the PAPER
+(`test.module`) and never from the topbar toggle.
+
+`rawToBand(raw, module)` is total: the raw score is clamped to 0–40 and rounded, a non-finite input is
+treated as 0, and a score **below the lowest printed row returns that row's band — the FLOOR, not an
+extrapolation**. Extrapolating would print a band 2.5 the published table never states, dressing a
+guess in the same authority the rest of the table earns. At that level the report leads on the raw
+score instead.
+
+Sources: [IELTS scoring in detail](https://www.ielts.org/take-a-test/your-results/ielts-scoring-in-detail)
+and the published raw-score conversion tables.
+
+### Marking rules (`src/marking/markAnswerKey.ts`)
+
+Deliberately in `src/marking/` rather than `src/reading/`: Listening (plan 011) is the same problem —
+a fixed key, a raw score, a conversion table — and will mark against this function with its own table.
+Nothing in it knows what a passage is.
+
+Applied leniencies, each the kind a human marker applies without thinking, and each visible in the
+result:
+
+- **case is ignored**;
+- leading/trailing space and internal whitespace runs are normalised;
+- edge punctuation and typographic quotes/dashes are normalised away (inner punctuation is kept, so
+  "don't" survives);
+- a leading article is optional on **completion answers only**, and only AFTER the word limit has been
+  checked, so it can never rescue an over-length answer.
+
+Unconditional, because this is how the real exam marks:
+
+- **a blank is never correct**, whatever the key says;
+- **over the word limit is wrong**, even when the content is right.
+
+**The marker never guesses at equivalence.** British and American spellings, plurals and genuine
+synonyms are accepted because the answer key LISTS them (`answers: ['car', 'automobile']`, canonical
+first) — not because the marker transforms them. An automatic -ise/-ize rewrite would be a rule the
+item-writer cannot see, and the first time it accepted something the real exam rejects, the band would
+stop meaning what it claims to mean.
+
+Word counting matches IELTS: whitespace separates words, so "well-being" and "1,500" are each ONE word.
+
+### Question types (v1 — the six that cover ~80% of a real paper)
+
+`ReadingQuestion` is a discriminated union on `type`, modelled on how `Task1Chart` handles `kind`.
+
+| Type | Answer shape | Widget |
+|---|---|---|
+| `true-false-notgiven` | TRUE / FALSE / NOT GIVEN | radio group |
+| `yes-no-notgiven` | YES / NO / NOT GIVEN | radio group |
+| `multiple-choice` | one of four | radio group, printed A–D |
+| `completion` | short text, `maxWords` enforced | text input + printed limit |
+| `matching-headings` | heading id per paragraph | select over the shared bank |
+| `matching-information` | paragraph letter per statement | select over the labels |
+
+Multiple choice stores the **option TEXT, never its letter**, so marking can never depend on the order
+options happen to be printed in and the answer key stays readable.
+
+`READING_TYPE_META` in `meta.ts` holds the learner-facing name and the printed instruction per type.
+The instruction belongs to the TYPE, not to the passage: an item-writer restating it per question
+would eventually restate it differently, and a learner practising against drifting instructions is
+practising the wrong thing. `wordLimitLabel(n)` prints the limit as the paper prints it — "NO MORE
+THAN THREE WORDS", not "max 3".
+
+### Content and licensing
+
+`src/reading/tests/` — one complete Academic paper and one complete General Training paper, 40
+questions each, every passage carrying a `ReadingPassageSource` with its description and licence.
+**No text is reproduced from any IELTS publisher.** Real passages and question sets are University of
+Cambridge (UCLES) copyright and cannot ship in an outward-facing app; the FORMAT is not copyrightable,
+so the papers follow the real structure with prose and questions written from scratch.
+`tests/reading-marking.test.ts` fails the build if any source is missing or blank, and asserts every
+key is non-empty, every multiple-choice key is one of its own options, and every completion key fits
+its own word limit — a key the learner cannot possibly satisfy is the content equivalent of a false
+accusation.
+
+The General Training paper is structured differently on purpose: `ReadingPassage.texts` is a LIST
+because GT Section 1 prints two or three short texts (adverts, notices, a timetable) where an Academic
+passage prints one.
+
+### UI
+
+- **`ReadingPicker`** — papers for the ACTIVE module only, each with its section/question/type
+  breakdown, plus that module's past results. States the exactness claim up front.
+- **`ReadingRunner`** — split pane, passage left and questions right, each scrolling independently;
+  passage tabs with a live answered count; 60:00 countdown reusing `Timer`. Questions are printed in
+  runs of consecutive same-type questions, one instruction per run, with a matching-headings bank
+  printed once above its set. Answers live in component state and are persisted **on submit only** —
+  a half-finished paper is not a session. The clock derives from a wall-clock deadline, not from tick
+  counting, for the same reason as the writing exam: browsers throttle intervals in hidden tabs. Time
+  up submits the paper as it stands. Sitting a paper clears the desk exactly as exam mode does.
+- **`ReadingReport`** — band + raw score, the sentence "This band is exact, not an estimate", the
+  published table row that produced it, how many more correct answers the next band needed, per-type
+  accuracy **weakest first**, and every question against the key with its explanation. Over-limit
+  answers say so explicitly, because it is otherwise the most baffling way to lose a mark.
+
+Per-type accuracy is the differentiator: "you lose Not Given, you are fine on matching headings" is
+actionable in a way an overall band is not. Types with fewer than 3 questions rank last however badly
+they went — one wrong out of two is noise, and leading the coaching with noise sends the learner to
+drill the wrong thing.
+
+`--marking-red` appears in the Reading UI only in the report, where a wrong answer against a published
+key genuinely is an examiner's-pen error. In the runner an over-length answer is **amber**: it is a
+warning while the paper is open and becomes an error only once it is marked.
 
 ## False positives (2026-08-10)
 

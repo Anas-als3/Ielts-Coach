@@ -1,0 +1,454 @@
+/* Reading answer sheet — passage left, questions right, one clock above both.
+   Tokens only (DESIGN.md); --marking-red never appears here, because nothing in
+   an unmarked paper is an error yet. An over-length answer is a WARNING while
+   the paper is open and becomes an error only in the report. */
+
+.rr {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* --------------------------------------------------------------- toolbar */
+/* Navy, continuing the cleared-desk topbar directly above it into one exam
+   bar — and required, not merely tidy: `Timer` draws white digits over a white
+   progress track, because it was built for the navy exam chrome. */
+.rr-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 20px 12px;
+  background: var(--exam-navy);
+  color: #fff;
+}
+
+/* The navy outline token is invisible on navy; focus must stay visible here. */
+.rr-toolbar button:focus-visible,
+.rr-toolbar [tabindex]:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.rr-toolbar .btn {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.rr-toolbar .btn:hover {
+  border-color: #fff;
+}
+
+/* Reversed out: the primary action has to be the brightest thing on the bar. */
+.rr-toolbar .btn-primary {
+  background: #fff;
+  border-color: #fff;
+  color: var(--exam-navy);
+}
+
+.rr-toolbar .btn-primary:hover {
+  background: #e6eaf2;
+  border-color: #e6eaf2;
+}
+
+.rr-toolbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rr-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rr-test-title {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.rr-progress {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* Passage tabs: the paper's own sections, with a live answered count so the
+   learner can see at a glance which section they have left half done. */
+.rr-tabs {
+  display: flex;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.rr-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.rr-tab:hover {
+  color: #fff;
+}
+
+.rr-tab.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.rr-tab-count {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* ----------------------------------------------------------------- panes */
+.rr-panes {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+}
+
+.rr-pane {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 60px;
+}
+
+.rr-pane-passage {
+  border-right: 1px solid var(--rule-line);
+  background: var(--sheet);
+}
+
+.rr-pane-questions {
+  background: var(--paper);
+}
+
+/* --------------------------------------------------------------- passage */
+.rr-passage {
+  max-width: 62ch;
+  margin: 0 auto;
+}
+
+.rr-passage-eyebrow {
+  margin-bottom: 10px;
+}
+
+.rr-text + .rr-text {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule-line);
+}
+
+.rr-text-title {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.rr-text-subtitle {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.rr-para {
+  position: relative;
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.62;
+  margin-top: 12px;
+  padding-left: 26px;
+}
+
+/* The paragraph letter a matching set points at, set in the margin so it reads
+   as the paper's printed label rather than as part of the sentence. */
+.rr-para-label {
+  position: absolute;
+  left: 0;
+  top: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.rr-source {
+  margin-top: 28px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule-line);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------- questions */
+.rr-group + .rr-group {
+  margin-top: 30px;
+}
+
+.rr-group-head {
+  margin-bottom: 14px;
+}
+
+.rr-group-range {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.rr-group-instruction {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.rr-headings {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.rr-headings-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 14px;
+}
+
+.rr-headings-list li {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+  line-height: 1.45;
+}
+
+.rr-heading-id {
+  flex: none;
+  min-width: 3ch;
+  color: var(--ink-soft);
+  font-size: 12px;
+  padding-top: 2px;
+}
+
+.rr-q-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rr-q {
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  background: var(--sheet);
+  padding: 12px 14px;
+  margin: 0;
+}
+
+/* fieldset needs its browser defaults cleared before the card above applies */
+fieldset.rr-q {
+  min-width: 0;
+}
+
+.rr-q-prompt {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+/* A <legend> sits IN the fieldset's top border by default, cutting the card's
+   outline in half. Floating it makes it behave as an ordinary block while
+   staying a real legend, which is what names the radio group for a screen
+   reader — the reason these are fieldsets rather than divs. */
+legend.rr-q-prompt {
+  float: left;
+  width: 100%;
+}
+
+legend.rr-q-prompt + * {
+  clear: both;
+}
+
+.rr-qnum {
+  display: inline-block;
+  min-width: 2.4ch;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.rr-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 10px;
+}
+
+.rr-choices-stacked {
+  flex-direction: column;
+  gap: 7px;
+}
+
+.rr-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.rr-choice input {
+  margin: 0;
+  accent-color: var(--exam-navy);
+  cursor: pointer;
+  flex: none;
+  align-self: center;
+}
+
+.rr-choice-letter {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  flex: none;
+}
+
+.rr-completion-field {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.rr-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 6px 9px;
+}
+
+.rr-input:focus-visible {
+  outline: 2px solid var(--exam-navy);
+  outline-offset: 1px;
+}
+
+.rr-input-over {
+  border-bottom-color: var(--marking-amber);
+  background: var(--wash-amber);
+}
+
+.rr-limit {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.rr-limit-over {
+  color: var(--marking-amber);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.rr-select {
+  margin-top: 10px;
+  width: 100%;
+  max-width: 100%;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.rr-select:focus-visible {
+  outline: 2px solid var(--exam-navy);
+  outline-offset: 1px;
+}
+
+.rr-empty {
+  color: var(--ink-soft);
+}
+
+.rr-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------ responsive */
+/* Under ~900px the split pane stops being a split pane: two half-width columns
+   of serif prose are unreadable long before the viewport runs out.
+ *
+ * The panes stop being a grid entirely rather than becoming a one-column one.
+ * A grid with a definite height and `min-height: 0` items lets a row size
+ * SMALLER than its content, and the passage then paints straight over the
+ * questions below it. One ordinary block flow, with the whole runner as the
+ * single scroll container, cannot do that. The toolbar sticks so the clock and
+ * the submit button stay reachable from anywhere in a 2,200-word passage. */
+@media (max-width: 900px) {
+  .rr {
+    overflow-y: auto;
+  }
+
+  .rr-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    align-items: flex-start;
+  }
+
+  .rr-panes {
+    display: block;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .rr-pane {
+    overflow-y: visible;
+    min-height: 0;
+    padding-bottom: 26px;
+  }
+
+  .rr-pane-passage {
+    border-right: none;
+    border-bottom: 1px solid var(--rule-line);
+  }
+}

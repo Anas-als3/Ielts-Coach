@@ -1,8 +1,12 @@
-# IELTS Coach — Writing Task 2
+# IELTS Coach — Writing and Reading
 
-A single-page web app that coaches one learner through IELTS Writing.
+A single-page web app that coaches one learner through IELTS Writing and Reading.
 Not a grammar checker — an **examiner's eye**: IELTS-specific structural rules plus a
 personal error profile tracked across every essay you write, so improvement is visible.
+
+Two sections, scored on two different footings, and the app never blurs them. A **Writing**
+band is a form-only estimate from rules that read shape, not meaning. A **Reading** band is
+an answer key and a published conversion table — exactly right, and labelled as such.
 
 ## Both exams
 
@@ -49,6 +53,30 @@ and the app keeps a separate question for each so switching exams does not lose 
 Band estimates are always shown as a range, labeled "rule-based estimate — not an examiner",
 with the exact drivers listed per criterion.
 
+## Reading — the one score that is exactly right
+
+60 minutes, 40 questions, three sections, both exams. The passage is on the left and its
+questions on the right, each scrolling on its own, with a 60:00 countdown that submits for
+you when it runs out. Six question types are supported: True/False/Not Given, Yes/No/Not
+Given, multiple choice, sentence completion (the word limit is printed, and going over it is
+marked wrong exactly as in the real exam), matching headings and matching information.
+
+**The Reading band is exact, not an estimate.** There is no heuristic anywhere in it: your
+answers are marked against a key and the raw score is converted by the published table. The
+report says so in as many words, and quotes the table row that produced your band. The two
+exams convert differently, and the gap is large — 30 out of 40 is a band 7.0 in Academic and
+a band 6.0 in General Training, roughly four more correct answers for the same band — so you
+are only ever offered your own exam's papers, and each is marked with its own table.
+
+The most useful part of the report is **accuracy by question type**, weakest first. "You lose
+Not Given, you are fine on matching headings" tells you what to practise on Tuesday; an overall
+band only tells you where you stand. Every question is then shown against the key, with where
+the answer was found, and a filter to show only the ones you got wrong.
+
+The papers are original: real IELTS passages are University of Cambridge copyright and cannot
+ship in an app, so every passage here is prose written for this project, with its source and
+licence recorded in the file.
+
 ## The error profile
 
 Every session stores per-category error rates (per 100 words). A recency-weighted average
@@ -56,6 +84,11 @@ Every session stores per-category error rates (per 100 words). A recency-weighte
 slope of your recent sessions. The Progress page shows your band trend (exam sessions
 emphasised), focus-area sparklines, and the full session history. Data lives in
 localStorage — export/import it as JSON from the Progress page.
+
+Reading sessions are saved alongside your essays but are deliberately **excluded** from the
+writing error profile. A Reading paper produces no writing errors, so counting it would read
+as a flawless essay and quietly dilute every rate you are trying to bring down. Your Reading
+results have their own history list in the Reading section.
 
 Since patch v2 (calibrated against a real human-marked Band-6 essay) the engine also catches
 sentence-mechanics errors: missing articles (token-walk over ~40 countable nouns), agreement
@@ -105,5 +138,13 @@ React 18 + TypeScript (strict) + Vite. No runtime dependencies beyond React.
 - `src/prompts/bank.ts` — 40 Task 2 prompts with coverage metadata and the exam each suits
 - `src/prompts/task1Bank.ts` — 12 Academic Task 1 charts, carried as data rather than images
 - `src/prompts/letterBank.ts` — 15 General Training letters, five per tone
+- `src/reading/` — Reading contracts, both raw-score→band conversion tables, and the
+  authored papers (one per exam, 40 questions each, sources and licences in each file header)
+- `src/marking/markAnswerKey.ts` — answer-key marking, shared with Listening when it lands
 - `src/components/` — Editor (mirror-overlay highlighting), StructureRail, FeedbackPanel,
-  Timer, Report, Dashboard
+  Timer, Report, Dashboard, ReadingPicker, ReadingRunner, ReadingReport
+
+Saved data is `schemaVersion 4`. Every version is migrated forward on read and never
+discarded — a store written by the very first build climbs all three rungs in a single read —
+and anything this build cannot understand is copied to a timestamped backup key before the
+live one is touched.

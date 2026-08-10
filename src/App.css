@@ -261,6 +261,18 @@
   color: var(--ink-soft);
 }
 
+/* --------------------------------------------------------- reading runner */
+/* The runner is full-bleed and manages its own scrolling, unlike `.page`: the
+   passage and the questions scroll INDEPENDENTLY, which is the whole point of
+   a split pane. A shared page scroll would move the passage out of sight the
+   moment the learner reached question 8. */
+.reading-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 /* ----------------------------------------------------------------- pages */
 .page {
   flex: 1;

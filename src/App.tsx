@@ -7,11 +7,15 @@ import type {
   LetterPromptSpec,
   Module,
   PromptSpec,
+  ReadingSessionRecord,
   SessionRecord,
   Task1PromptSpec,
   TaskKind,
   WritingMode,
+  WritingSessionRecord,
 } from './types'
+import { isReadingSession, isWritingSession } from './types'
+import type { ReadingAnswers } from './reading/types'
 import { MODULE_META, TASK_CONSTANTS } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
@@ -19,6 +23,8 @@ import { computeProfile, computeTrends } from './profile/profile'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
+import { readingTestById, readingTestsForModule } from './reading/tests'
+import { markAnswerKey } from './marking/markAnswerKey'
 import Chart from './components/Chart'
 import Editor from './components/Editor'
 import StructureRail from './components/StructureRail'
@@ -29,10 +35,15 @@ import Dashboard from './components/Dashboard'
 import PromptPicker from './components/PromptPicker'
 import CheatSheet from './components/CheatSheet'
 import ModelAnswer from './components/ModelAnswer'
+import ReadingRunner from './components/ReadingRunner'
+import ReadingReport from './components/ReadingReport'
+import ReadingPicker from './components/ReadingPicker'
 
-type View = 'write' | 'report' | 'dashboard'
+type View = 'write' | 'report' | 'dashboard' | 'reading'
 type ExamState = 'idle' | 'running'
 type PanelTab = 'feedback' | 'cheatsheet' | 'model'
+/** Where the learner is inside the Reading section: choosing, sitting, reviewing. */
+type ReadingStage = 'picker' | 'running' | 'report'
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value)
@@ -73,6 +84,9 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
   const [examState, setExamState] = useState<ExamState>('idle')
   const [examSecondsLeft, setExamSecondsLeft] = useState(TASK_CONSTANTS.task2.examDurationSec)
   const [panelTab, setPanelTab] = useState<PanelTab>('feedback')
+  const [readingStage, setReadingStage] = useState<ReadingStage>('picker')
+  const [readingTestId, setReadingTestId] = useState<string | null>(null)
+  const [readingSessionId, setReadingSessionId] = useState<string | null>(null)
   const submittingRef = useRef(false)
   const pacingRef = useRef<Array<{ t: number; words: number }>>([])
   const pasteAttemptsRef = useRef(0)
@@ -103,6 +117,37 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
   const profile = useMemo(() => computeProfile(sessions), [sessions])
   const trends = useMemo(() => computeTrends(sessions), [sessions])
   const liveWordCount = countWords(essayText)
+
+  /* --------------------------------- reading -------------------------------- */
+  // Only the ACTIVE exam's papers, ever. The two modules' papers are structured
+  // differently and — the part that would actually mislead a learner — are
+  // converted by different tables, so offering the wrong one would report a
+  // band that is simply not theirs.
+  const readingTests = useMemo(() => readingTestsForModule(module), [module])
+  const readingTest = useMemo(
+    () => (readingTestId === null ? null : readingTestById(readingTestId)),
+    [readingTestId],
+  )
+  // The Writing views read `analysis`, `essayText` and `task` on nearly every
+  // line, so they are handed the writing sessions only; Reading has its own
+  // report and its own history list below the paper picker.
+  const writingSessions = useMemo<WritingSessionRecord[]>(
+    () => sessions.filter(isWritingSession),
+    [sessions],
+  )
+  const readingHistory = useMemo<ReadingSessionRecord[]>(
+    () =>
+      sessions
+        .filter(isReadingSession)
+        .filter((s) => s.module === module)
+        .slice()
+        .reverse(),
+    [sessions, module],
+  )
+  const readingSession = useMemo<ReadingSessionRecord | null>(
+    () => sessions.filter(isReadingSession).find((s) => s.id === readingSessionId) ?? null,
+    [sessions, readingSessionId],
+  )
 
   /* ------------------------------- exam timer ------------------------------- */
   // The countdown derives from a wall-clock deadline, not tick counting:
@@ -201,7 +246,11 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
         ? analyzeTask1(essayText, task1Prompt)
         : analyzeEssay(essayText, prompt)
     const activeSpec = isLetter ? letterPrompt : task === 'task1' ? task1Prompt : prompt
-    const record: SessionRecord = {
+    const record: WritingSessionRecord = {
+      // schemaVersion 4's discriminator, stated at the point of creation rather
+      // than left to the migration: only records written by an older build are
+      // the migration's business.
+      section: 'writing',
       id: makeId(),
       dateISO: new Date().toISOString(),
       mode,
@@ -244,7 +293,7 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
     setView('write')
   }
 
-  function handleRedraft(session: SessionRecord) {
+  function handleRedraft(session: WritingSessionRecord) {
     submittingRef.current = false
     examDeadlineRef.current = null
     setTask(session.task)
@@ -289,25 +338,84 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
 
   function switchModule(next: Module) {
     if (next === module) return
-    if (mode === 'exam' && examState === 'running') {
+    // A running WRITING exam is only abandoned with consent. A running READING
+    // test cannot reach here at all: the runner clears the chrome for its
+    // duration, so this control is off screen until the paper is submitted.
+    if (view === 'write' && mode === 'exam' && examState === 'running') {
       const leave = window.confirm(
         'The exam clock is running. Switch exam type and abandon this attempt?',
       )
       if (!leave) return
     }
-    submittingRef.current = false
-    examDeadlineRef.current = null
     setModule(next)
-    // Task 1 is a different task in the two exams, so an answer written for one
-    // cannot be marked against the other.
-    setEssayText('')
-    setExamState('idle')
-    setFocusIssueId(null)
     // A prompt the new exam does not ask disappears from the picker, so leaving
     // it selected would strand the learner on a question they cannot see listed.
     // Prompts that suit both exams — the majority — survive the switch, which is
     // why the seeded test prompt stays put and the UI suite stays deterministic.
     setPrompt((current) => (current && suitsModule(current, next) ? current : randomPrompt(next)))
+    // The answer sheet is cleared only when the learner is looking at it. Task 1
+    // is a different task in the two exams, so an answer written for one cannot
+    // be marked against the other — but switching exam from the READING section
+    // must not silently destroy an essay in progress on the writing desk.
+    if (view !== 'write') return
+    submittingRef.current = false
+    examDeadlineRef.current = null
+    setEssayText('')
+    setExamState('idle')
+    setFocusIssueId(null)
+  }
+
+  /* --------------------------------- reading -------------------------------- */
+
+  function openReading() {
+    setView('reading')
+    // A stale report from a previous sitting is not what "Reading" means; the
+    // section always opens on the list of papers unless a paper is being sat.
+    if (readingStage === 'report') setReadingStage('picker')
+  }
+
+  function startReadingTest(testId: string) {
+    setReadingTestId(testId)
+    setReadingSessionId(null)
+    setReadingStage('running')
+  }
+
+  /**
+   * Persist a sat paper. The ONLY place a Reading session is written — the
+   * runner holds answers in memory until this is called, so an abandoned
+   * attempt leaves no band in the learner's history.
+   */
+  function handleReadingSubmit(answers: ReadingAnswers, durationSec: number) {
+    const test = readingTest
+    if (test === null) {
+      setReadingStage('picker')
+      return
+    }
+    const record: ReadingSessionRecord = {
+      section: 'reading',
+      id: makeId(),
+      dateISO: new Date().toISOString(),
+      // Taken from the TEST, not from the app's current toggle: the paper was
+      // marked against its own module's table, and a learner who flips the
+      // toggle afterwards must not have their band relabelled.
+      module: test.module,
+      testId: test.id,
+      testTitle: test.title,
+      answers,
+      result: markAnswerKey(test, answers),
+      durationSec,
+    }
+    saveSession(record)
+    // Re-read the store so in-memory state always matches persistence (cap, sort).
+    setSessions(loadSessions())
+    setReadingSessionId(record.id)
+    setReadingStage('report')
+  }
+
+  function openReadingSession(session: ReadingSessionRecord) {
+    setReadingTestId(session.testId)
+    setReadingSessionId(session.id)
+    setReadingStage('report')
   }
 
   function switchMode(next: WritingMode) {
@@ -345,23 +453,28 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
   }
 
   /* --------------------------------- render --------------------------------- */
-  const reportSession = sessions.find((s) => s.id === reportSessionId) ?? null
+  const reportSession = writingSessions.find((s) => s.id === reportSessionId) ?? null
   const previousSession = reportSession
-    ? sessions.filter((s) => s.dateISO < reportSession.dateISO).slice(-1)[0] ?? null
+    ? writingSessions.filter((s) => s.dateISO < reportSession.dateISO).slice(-1)[0] ?? null
     : null
 
   const inExam = mode === 'exam' && view === 'write'
+  // A Reading paper is exam conditions by definition — there is no coach mode
+  // for an answer key — so sitting one clears the desk exactly as exam mode
+  // does for writing: no navigation, no exam-type toggle, just the paper.
+  const inReadingTest = view === 'reading' && readingStage === 'running'
+  const deskCleared = inExam || inReadingTest
   const inlineIssues =
     mode === 'coach' && analysis ? analysis.issues.filter((i) => i.start != null) : []
 
   return (
-    <div className={`app${inExam ? ' app-exam' : ''}`}>
+    <div className={`app${deskCleared ? ' app-exam' : ''}`}>
       <header className="topbar">
         <div className="topbar-left">
           <span className="brand">
             IELTS <em>Coach</em>
           </span>
-          {!inExam && (
+          {!deskCleared && (
             <nav className="nav">
               <button
                 className={view === 'write' ? 'nav-link active' : 'nav-link'}
@@ -373,6 +486,12 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
                 Write
               </button>
               <button
+                className={view === 'reading' ? 'nav-link active' : 'nav-link'}
+                onClick={openReading}
+              >
+                Reading
+              </button>
+              <button
                 className={view === 'dashboard' ? 'nav-link active' : 'nav-link'}
                 onClick={() => setView('dashboard')}
               >
@@ -381,6 +500,30 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
             </nav>
           )}
         </div>
+
+        {view === 'reading' && !inReadingTest && (
+          <div className="topbar-right">
+            {/* The exam type decides which papers exist AND which conversion
+                table marks them, so it belongs on screen wherever papers are
+                offered — not only on the writing desk. */}
+            <div className="mode-toggle module-toggle" role="group" aria-label="IELTS exam type">
+              <button
+                className={module === 'academic' ? 'mode-btn active' : 'mode-btn'}
+                onClick={() => switchModule('academic')}
+                title={MODULE_META.academic.blurb}
+              >
+                Academic
+              </button>
+              <button
+                className={module === 'general' ? 'mode-btn active' : 'mode-btn'}
+                onClick={() => switchModule('general')}
+                title={MODULE_META.general.blurb}
+              >
+                General
+              </button>
+            </div>
+          </div>
+        )}
 
         {view === 'write' && (
           <div className="topbar-right">
@@ -676,10 +819,46 @@ export default function App({ initialPrompt, initialTask1Prompt, initialLetterPr
         </main>
       )}
 
+      {view === 'reading' && readingStage === 'running' && readingTest !== null && (
+        <main className="reading-main">
+          <ReadingRunner
+            test={readingTest}
+            onSubmit={handleReadingSubmit}
+            onExit={() => setReadingStage('picker')}
+          />
+        </main>
+      )}
+
+      {view === 'reading' && readingStage === 'report' && readingSession !== null && (
+        <main className="page">
+          <ReadingReport
+            session={readingSession}
+            test={readingTestById(readingSession.testId)}
+            onRetake={() => startReadingTest(readingSession.testId)}
+            onPickAnother={() => setReadingStage('picker')}
+          />
+        </main>
+      )}
+
+      {view === 'reading' &&
+        (readingStage === 'picker' ||
+          (readingStage === 'running' && readingTest === null) ||
+          (readingStage === 'report' && readingSession === null)) && (
+          <main className="page">
+            <ReadingPicker
+              module={module}
+              tests={readingTests}
+              history={readingHistory}
+              onStart={startReadingTest}
+              onOpen={openReadingSession}
+            />
+          </main>
+        )}
+
       {view === 'dashboard' && (
         <main className="page">
           <Dashboard
-            sessions={sessions}
+            sessions={writingSessions}
             profile={profile}
             trends={trends}
             onOpenSession={(id) => {

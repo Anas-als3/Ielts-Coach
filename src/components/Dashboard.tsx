@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react'
 import type { ChangeEvent } from 'react'
-import type { DashboardProps, IssueCategory, SessionRecord, Severity } from '../types'
+import type { DashboardProps, IssueCategory, Severity, WritingSessionRecord } from '../types'
 import { CATEGORY_META, MODULE_META, QUESTION_TYPE_META } from '../meta'
 import { TASK1_PROMPTS } from '../prompts/task1Bank'
 import './Dashboard.css'
@@ -27,7 +27,7 @@ const SEV_CLASS: Record<Severity, string> = {
 }
 
 /** Most frequent category at the session's highest severity, or null. */
-function topIssue(session: SessionRecord): { label: string; severity: Severity } | null {
+function topIssue(session: WritingSessionRecord): { label: string; severity: Severity } | null {
   const issues = session.analysis?.issues ?? []
   if (issues.length === 0) return null
   let bestSev: Severity = issues[0].severity
@@ -51,7 +51,7 @@ function topIssue(session: SessionRecord): { label: string; severity: Severity }
 }
 
 /** The chart kind a Task 1 session answered, resolved from the bank by prompt id. */
-function task1KindOf(s: SessionRecord): string {
+function task1KindOf(s: WritingSessionRecord): string {
   return TASK1_PROMPTS.find((p) => p.id === s.promptId)?.chart.kind ?? 'chart'
 }
 
@@ -61,7 +61,7 @@ const CHART_W = 680
 const CHART_H = 240
 const PAD = { top: 16, right: 58, bottom: 32, left: 40 }
 
-function BandTrendChart({ sessions }: { sessions: SessionRecord[] }) {
+function BandTrendChart({ sessions }: { sessions: WritingSessionRecord[] }) {
   const innerW = CHART_W - PAD.left - PAD.right
   const innerH = CHART_H - PAD.top - PAD.bottom
 
@@ -246,7 +246,7 @@ export default function Dashboard({
     }
   }
 
-  function confirmDelete(session: SessionRecord) {
+  function confirmDelete(session: WritingSessionRecord) {
     const when = fmtDate(session.dateISO, true)
     const ok = window.confirm(
       `Delete the essay from ${when}? It will be removed from your history and error profile.`,

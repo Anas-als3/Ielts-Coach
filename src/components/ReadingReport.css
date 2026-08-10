@@ -1,0 +1,344 @@
+/* Reading review screen. Tokens from DESIGN.md.
+
+   --marking-red IS correct here and only here in the Reading UI: a wrong answer
+   against a published key is an error in the examiner's-pen sense, not a
+   heuristic suspicion. --ok-green marks the ones that were right. */
+
+.rr-report {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------------------------------------------------------------- header */
+.rrp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.rrp-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ hero */
+.rrp-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  padding: 22px 24px;
+}
+
+.rrp-hero-figures {
+  text-align: center;
+  padding-right: 26px;
+  border-right: 1px solid var(--rule-line);
+}
+
+.rrp-band {
+  font-size: 54px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--exam-navy);
+}
+
+.rrp-raw {
+  margin-top: 8px;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.rrp-hero-copy {
+  min-width: 0;
+}
+
+/* The one claim this screen exists to make. */
+.rrp-exact {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.rrp-exact-why {
+  margin-top: 6px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 62ch;
+}
+
+.rrp-table-row {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.rrp-scale {
+  position: relative;
+  margin-top: 18px;
+  max-width: 420px;
+}
+
+.rrp-scale-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--rule-line);
+}
+
+.rrp-scale-marker {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 14px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--exam-navy);
+}
+
+.rrp-scale-ticks {
+  position: relative;
+  height: 16px;
+  margin-top: 4px;
+}
+
+.rrp-scale-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+
+/* --------------------------------------------------------- type accuracy */
+.rrp-types,
+.rrp-review {
+  padding: 18px 22px;
+}
+
+.rrp-types-lead {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 70ch;
+}
+
+.rrp-type-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rrp-type {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) 52px 44px;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.rrp-type-label {
+  color: var(--ink);
+}
+
+.rrp-type-bar {
+  height: 7px;
+  border-radius: 4px;
+  background: var(--rule-line);
+  overflow: hidden;
+}
+
+.rrp-type-fill {
+  display: block;
+  height: 100%;
+  background: var(--exam-navy);
+  border-radius: 4px;
+}
+
+.rrp-type-score,
+.rrp-type-pct {
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- review */
+.rrp-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.rrp-filter {
+  display: flex;
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.rrp-muted {
+  margin-top: 12px;
+  color: var(--ink-soft);
+}
+
+.rrp-answers {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rrp-answer {
+  border: 1px solid var(--rule-line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 10px 14px;
+}
+
+.rrp-answer-right {
+  border-left-color: var(--ok-green);
+}
+
+.rrp-answer-wrong {
+  border-left-color: var(--marking-red);
+}
+
+.rrp-answer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.rrp-answer-num {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  min-width: 2.4ch;
+}
+
+.rrp-answer-mark {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rrp-answer-right .rrp-answer-mark {
+  color: var(--ok-green);
+}
+
+.rrp-answer-wrong .rrp-answer-mark {
+  color: var(--marking-red);
+}
+
+.rrp-answer-type {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.rrp-answer-prompt {
+  margin-top: 6px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.rrp-answer-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 12px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.rrp-answer-key {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding-top: 2px;
+}
+
+.rrp-answer-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rrp-blank {
+  color: var(--ink-soft);
+}
+
+.rrp-alt {
+  color: var(--ink-soft);
+}
+
+.rrp-answer-note {
+  margin-top: 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.rrp-answer-note-limit {
+  color: var(--marking-red);
+}
+
+.rrp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------ responsive */
+@media (max-width: 900px) {
+  .rrp-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .rrp-hero-figures {
+    text-align: left;
+    padding-right: 0;
+    padding-bottom: 14px;
+    border-right: none;
+    border-bottom: 1px solid var(--rule-line);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+
+  .rrp-raw {
+    margin-top: 0;
+  }
+
+  .rrp-type {
+    grid-template-columns: minmax(0, 1fr) 52px 44px;
+  }
+
+  .rrp-type-bar {
+    display: none;
+  }
+}
