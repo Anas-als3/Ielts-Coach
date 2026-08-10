@@ -26,7 +26,7 @@ sessions on the same plan.
 | 014 | Make the error profile do something — the drill loop | P1 | M | 006 | TODO |
 | 008 | Academic / General Training module switch | P1 | M | — | DONE |
 | 009 | General Training Task 1 — letters | P1 | L | 008 | DONE |
-| 010 | Reading — both modules, real question types, real band tables | P2 | L | 008 | TODO |
+| 010 | Reading — both modules, real question types, real band tables | P2 | L | 008 | DONE |
 | 013 | Full mock test mode | P2 | M | 010 | TODO |
 | 011 | Listening — marking is easy, audio is the project | P3 | L | 010 | TODO |
 | 012 | Speaking — the honest deterministic slice | P3 | M | 008 | DEFERRED — user descoped 2026-08-10; Writing/Reading/Listening first |
@@ -92,7 +92,7 @@ learner's three weaknesses and the "practice" button hands them a blank essay.
 |---|---|---|---|
 | Writing Task 1 | ✅ charts | ✅ letters | 009 |
 | Writing Task 2 | ✅ | ✅ same engine, 28 of 40 prompts tagged GT-appropriate | 008 |
-| Reading | ❌ | ❌ (stricter band table) | 010 |
+| Reading | ✅ one paper, 6 question types | ✅ one paper, stricter band table | 010 |
 | Listening | ❌ | ❌ (identical to Academic) | 011 |
 | Speaking | ❌ | ❌ (identical to Academic) | 012 |
 | Full mock sitting | ❌ | ❌ | 013 |
@@ -114,8 +114,8 @@ without hearing; only an honest drill is possible).
 | Listening | Identical | Identical |
 | Speaking | Identical | Identical |
 
-Both Reading conversion tables are printed in full in plan 010 and belong in
-SPEC.md as canonical data.
+Both Reading conversion tables are printed in full in plan 010 and are now in
+SPEC.md ("Reading") as canonical data, alongside `src/reading/bandTable.ts`.
 
 ## Content sourcing — read before starting 010 or 011
 
@@ -165,6 +165,16 @@ So nobody re-audits these:
 - ~~**`categoryAppliesTo` scopes by task, not module**~~ — fixed by plan 009: it
   now takes an optional `Module` (defaulting to `'academic'`), because Academic
   Task 1 and General Training Task 1 share the id `'task1'`.
+- **Reading ships ONE paper per module.** Plan 010 says to validate the format
+  before authoring more, and that is where it stands. A learner who sits both
+  papers has nothing new to sit; the second paper per module is the next content
+  job, not an engine job.
+- **Reading results are not on the Progress page.** The dashboard is a writing
+  view — band trend, error sparklines, session table — and a Reading paper has
+  none of those. Results live in their own history list in the Reading section.
+  A Reading band trend is worth building once more than one paper exists.
+- **Reading passage highlighting was deferred**, as plan 010 allows. Real
+  candidates annotate the passage; this runner does not let them.
 
 ## What was NOT audited
 

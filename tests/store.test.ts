@@ -87,9 +87,17 @@ function makeSession(id: string, dateISO: string, overrides: Record<string, unkn
   }
 }
 
-/** A brand-new record as App.tsx would build it today (schemaVersion 2 shape). */
+/**
+ * A brand-new record as App.tsx would build it today (schemaVersion 4 shape).
+ *
+ * It carries `section` because App.tsx stamps it at the point of creation:
+ * the migration ladder is for records written by OLDER builds, and a record
+ * this build writes must already be in this build's shape. `makeSession` is
+ * the deliberately pre-v2 wire shape and stays that way — that is what the
+ * migration cases feed in.
+ */
 function newRecord(id: string, dateISO: string, task: TaskKind = 'task2'): SessionRecord {
-  return makeSession(id, dateISO, { task }) as SessionRecord
+  return makeSession(id, dateISO, { task, section: 'writing' }) as SessionRecord
 }
 
 function seed(schemaVersion: number, sessions: unknown[]): void {
@@ -184,6 +192,196 @@ describe('backup before overwriting unreadable data', () => {
   })
 })
 
+/* ------------------------- v4: the Reading variant --------------------------- */
+
+/**
+ * A Reading session on the wire, as schemaVersion 4 writes one.
+ *
+ * Nothing in common with a writing record but `id`, `dateISO` and `module` —
+ * which is the whole argument for the discriminated union, and the reason
+ * `looksLikeSession` has to branch before it looks for an essay.
+ */
+function makeReadingSession(
+  id: string,
+  dateISO: string,
+  overrides: Record<string, unknown> = {},
+): unknown {
+  return {
+    section: 'reading',
+    id,
+    dateISO,
+    module: 'academic',
+    testId: 'reading-academic-01',
+    testTitle: 'Academic Reading Test 1',
+    answers: { 'ac1-q01': 'ii', 'ac1-q13': 'NOT GIVEN' },
+    durationSec: 3480,
+    result: {
+      testId: 'reading-academic-01',
+      module: 'academic',
+      raw: 30,
+      total: 40,
+      band: 7,
+      questions: [],
+      byType: [],
+    },
+    ...overrides,
+  }
+}
+
+describe('v3 -> v4 migration', () => {
+  it('stamps section: writing on every pre-v4 record', () => {
+    seed(3, [
+      makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', module: 'academic' }),
+      makeSession('b', '2026-01-02T10:00:00.000Z', { task: 'task1', module: 'general' }),
+    ])
+
+    const sessions = loadSessions()
+
+    expect(sessions).toHaveLength(2)
+    // Reading did not exist before v4, so a record without the field can only
+    // be an essay, a chart answer or a letter.
+    expect(sessions.every((s) => s.section === 'writing')).toBe(true)
+  })
+
+  it('migrates on read without rewriting the stored payload', () => {
+    seed(3, [makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', module: 'academic' })])
+
+    expect(loadSessions()[0].section).toBe('writing')
+
+    const raw = JSON.parse(store.get(STORAGE_KEY) as string)
+    expect(raw.schemaVersion).toBe(3)
+    expect(raw.sessions[0].section).toBeUndefined()
+  })
+})
+
+/* --------------- the whole ladder: v1 -> v4 in a SINGLE read ----------------- */
+
+describe('v1 -> v4 in a single read', () => {
+  it('climbs all three rungs, stamping task, then module, then section', () => {
+    // A learner who last opened the app before ANY of the three discriminators
+    // existed. Plan 001 exists because a schemaVersion bump once destroyed
+    // exactly this person's history.
+    seed(1, [
+      makeSession('a', '2026-01-01T10:00:00.000Z'),
+      makeSession('b', '2026-01-02T10:00:00.000Z'),
+      makeSession('c', '2026-01-03T10:00:00.000Z'),
+    ])
+
+    const sessions = loadSessions()
+
+    expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c'])
+    expect(sessions.every((s) => s.task === 'task2')).toBe(true)
+    expect(sessions.every((s) => s.module === 'academic')).toBe(true)
+    expect(sessions.every((s) => s.section === 'writing')).toBe(true)
+
+    // One read did all three. Reads stay pure: the payload is still v1.
+    const raw = JSON.parse(store.get(STORAGE_KEY) as string)
+    expect(raw.schemaVersion).toBe(1)
+    expect(raw.sessions[0].task).toBeUndefined()
+    expect(raw.sessions[0].module).toBeUndefined()
+    expect(raw.sessions[0].section).toBeUndefined()
+  })
+
+  it('keeps a v1 history intact across the save that rewrites it as v4', () => {
+    seed(1, [
+      makeSession('a', '2026-01-01T10:00:00.000Z'),
+      makeSession('b', '2026-01-02T10:00:00.000Z'),
+      makeSession('c', '2026-01-03T10:00:00.000Z'),
+    ])
+
+    saveSession(newRecord('d', '2026-01-04T10:00:00.000Z'))
+
+    const sessions = loadSessions()
+    expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c', 'd'])
+    expect(sessions.every((s) => s.section === 'writing')).toBe(true)
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(4)
+  })
+
+  it('lets a v1 store gain a Reading session without losing an essay', () => {
+    seed(1, [makeSession('old', '2026-01-01T10:00:00.000Z')])
+
+    saveSession(makeReadingSession('read', '2026-01-05T10:00:00.000Z') as never)
+
+    const sessions = loadSessions()
+    expect(sessions.map((s) => s.id)).toEqual(['old', 'read'])
+    expect(sessions.map((s) => s.section)).toEqual(['writing', 'reading'])
+  })
+})
+
+/* --------------------------- reading records survive ------------------------ */
+
+describe('Reading sessions round-trip', () => {
+  it('keeps a Reading session and a writing session side by side', () => {
+    seed(4, [
+      makeSession('essay', '2026-01-01T10:00:00.000Z', {
+        task: 'task2',
+        module: 'academic',
+        section: 'writing',
+      }),
+      makeReadingSession('paper', '2026-01-02T10:00:00.000Z'),
+    ])
+
+    const sessions = loadSessions()
+    expect(sessions.map((s) => s.id)).toEqual(['essay', 'paper'])
+    expect(sessions.map((s) => s.section)).toEqual(['writing', 'reading'])
+
+    const reading = sessions[1]
+    if (reading.section !== 'reading') throw new Error('expected a Reading session')
+    expect(reading.result.raw).toBe(30)
+    expect(reading.result.band).toBe(7)
+    expect(reading.answers['ac1-q13']).toBe('NOT GIVEN')
+  })
+
+  it('drops a Reading record whose marking result is missing', () => {
+    seed(4, [
+      makeReadingSession('good', '2026-01-01T10:00:00.000Z'),
+      makeReadingSession('bad', '2026-01-02T10:00:00.000Z', { result: undefined }),
+    ])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['good'])
+  })
+
+  it('drops a record whose section value is not one this build knows', () => {
+    seed(4, [
+      makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      makeSession('bad', '2026-01-02T10:00:00.000Z', { task: 'task2', section: 'listening' }),
+    ])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['a'])
+  })
+})
+
+/* -------------------- the plan-001 guarantee, at v4 -------------------------- */
+
+describe('an unrecognised future version is backed up, never destroyed', () => {
+  it('backs up the very NEXT version rather than guessing at it', () => {
+    // 99 is an obvious stranger; 5 is the dangerous one, because it is what a
+    // learner gets by opening a newer build of this same app on another device
+    // and then coming back. It must be treated exactly as cautiously.
+    const payload = {
+      schemaVersion: 5,
+      sessions: [
+        makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      ],
+    }
+    store.set(STORAGE_KEY, JSON.stringify(payload))
+
+    saveSession(newRecord('new', '2026-02-01T10:00:00.000Z'))
+
+    const keys = backupKeys()
+    expect(keys).toHaveLength(1)
+    expect(JSON.parse(store.get(keys[0]) as string)).toEqual(payload)
+
+    // The live key moved on, but the v5 data is recoverable by hand.
+    expect(loadSessions().map((s) => s.id)).toEqual(['new'])
+  })
+
+  it('refuses to import a v5 export rather than dropping its unknown fields', () => {
+    const json = JSON.stringify({ schemaVersion: 5, sessions: [] })
+    expect(() => importData(json)).toThrow(/newer version/i)
+  })
+})
+
 /* ---------------------------------- import ---------------------------------- */
 
 describe('importData', () => {
@@ -207,5 +405,34 @@ describe('importData', () => {
     const json = JSON.stringify({ schemaVersion: 99, sessions: [] })
 
     expect(() => importData(json)).toThrow(/newer version/i)
+  })
+
+  it('climbs the whole ladder on a v1 export, section included', () => {
+    const json = JSON.stringify({
+      schemaVersion: 1,
+      sessions: [makeSession('x', '2026-03-01T10:00:00.000Z')],
+    })
+
+    importData(json)
+
+    const sessions = loadSessions()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].task).toBe('task2')
+    expect(sessions[0].module).toBe('academic')
+    expect(sessions[0].section).toBe('writing')
+  })
+
+  it('imports a v4 export containing a Reading session', () => {
+    const json = JSON.stringify({
+      schemaVersion: 4,
+      sessions: [
+        makeSession('essay', '2026-03-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+        makeReadingSession('paper', '2026-03-02T10:00:00.000Z'),
+      ],
+    })
+
+    importData(json)
+
+    expect(loadSessions().map((s) => s.section)).toEqual(['writing', 'reading'])
   })
 })

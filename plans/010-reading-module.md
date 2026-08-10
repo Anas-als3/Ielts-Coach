@@ -167,12 +167,20 @@ for a wrong answer.
 
 ## Done criteria
 
-- [ ] `rawToBand` is exhaustively tested for 0–40 in both modules (82 assertions)
-- [ ] One complete Academic and one complete GT test exist, each with 40 questions
-- [ ] Every passage file header records its source URL and licence
-- [ ] `grep -rn "ieltsonlinetests" src/` returns no matches
-- [ ] schemaVersion 4 migration tested, including the v1→v4 chain
-- [ ] `npx vitest run` and `npm run build` both clean
+- [x] `rawToBand` is exhaustively tested for 0–40 in both modules (82 assertions)
+- [x] One complete Academic and one complete GT test exist, each with 40 questions
+- [x] Every passage file header records its source URL and licence
+- [x] `grep -rn "ieltsonlinetests" src/` returns no matches
+- [x] schemaVersion 4 migration tested, including the v1→v4 chain
+- [x] `npx vitest run` and `npm run build` both clean
+
+**Status: DONE.** Steps 1–5 (types, band tables, marking, both papers) landed as
+`8d3237c`; steps 6–10 (runner, report, persistence, profile scoping, app
+integration, docs) on branch `advisor/010b-reading-ui`.
+
+Two items in step 6 were deliberately deferred, as the plan allows: passage
+highlighting ("a nice-to-have — defer it"), and a second paper per module
+("ship one complete test per module first and validate the format").
 
 ## STOP conditions
 

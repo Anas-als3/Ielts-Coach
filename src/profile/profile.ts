@@ -19,6 +19,14 @@
  * The scope is (task, MODULE): General Training Task 1 is a letter and Academic
  * Task 1 is a chart description, so the two share a `TaskKind` while sharing
  * almost no rules.
+ *
+ * SECTION SCOPING is the same argument taken one step further, and it is
+ * absolute rather than per-category. A READING session produces no
+ * `IssueCategory` at all — it is an answer key, not an analysis — so every
+ * category would count it as a session that could have fired and did not. Five
+ * Reading papers would read as five clean essays and pull every writing rate
+ * towards zero. Reading sessions are therefore dropped before any maths runs,
+ * by BOTH exported functions; `tests/profile-scoping.test.ts` pins it.
  */
 
 import type {
@@ -29,7 +37,9 @@ import type {
   IssueCategory,
   SessionRecord,
   Severity,
+  WritingSessionRecord,
 } from '../types'
+import { isWritingSession } from '../types'
 import { categoryAppliesTo } from '../meta'
 
 const EWMA_ALPHA = 0.35
@@ -43,14 +53,26 @@ const SEVERITY_WEIGHT: Record<Severity, number> = { error: 3, warning: 2, info: 
 
 type CategoryCounts = Partial<Record<IssueCategory, number>>
 
+/**
+ * The writing sessions, in input order. Everything below runs over this list
+ * and never over the raw one.
+ *
+ * A Reading session carries no issues and no word count, so leaving it in
+ * would contribute a zero-issue, zero-word row to every category's series —
+ * arithmetically a clean essay. See the section-scoping note at the top.
+ */
+function writingOnly(sessions: SessionRecord[]): WritingSessionRecord[] {
+  return sessions.filter(isWritingSession)
+}
+
 /** Defensive: imported data may be missing pieces despite validation. */
-function sessionIssues(s: SessionRecord): Issue[] {
+function sessionIssues(s: WritingSessionRecord): Issue[] {
   const issues = s.analysis?.issues
   return Array.isArray(issues) ? issues : []
 }
 
 /** Effective word count for rate maths; 0 when absent or non-positive. */
-function sessionWordCount(s: SessionRecord): number {
+function sessionWordCount(s: WritingSessionRecord): number {
   const n = s.analysis?.stats?.wordCount
   return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0
 }
@@ -61,12 +83,12 @@ function per100Words(count: number, words: number): number {
 }
 
 /** Oldest first. ISO-8601 date strings sort correctly as text. */
-function sortChronological(sessions: SessionRecord[]): SessionRecord[] {
+function sortChronological(sessions: WritingSessionRecord[]): WritingSessionRecord[] {
   return sessions.slice().sort((a, b) => a.dateISO.localeCompare(b.dateISO))
 }
 
 /** Per-session issue counts per category, aligned with the given session order. */
-function countsBySession(sessions: SessionRecord[]): CategoryCounts[] {
+function countsBySession(sessions: WritingSessionRecord[]): CategoryCounts[] {
   return sessions.map((s) => {
     const counts: CategoryCounts = {}
     for (const issue of sessionIssues(s)) {
@@ -109,7 +131,10 @@ function ewma(rates: number[]): number {
  * Severity weight for a category, taken from its most recent occurrence
  * (highest-severity issue within the latest session where the category fired).
  */
-function latestSeverityWeight(orderedSessions: SessionRecord[], category: IssueCategory): number {
+function latestSeverityWeight(
+  orderedSessions: WritingSessionRecord[],
+  category: IssueCategory,
+): number {
   for (let i = orderedSessions.length - 1; i >= 0; i--) {
     let best = 0
     for (const issue of sessionIssues(orderedSessions[i])) {
@@ -124,7 +149,10 @@ function latestSeverityWeight(orderedSessions: SessionRecord[], category: IssueC
 }
 
 export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
-  const ordered = sortChronological(sessions)
+  // Reading first, before anything is counted — including `totalSessions`,
+  // which gates the focus list. A learner is not two sessions into their
+  // writing practice because they sat two Reading papers.
+  const ordered = sortChronological(writingOnly(sessions))
   const totalSessions = ordered.length
   const counts = countsBySession(ordered)
 
@@ -191,7 +219,9 @@ export function computeProfile(sessions: SessionRecord[]): ErrorProfile {
 }
 
 export function computeTrends(sessions: SessionRecord[]): CategoryTrend[] {
-  const ordered = sortChronological(sessions)
+  // Same exclusion as computeProfile: a Reading paper is not a point on a
+  // writing-error sparkline.
+  const ordered = sortChronological(writingOnly(sessions))
   const counts = countsBySession(ordered)
 
   const fired = new Set<IssueCategory>()

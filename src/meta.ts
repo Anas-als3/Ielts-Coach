@@ -1,4 +1,5 @@
 import type { Criterion, IssueCategory, Module, QuestionType, TaskKind } from './types'
+import type { ReadingQuestionType } from './reading/types'
 
 /** Learner-facing names and the one-line difference that matters. */
 export const MODULE_META: Record<Module, { label: string; short: string; blurb: string }> = {
@@ -232,3 +233,77 @@ export const TASK_CONSTANTS: Record<
 export const EXAM_DURATION_SEC = TASK_CONSTANTS.task2.examDurationSec
 export const MIN_WORDS = TASK_CONSTANTS.task2.minWords
 export const TARGET_WORDS = TASK_CONSTANTS.task2.targetWords
+
+/* ---------------------------------- reading --------------------------------- */
+
+/**
+ * Learner-facing name and printed instruction for each Reading question type.
+ *
+ * `instruction` is the wording the exam paper prints above the group. It is
+ * here rather than in the authored content files because it is fixed by the
+ * question TYPE, not by the passage: an item-writer who had to restate it per
+ * question would eventually restate it differently, and a learner practising
+ * against instructions that drift from the real paper is practising the wrong
+ * thing.
+ *
+ * `report` is the short label the review screen uses for per-type accuracy —
+ * the coaching signal, per plan 010: "you lose Not Given, you are fine on
+ * matching headings" is actionable in a way an overall band is not.
+ */
+export const READING_TYPE_META: Record<
+  ReadingQuestionType,
+  { label: string; report: string; instruction: string }
+> = {
+  'true-false-notgiven': {
+    label: 'True / False / Not Given',
+    report: 'True / False / Not Given',
+    instruction:
+      'Do the following statements agree with the information given in the passage? Choose TRUE if the statement agrees, FALSE if it contradicts, and NOT GIVEN if there is no information about it.',
+  },
+  'yes-no-notgiven': {
+    label: 'Yes / No / Not Given',
+    report: 'Yes / No / Not Given',
+    instruction:
+      "Do the following statements agree with the views of the writer? Choose YES if the statement agrees with the writer's views, NO if it contradicts them, and NOT GIVEN if it is impossible to say what the writer thinks.",
+  },
+  'multiple-choice': {
+    label: 'Multiple choice',
+    report: 'Multiple choice',
+    instruction: 'Choose the correct letter, A, B, C or D.',
+  },
+  completion: {
+    label: 'Completion',
+    report: 'Completion',
+    instruction: 'Complete the sentences below using words from the passage.',
+  },
+  'matching-headings': {
+    label: 'Matching headings',
+    report: 'Matching headings',
+    instruction:
+      'Choose the correct heading for each paragraph from the list below. There are more headings than paragraphs, so some will not be used.',
+  },
+  'matching-information': {
+    label: 'Matching information',
+    report: 'Matching information',
+    instruction:
+      'Which paragraph contains the following information? You may use any letter more than once.',
+  },
+}
+
+/** Number words for the printed word limit. Limits above three do not occur. */
+const NUMBER_WORDS = ['NO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE']
+
+/**
+ * The word limit exactly as the exam paper prints it — "NO MORE THAN THREE
+ * WORDS", not "max 3".
+ *
+ * The limit is not decoration: an answer over it is marked WRONG even when its
+ * content is right (`markAnswerKey`), so a learner who cannot see the limit can
+ * lose a mark they had earned. Falls back to digits for a limit outside the
+ * range IELTS actually prints, rather than producing an empty phrase.
+ */
+export function wordLimitLabel(maxWords: number): string {
+  const n = Math.max(0, Math.floor(Number.isFinite(maxWords) ? maxWords : 0))
+  const word = NUMBER_WORDS[n] ?? String(n)
+  return `NO MORE THAN ${word} WORD${n === 1 ? '' : 'S'}`
+}

@@ -3,12 +3,13 @@
  *
  * Store shape (key 'ielts-coach.v1' — the key is opaque, the version is in the
  * payload):
- *   { schemaVersion: 3, sessions: SessionRecord[] }
+ *   { schemaVersion: 4, sessions: SessionRecord[] }
  *
  * Versions are migrated forward on read, never discarded (see migrateSessions).
- * v1 -> v2 added SessionRecord.task; v2 -> v3 added SessionRecord.module. The
- * rungs apply in sequence, so a v1 store arriving at this build gains both
- * fields in a single read. Anything this build cannot migrate is copied to a
+ * v1 -> v2 added SessionRecord.task; v2 -> v3 added SessionRecord.module;
+ * v3 -> v4 added SessionRecord.section, the Writing/Reading discriminator. The
+ * rungs apply in sequence, so a v1 store arriving at this build gains all three
+ * fields in a SINGLE read. Anything this build cannot migrate is copied to a
  * timestamped 'ielts-coach.backup.<iso>' key before being replaced.
  *
  * All reads tolerate missing/corrupt data (return empty rather than throw).
@@ -19,7 +20,7 @@
 import type { SessionRecord } from '../types'
 
 const STORAGE_KEY = 'ielts-coach.v1'
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 /** Lowest stored version this build knows how to migrate forward from. */
 const MIN_MIGRATABLE_VERSION = 1
 /**
@@ -41,13 +42,45 @@ function isRecordObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Shape check for a stored session: id, dateISO, essayText, and a complete
- * analysis (issues, structure, paragraphs, stats and band) must all be present
- * so a partial or hand-edited record never reaches the report screen.
+ * Shape check for a stored READING session: the answer sheet and a complete
+ * marking result must both be present, so a partial record never reaches the
+ * report with a band it cannot justify.
+ *
+ * Deliberately structural rather than exhaustive — it checks the fields the
+ * report actually reads and not every leaf of every question result, matching
+ * how `looksLikeSession` treats an Analysis.
+ */
+function looksLikeReadingSession(value: Record<string, unknown>): boolean {
+  if (typeof value.testId !== 'string') return false
+  if (!isRecordObject(value.answers)) return false
+  const result = value.result
+  if (!isRecordObject(result)) return false
+  if (typeof result.raw !== 'number' || typeof result.total !== 'number') return false
+  if (typeof result.band !== 'number') return false
+  return Array.isArray(result.questions) && Array.isArray(result.byType)
+}
+
+/**
+ * Shape check for a stored session.
+ *
+ * A Writing session needs id, dateISO, essayText and a complete analysis
+ * (issues, structure, paragraphs, stats and band); a Reading session needs its
+ * answers and its marking result. Either way a partial or hand-edited record
+ * never reaches a report screen.
+ *
+ * `section` is optional ON THE WIRE, because pre-v4 records predate the field
+ * and the migration stamps it — but present-but-unrecognised is still a reject,
+ * the same rule `task` and `module` follow.
  */
 function looksLikeSession(value: unknown): value is SessionRecord {
   if (!isRecordObject(value)) return false
   if (typeof value.id !== 'string' || typeof value.dateISO !== 'string') return false
+  if (value.section !== undefined && value.section !== 'writing' && value.section !== 'reading') {
+    return false
+  }
+  // A Reading session has no essay and no Analysis, so it is validated against
+  // its own shape and returns before the writing checks below.
+  if (value.section === 'reading') return looksLikeReadingSession(value)
   if (typeof value.essayText !== 'string') return false
   // `task` is optional on the wire: v1 records predate the field and the
   // migration stamps it. Present-but-wrong is still a reject.
@@ -81,28 +114,45 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
  * ascending single-version steps.
  *
  * A user can arrive from ANY older version, so the steps are cumulative and
- * must never be reordered or collapsed.
+ * **must never be reordered or collapsed**. A v1 store reaching this build
+ * climbs all three rungs in a single read and comes out with `task`, `module`
+ * and `section` all stamped; `tests/store.test.ts` pins that chain end to end.
+ *
+ * Plan 001 exists because a schemaVersion bump once destroyed every saved
+ * session. Adding a rung is cheap; skipping one is not recoverable.
  */
 function migrateSessions(sessions: SessionRecord[], fromVersion: number): SessionRecord[] {
-  let out = sessions
+  // The rungs run over the RAW WIRE SHAPE. A pre-v2 record genuinely has no
+  // `task` and a pre-v4 record genuinely has no `section` — stamping them is
+  // this function's whole job — so typing the working list as the destination
+  // shape would have the compiler assert the very fields being added.
+  let out = sessions as unknown as Array<Record<string, unknown>>
   let version = fromVersion
 
   // v1 -> v2: the `task` discriminator was added. Everything written before v2
   // was IELTS Academic Writing Task 2, because that was the only task the app
   // supported.
   if (version === 1) {
-    out = out.map((s) => (s.task === undefined ? { ...s, task: 'task2' as const } : s))
+    out = out.map((s) => (s.task === undefined ? { ...s, task: 'task2' } : s))
     version = 2
   }
 
   // v2 -> v3: the `module` discriminator was added. Everything written before
   // v3 was IELTS Academic, because that was the only exam the app supported.
   if (version === 2) {
-    out = out.map((s) => (s.module === undefined ? { ...s, module: 'academic' as const } : s))
+    out = out.map((s) => (s.module === undefined ? { ...s, module: 'academic' } : s))
     version = 3
   }
 
-  return out
+  // v3 -> v4: the `section` discriminator was added. Everything written before
+  // v4 was a WRITING session, because Reading did not exist — so a stored
+  // record without the field can only be an essay, a chart answer or a letter.
+  if (version === 3) {
+    out = out.map((s) => (s.section === undefined ? { ...s, section: 'writing' } : s))
+    version = 4
+  }
+
+  return out as unknown as SessionRecord[]
 }
 
 /**

@@ -16,6 +16,11 @@
  * scope to grow a module dimension: Academic Task 1 (a chart) and General
  * Training Task 1 (a letter) share the id `'task1'` and share almost no rules,
  * so `TaskKind` alone cannot say which of them a category belongs to.
+ *
+ * The fourth block is the same defect one step further out. A READING session
+ * produces no `IssueCategory` at all, so it is not "inapplicable to some
+ * categories" — it is inapplicable to every one of them, and the profile drops
+ * it entirely rather than counting it as a clean essay.
  */
 import { describe, expect, it } from 'vitest'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from '../src/analysis/engine'
@@ -315,5 +320,120 @@ Sam`
     // And the trend series plots only the sessions that could have produced it.
     const trend = computeTrends(sessions).find((t) => t.category === 'gt-signoff-pairing')
     expect(trend?.perSession.map((p) => p.sessionId)).toEqual(['a', 'b'])
+  })
+})
+
+/* ------------------- Reading sessions are not writing sessions -------------- */
+
+describe('a Reading session never dilutes a writing weakness', () => {
+  /**
+   * A sat Reading paper, as `App.tsx` persists one.
+   *
+   * It carries no `Analysis` and no word count, which is exactly the danger: to
+   * arithmetic that averages "issues per 100 words" over every session, a
+   * record with zero issues is indistinguishable from a flawless essay.
+   */
+  function readingSession(id: string, dateISO: string, module: Module = 'academic'): SessionRecord {
+    return {
+      section: 'reading',
+      id,
+      dateISO,
+      module,
+      testId: 'reading-academic-01',
+      testTitle: 'Academic Reading Test 1',
+      answers: {},
+      durationSec: 3600,
+      result: {
+        testId: 'reading-academic-01',
+        module,
+        raw: 30,
+        total: 40,
+        band: 7,
+        questions: [],
+        byType: [],
+      },
+    }
+  }
+
+  /** Three Task 2 essays, each losing a mark for the same thing. */
+  const ESSAYS: SessionRecord[] = [
+    session('e1', '2026-01-01T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+    session('e2', '2026-01-02T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+    session('e3', '2026-01-03T00:00:00Z', 'task2', fakeAnalysis(['no-position'], 250)),
+  ]
+
+  /** The same learner, who then sat five Reading papers instead of writing. */
+  const WITH_READING: SessionRecord[] = [
+    ...ESSAYS,
+    ...Array.from({ length: 5 }, (_, i) =>
+      readingSession(`r${i}`, `2026-02-0${i + 1}T00:00:00Z`),
+    ),
+  ]
+
+  it('leaves the no-position rate exactly where the essays put it', () => {
+    const before = computeProfile(ESSAYS).categories['no-position']
+    const after = computeProfile(WITH_READING).categories['no-position']
+
+    expect(before).toBeDefined()
+    // Not merely "close" — identical. The Reading papers are dropped before any
+    // arithmetic runs, so there is nothing for them to move.
+    expect(after).toEqual(before)
+    // 1 issue per 250 words = 0.4 per 100 words, over the three essays only.
+    expect(after?.recentRate).toBeCloseTo(0.4, 5)
+    expect(after?.total).toBe(3)
+    expect(after?.trend).toBe('flat')
+  })
+
+  it('does not count Reading papers towards the session total', () => {
+    expect(computeProfile(WITH_READING).totalSessions).toBe(3)
+  })
+
+  it('keeps the weakness in the focus list after a run of Reading practice', () => {
+    expect(computeProfile(WITH_READING).focusCategories).toContain('no-position')
+  })
+
+  it('plots no Reading paper on a writing trend line', () => {
+    const trend = computeTrends(WITH_READING).find((t) => t.category === 'no-position')
+    expect(trend?.perSession.map((p) => p.sessionId)).toEqual(['e1', 'e2', 'e3'])
+  })
+
+  it('drops Reading papers from BOTH exams, not just the active one', () => {
+    const mixed: SessionRecord[] = [
+      ...ESSAYS,
+      readingSession('ra', '2026-02-01T00:00:00Z', 'academic'),
+      readingSession('rg', '2026-02-02T00:00:00Z', 'general'),
+    ]
+
+    expect(computeProfile(mixed).totalSessions).toBe(3)
+    expect(computeProfile(mixed).categories['no-position']).toEqual(
+      computeProfile(ESSAYS).categories['no-position'],
+    )
+  })
+
+  it('produces no profile at all from Reading papers alone', () => {
+    const readingOnly = Array.from({ length: 4 }, (_, i) =>
+      readingSession(`r${i}`, `2026-03-0${i + 1}T00:00:00Z`),
+    )
+
+    const profile = computeProfile(readingOnly)
+    expect(profile.totalSessions).toBe(0)
+    expect(profile.categories).toEqual({})
+    expect(profile.focusCategories).toEqual([])
+    expect(computeTrends(readingOnly)).toEqual([])
+  })
+
+  it('still counts a record written before `section` existed as writing', () => {
+    // The migration stamps `section: 'writing'` on pre-v4 data, but the guards
+    // default to writing anyway — a record that reaches the profile without the
+    // field must keep counting exactly as it did before Reading shipped, which
+    // is what every case above this block relies on.
+    const preV4 = ESSAYS.map((s) => {
+      const copy = { ...s } as Record<string, unknown>
+      delete copy.section
+      return copy as SessionRecord
+    })
+
+    expect(computeProfile(preV4).totalSessions).toBe(3)
+    expect(computeProfile(preV4).categories['no-position']?.total).toBe(3)
   })
 })

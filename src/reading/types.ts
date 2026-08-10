@@ -7,23 +7,31 @@
  * "estimate" hedging the writing engine carries.
  *
  * These types live beside the Reading code rather than in `src/types.ts`
- * because plan 010 ships the engine first and the UI/persistence wiring later;
- * `src/types.ts` gains its Reading `SessionRecord` variant at that point, and
- * this file is what it will code against.
+ * because plan 010 shipped the engine first and the UI/persistence wiring
+ * second; `src/types.ts` now carries the Reading `SessionRecord` variant, and
+ * this file is what it codes against.
  */
+import type { Module } from '../types'
 
 /**
- * Which IELTS exam a Reading test belongs to. Structurally identical to
- * `Module` in `src/types.ts` and deliberately declared locally for now — a
- * later plan replaces this with `export type ReadingModule = Module` once the
- * Reading module is wired into the app shell, and every consumer here keeps
- * compiling because the two are the same union.
+ * Which IELTS exam a Reading test belongs to.
  *
- * The distinction is load-bearing for Reading in a way it is not for Task 2
- * marking: the two exams use DIFFERENT raw-score conversion tables, and
- * General Training is markedly stricter. See `bandTable.ts`.
+ * This is an ALIAS of `Module` in `src/types.ts`, not a second declaration of
+ * the same union. It was declared locally while the Reading engine shipped
+ * ahead of the app shell; the aliasing this file always anticipated has now
+ * happened, so there is exactly ONE concept of "which exam" in the codebase and
+ * a `Module` from the app shell can be handed straight to `rawToBand`.
+ *
+ * The name survives the aliasing on purpose. Reading code keeps reading in its
+ * own vocabulary, and the import is TYPE-ONLY — erased at compile time — so the
+ * Reading engine still has no runtime dependency on the app shell and
+ * `src/reading/` stays independently testable.
+ *
+ * The distinction the type expresses is load-bearing for Reading in a way it is
+ * not for Task 2 marking: the two exams use DIFFERENT raw-score conversion
+ * tables, and General Training is markedly stricter. See `bandTable.ts`.
  */
-export type ReadingModule = 'academic' | 'general'
+export type ReadingModule = Module
 
 /* --------------------------------- passages --------------------------------- */
 

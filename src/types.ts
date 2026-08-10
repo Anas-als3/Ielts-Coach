@@ -2,7 +2,14 @@
  * Shared contract for the whole app. Every module — analysis rules, storage,
  * and UI components — codes against these types. Do not change shapes without
  * updating all consumers.
+ *
+ * The Reading contracts stay in `src/reading/types.ts` and are imported here
+ * rather than restated. The import is type-only and so is `reading/types.ts`'s
+ * import of `Module` from this file: both are erased at compile time, so the
+ * two files reference each other's types without any runtime cycle, and
+ * `src/reading/` keeps the independence plan 010 gave it.
  */
+import type { ReadingAnswers, ReadingResult, ReadingTest } from './reading/types';
 
 /* ---------------------------------- prompts --------------------------------- */
 
@@ -386,7 +393,27 @@ export type TaskKind = 'task1' | 'task2';
 
 export type WritingMode = 'coach' | 'exam';
 
-export interface SessionRecord {
+/**
+ * Which section of the exam a saved session belongs to — the discriminator of
+ * `SessionRecord`.
+ *
+ * A Writing session is an essay plus an `Analysis`; a Reading session is an
+ * answer sheet plus a `ReadingResult`. They share almost no fields, so the
+ * alternative — one record with every writing field made optional — would have
+ * forced `analysis?` and `essayText?` on the report, the dashboard and the
+ * error profile, which between them read those fields on nearly every line. A
+ * discriminated union pushes that decision to ONE `switch` at each boundary and
+ * lets the compiler find every site that forgot it.
+ *
+ * Stamped onto pre-v4 records by the schemaVersion 4 migration; see
+ * `profile/store.ts`.
+ */
+export type SessionSection = 'writing' | 'reading';
+
+/** One practised essay, letter or chart description, as persisted. */
+export interface WritingSessionRecord {
+  /** Discriminator. Migrated to 'writing' for pre-v4 data. */
+  section: 'writing';
   id: string;
   dateISO: string;
   mode: WritingMode;
@@ -406,6 +433,68 @@ export interface SessionRecord {
   pasteAttempts: number | null;
   /** Analysis snapshot taken at submit time. */
   analysis: Analysis;
+}
+
+/**
+ * One sat Reading paper, as persisted.
+ *
+ * Carries no `Analysis` and produces no `IssueCategory`, which is exactly why
+ * `computeProfile` and `computeTrends` must skip it: counting a Reading session
+ * as a writing session with zero issues would read as a clean essay and dilute
+ * every error rate the learner is trying to improve.
+ *
+ * The `result` is stored rather than recomputed on read so a learner's history
+ * still displays after the authored content changes — but `answers` is stored
+ * too, so a re-mark against a corrected key is always possible.
+ */
+export interface ReadingSessionRecord {
+  section: 'reading';
+  id: string;
+  dateISO: string;
+  /** Which exam's conversion table the band came from. */
+  module: Module;
+  /** `ReadingTest.id`. May name a test no longer shipped. */
+  testId: string;
+  /** Test title captured at submit time, so history reads correctly regardless. */
+  testTitle: string;
+  /** Exactly what was submitted, keyed by question id. */
+  answers: ReadingAnswers;
+  /** Marking snapshot: raw score, band, per-question results, per-type accuracy. */
+  result: ReadingResult;
+  /** Seconds spent. Reading is always timed, but null is tolerated on read. */
+  durationSec: number | null;
+}
+
+/**
+ * A saved session, discriminated on `section`.
+ *
+ * Narrow with `s.section === 'reading'` rather than by probing for a field.
+ * Pre-v4 records reach the app already stamped `'writing'` by the migration,
+ * so no consumer needs to defend against the field being absent.
+ */
+export type SessionRecord = WritingSessionRecord | ReadingSessionRecord;
+
+/**
+ * Narrow a session to the Reading variant.
+ *
+ * The only runtime code in this file, and it lives here because it IS the
+ * contract: every consumer that must not treat a Reading paper as an essay
+ * asks this one question, and asking it in one place is what stops a second,
+ * subtly different test appearing in the dashboard or the profile.
+ *
+ * Written as `=== 'reading'` rather than `!== 'writing'` deliberately, so the
+ * two guards agree on the same defensive default: a record whose `section` is
+ * somehow absent — hand-edited storage, an import from a build between
+ * versions — counts as WRITING, exactly as every record did before Reading
+ * existed. The same reasoning `categoryAppliesTo` applies to `module`.
+ */
+export function isReadingSession(s: SessionRecord): s is ReadingSessionRecord {
+  return s.section === 'reading';
+}
+
+/** Narrow a session to the Writing variant. See `isReadingSession`. */
+export function isWritingSession(s: SessionRecord): s is WritingSessionRecord {
+  return s.section !== 'reading';
 }
 
 export interface CategoryStat {
@@ -481,9 +570,15 @@ export interface TimerProps {
   running: boolean;
 }
 
+/**
+ * `Report` and `Dashboard` are WRITING views: every line of both reads
+ * `analysis`, `essayText` or `task`. They therefore take the writing variant
+ * rather than the union — a Reading session has none of those fields, and the
+ * app filters before it renders. Reading has its own report.
+ */
 export interface ReportProps {
-  session: SessionRecord;
-  previousSession: SessionRecord | null;
+  session: WritingSessionRecord;
+  previousSession: WritingSessionRecord | null;
   profile: ErrorProfile;
   onRedraft: () => void;
   onNewEssay: () => void;
@@ -491,7 +586,7 @@ export interface ReportProps {
 }
 
 export interface DashboardProps {
-  sessions: SessionRecord[];
+  sessions: WritingSessionRecord[];
   profile: ErrorProfile;
   trends: CategoryTrend[];
   onOpenSession: (id: string) => void;
@@ -540,4 +635,45 @@ export interface ChartProps {
   chart: Task1Chart;
   /** Accessible caption; falls back to `chart.title` when omitted. */
   caption?: string;
+}
+
+/* ------------------------------ reading component props --------------------- */
+
+export interface ReadingRunnerProps {
+  /** The paper being sat. Its `module` decides which band table marks it. */
+  test: ReadingTest;
+  /**
+   * Called once, with everything typed or selected and the seconds spent. The
+   * runner holds answers in component state and persists NOTHING before this —
+   * a half-finished paper is not a session.
+   */
+  onSubmit: (answers: ReadingAnswers, durationSec: number) => void;
+  /** Abandon the attempt. The runner confirms first; nothing is saved. */
+  onExit: () => void;
+}
+
+export interface ReadingPickerProps {
+  /** The active exam. Decides which papers are listed and which table marks them. */
+  module: Module;
+  /** Papers for `module` ONLY — never the other exam's, which is marked differently. */
+  tests: ReadingTest[];
+  /** This module's past attempts, most recent first. */
+  history: ReadingSessionRecord[];
+  onStart: (testId: string) => void;
+  onOpen: (session: ReadingSessionRecord) => void;
+}
+
+export interface ReadingReportProps {
+  session: ReadingSessionRecord;
+  /**
+   * The test as authored, for the question prompts and passage headings the
+   * result does not carry. Null when the stored `testId` names content this
+   * build no longer ships — the report still renders the score, the band and
+   * every answer, just without the prompts.
+   */
+  test: ReadingTest | null;
+  /** Sit the same paper again. */
+  onRetake: () => void;
+  /** Back to the list of papers. */
+  onPickAnother: () => void;
 }

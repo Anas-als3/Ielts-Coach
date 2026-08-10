@@ -182,7 +182,7 @@ describe('v1 -> v3 in a single read', () => {
     expect(raw.sessions[0].module).toBeUndefined()
   })
 
-  it('keeps a v1 history intact across the save that rewrites it as v3', () => {
+  it('keeps a v1 history intact across the save that rewrites it at the current version', () => {
     seed(1, [
       makeSession('a', '2026-01-01T10:00:00.000Z'),
       makeSession('b', '2026-01-02T10:00:00.000Z'),
@@ -198,7 +198,12 @@ describe('v1 -> v3 in a single read', () => {
       'academic',
       'general',
     ])
-    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(3)
+    // The rewrite stamps whatever SCHEMA_VERSION this build is at — 4 since the
+    // Reading session variant landed, 3 when this case was written. The
+    // guarantee under test is that all three v1 records SURVIVED the rewrite;
+    // the number moves with every deliberate bump and is pinned so an
+    // accidental one is caught.
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(4)
   })
 })
 
