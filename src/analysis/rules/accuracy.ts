@@ -57,7 +57,32 @@ const CONNECTORS =
  */
 const FRONTED_CONNECTOR_RE = new RegExp(`(^\\s*|[.!?]["')\\]]?\\s+|\\n\\s*)(${CONNECTORS})\\b(?!,)`, 'g')
 
-const SPACE_BEFORE_COMMA_RE = /\s+,/g
+/**
+ * A2, second half: whitespace wrongly separating a word from its comma.
+ *
+ * The bound is load-bearing, not cosmetic. Written `/\s+,/g`, this was the only
+ * non-linear path in the engine: `\s+` eats a whitespace run, fails to find the
+ * comma, backtracks a character at a time, and the `g` scan restarts one
+ * position further into the SAME run — O(n^2) in the run's length. Measured
+ * through `analyzeEssay`: 40,000 spaces took 543.9 ms and 60,000 took 1250.6 ms,
+ * against 0.43 ms for a real 2,540-character essay. That is a frozen tab, since
+ * analysis runs synchronously inside a render off the 400ms debounce, and coach
+ * mode accepts pasted and imported text without a length limit.
+ *
+ * Bounded at 12, each start position tries at most 12 characters and the scan is
+ * linear: the same document now analyses in 1.4 ms and 2.2 ms. Twelve is far
+ * beyond any real run — the longest legitimate whitespace before a comma is a
+ * line break plus indentation.
+ *
+ * The bound emits exactly the SAME issues: one per comma preceded by whitespace,
+ * same message, same `end` offset. Only the `start` offset differs, and only past
+ * 12 characters, where the highlight now underlines the last 12 rather than all
+ * of them. On input that only arrives by paste or import, that is the right trade.
+ *
+ * An atomic-group emulation, `(?=(\s+))\1,`, was measured and REJECTED: V8
+ * backtracks through the backreference and it took 372.8 ms on the same input.
+ */
+const SPACE_BEFORE_COMMA_RE = /\s{1,12},/g
 
 /** "However hard they try…" is a concession opener, not a fronted connector. */
 const HOWEVER_ADVERB_RE =
