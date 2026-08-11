@@ -1,0 +1,23 @@
+{
+  "_comment": "Plan 032 Prong B. One entry per registered LISTENING_TESTS id; one entry per speakerId the test's transcript declares (src/listening/tests/*.ts). 'voice' is an OpenAI gpt-4o-mini-tts voice name; 'gender'/'accent' restate the transcript's own ListeningVoiceHint so this file is reviewable on its own, without cross-referencing the transcript. OpenAI's TTS voices are American-accented regardless of the name chosen here — there is currently no accent selection on the API side, so 'accent' records what the transcript calls for, not a guarantee the voice reproduces it. Distinct voices are assigned within each section so speakers never collide; the maintainer should listen to a generated test end-to-end once and adjust voice choices here before regenerating, rather than trust this file blindly.",
+  "listening-01": {
+    "narrator": { "voice": "nova", "gender": "female", "accent": "en-GB" },
+    "ross": { "voice": "onyx", "gender": "male", "accent": "en-GB" },
+    "petra": { "voice": "shimmer", "gender": "female", "accent": "en-GB" },
+    "deborah": { "voice": "coral", "gender": "female", "accent": "en-GB" },
+    "awan": { "voice": "sage", "gender": "female", "accent": "en-GB" },
+    "rafi": { "voice": "echo", "gender": "male", "accent": "en-GB" },
+    "joanna": { "voice": "ballad", "gender": "female", "accent": "en-AU" },
+    "lecturer": { "voice": "ash", "gender": "male", "accent": "en-GB" }
+  },
+  "listening-02": {
+    "narrator": { "voice": "nova", "gender": "female", "accent": "en-GB" },
+    "leonie": { "voice": "coral", "gender": "female", "accent": "en-AU" },
+    "stefan": { "voice": "onyx", "gender": "male", "accent": "en-GB" },
+    "martin": { "voice": "echo", "gender": "male", "accent": "en-NZ" },
+    "voss": { "voice": "ash", "gender": "male", "accent": "en-US" },
+    "marta": { "voice": "shimmer", "gender": "female", "accent": "en-GB" },
+    "callum": { "voice": "verse", "gender": "male", "accent": "en-GB" },
+    "lecturer": { "voice": "sage", "gender": "female", "accent": "en-GB" }
+  }
+}

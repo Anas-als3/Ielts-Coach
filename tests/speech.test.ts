@@ -1,26 +1,38 @@
 /**
- * Plan 032 Prong A: quality-ranked voice selection and per-speaker
- * differentiation.
+ * Plan 032: quality-ranked voice selection, per-speaker differentiation, and
+ * the generated-audio driver.
  *
  * `SpeechSynthesisVoice` has no methods (`lib.dom.d.ts`), so every voice below
  * is a hand-built plain object — no jsdom, no browser global, exactly like
  * `pickVoice`'s existing "best effort" contract asks for. Utterances DO need a
- * few methods the strict `SpeechSynthesisUtterance` type declares that Node
- * cannot construct (there is no `Event` global here); `fakeEngine` below casts
- * through a narrower shape at the two points that need it, the same
- * `as unknown as` discipline `tests/prefs.test.ts` and `tests/store.test.ts`
- * already use to stub `window`.
+ * few methods the strict `SpeechSynthesisUtterance`/`SpeechSynthesisEvent`
+ * types declare that Node cannot construct (there is no `Event` global here);
+ * `fakeEngine` below casts through a narrower shape at the two points that
+ * need it, the same `as unknown as` discipline `tests/prefs.test.ts` and
+ * `tests/store.test.ts` already use to stub `window`.
  */
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
+  AUDIO_FILE_NOTICE,
+  AudioFileDriver,
+  FakeSpeechDriver,
   LEGACY_VOICE_MARKERS,
   QUALITY_VOICE_MARKERS,
+  SYNTHETIC_VOICE_NOTICE,
   SpeechSynthesisDriver,
+  TRANSCRIPT_FALLBACK_NOTICE,
   assignSectionVoices,
   createSpeechDriver,
+  noticeFor,
+  parseAudioManifest,
   pickVoice,
   rankVoices,
   voiceQualityScore,
+  type AudioElementFactory,
+  type AudioElementLike,
+  type AudioManifest,
+  type ManifestFetcher,
   type SpeechCue,
   type SpeechEngine,
 } from '../src/listening/speech'
@@ -320,8 +332,313 @@ describe('SpeechSynthesisDriver applies the ranking and the assignment', () => {
   })
 })
 
-describe('createSpeechDriver still falls back to the paced transcript when there is no engine', () => {
-  it('reports transcript-pace, unaffected by any preference (baseline behaviour, unchanged)', () => {
-    expect(createSpeechDriver({ engine: null }).kind).toBe('transcript-pace')
+/* ==================================== B2 ====================================== */
+
+describe('AudioFileDriver', () => {
+  const manifest: AudioManifest = {
+    generatedAtISO: '2026-08-11T00:00:00.000Z',
+    provider: 'openai:tts-1',
+    voiceMap: { narrator: 'nova', ross: 'onyx' },
+    cues: [
+      { id: 'c1', index: 0, file: '000.mp3', speakerId: 'narrator' },
+      { id: 'c2', index: 1, file: '001.mp3', speakerId: 'ross' },
+      { id: 'c3', index: 2, file: '002.mp3', speakerId: 'narrator' },
+    ],
+  }
+
+  const cues: SpeechCue[] = [
+    { id: 'c1', speaker: 'NARRATOR', text: 'Welcome.' },
+    { id: 'c2', speaker: 'ROSS', text: 'Hello.' },
+    { id: 'c3', speaker: 'NARRATOR', text: 'Goodbye.' },
+  ]
+
+  function okFetch(body: unknown): ManifestFetcher {
+    return () => Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
+  }
+
+  /** Resolves `onended` on the next microtask, unless `url` is listed as
+   *  broken, in which case it resolves `onerror` instead — deterministic,
+   *  no real playback, no timers. */
+  function audioFactory(brokenUrls: ReadonlySet<string> = new Set()): {
+    factory: AudioElementFactory
+    played: string[]
+  } {
+    const played: string[] = []
+    const factory: AudioElementFactory = (url) => {
+      played.push(url)
+      const element: AudioElementLike = {
+        src: url,
+        onended: null,
+        onerror: null,
+        play: () => {
+          queueMicrotask(() => {
+            if (brokenUrls.has(url)) element.onerror?.()
+            else element.onended?.()
+          })
+          return Promise.resolve()
+        },
+        pause: () => {},
+      }
+      return element
+    }
+    return { factory, played }
+  }
+
+  it("plays the manifest's files in order, firing the same cue events FakeSpeechDriver fires", async () => {
+    const { factory, played } = audioFactory()
+    const driver = new AudioFileDriver(
+      '/audio/listening-01/manifest.json',
+      new FakeSpeechDriver({ available: false }),
+      okFetch(manifest),
+      factory,
+    )
+
+    const started: string[] = []
+    const ended: string[] = []
+    const outcomes: string[] = []
+    const outcome = await driver.play(cues, {
+      onCueStart: (c) => started.push(c.id),
+      onCueEnd: (c) => ended.push(c.id),
+      onOutcome: (o) => outcomes.push(o),
+    })
+
+    expect(outcome).toBe('completed')
+    expect(started).toEqual(['c1', 'c2', 'c3'])
+    expect(ended).toEqual(['c1', 'c2', 'c3'])
+    expect(outcomes).toEqual(['completed'])
+    expect(played).toEqual([
+      '/audio/listening-01/000.mp3',
+      '/audio/listening-01/001.mp3',
+      '/audio/listening-01/002.mp3',
+    ])
+    expect(driver.kind).toBe('audio-file')
+    expect(driver.available()).toBe(true)
+  })
+
+  it('one cue file erroring skips to the next cue instead of ending the section', async () => {
+    const { factory } = audioFactory(new Set(['/audio/listening-01/001.mp3']))
+    const driver = new AudioFileDriver(
+      '/audio/listening-01/manifest.json',
+      new FakeSpeechDriver({ available: false }),
+      okFetch(manifest),
+      factory,
+    )
+
+    const ended: string[] = []
+    const outcome = await driver.play(cues, { onCueEnd: (c) => ended.push(c.id) })
+
+    // "One mangled line is better than a dead section": every cue still
+    // reports ended, and the section completes.
+    expect(outcome).toBe('completed')
+    expect(ended).toEqual(['c1', 'c2', 'c3'])
+  })
+
+  it('a cue with no matching manifest entry is skipped, not fatal', async () => {
+    const sparse: AudioManifest = {
+      ...manifest,
+      cues: manifest.cues.filter((c) => c.id !== 'c2'),
+    }
+    const { factory, played } = audioFactory()
+    const driver = new AudioFileDriver(
+      '/audio/listening-01/manifest.json',
+      new FakeSpeechDriver({ available: false }),
+      okFetch(sparse),
+      factory,
+    )
+
+    const ended: string[] = []
+    const outcome = await driver.play(cues, { onCueEnd: (c) => ended.push(c.id) })
+
+    expect(outcome).toBe('completed')
+    expect(ended).toEqual(['c1', 'c2', 'c3'])
+    // Only the two cues that DO have a manifest entry ever reach the audio factory.
+    expect(played).toEqual(['/audio/listening-01/000.mp3', '/audio/listening-01/002.mp3'])
+  })
+
+  it('a manifest that fails to fetch falls back to the injected driver — never a claimed audio-file kind', async () => {
+    const fallback = new FakeSpeechDriver()
+    const failing: ManifestFetcher = () => Promise.resolve({ ok: false, json: () => Promise.resolve(null) })
+    const driver = new AudioFileDriver('/audio/listening-01/manifest.json', fallback, failing)
+
+    expect(driver.kind).toBe('fake') // before any play: reports the fallback's kind.
+
+    const outcome = await driver.play(cues, {})
+
+    expect(outcome).toBe('completed')
+    expect(fallback.spoken.map((c) => c.id)).toEqual(['c1', 'c2', 'c3'])
+    // Still the fallback's kind — an unloaded manifest never claims 'audio-file'.
+    expect(driver.kind).toBe('fake')
+    expect(driver.available()).toBe(false)
+  })
+
+  it('a fetch that throws is treated the same as a failed fetch, never an exception', async () => {
+    const fallback = new FakeSpeechDriver()
+    const throwing: ManifestFetcher = () => Promise.reject(new Error('network down'))
+    const driver = new AudioFileDriver('/audio/listening-01/manifest.json', fallback, throwing)
+
+    await expect(driver.play(cues, {})).resolves.toBe('completed')
+    expect(fallback.spoken).toHaveLength(3)
+  })
+
+  it('plays a REAL on-disk fixture manifest and its (tiny, generated) mp3 files — not just an in-memory one', async () => {
+    // public/audio/_fixtures/demo/: three ~104-byte valid-MP3-frame-header
+    // files a maintainer never listens to (see that directory's README) —
+    // proof the checked-in manifest+files contract this driver reads at
+    // runtime actually round-trips, not just the shape asserted above.
+    // `process.cwd()` is the repo root under `npx vitest run` (confirmed:
+    // the engine project has no `root`/`cwd` override in vite.config.ts), so
+    // a plain relative path resolves the same way a shell command run from
+    // the repo root would.
+    const manifestUrl = 'public/audio/_fixtures/demo/manifest.json'
+    const onDiskFetch: ManifestFetcher = (url) => {
+      const bytes = readFileSync(url, 'utf8')
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(JSON.parse(bytes)) })
+    }
+    const onDiskAudioFactory: AudioElementFactory = (url) => {
+      // Reading the bytes back proves the fixture files are real, readable
+      // files at the paths the manifest names, not just entries in the JSON.
+      const bytes = readFileSync(url)
+      expect(bytes.length).toBeGreaterThan(0)
+      expect(bytes[0]).toBe(0xff) // MPEG frame sync byte.
+      const element: AudioElementLike = {
+        src: url,
+        onended: null,
+        onerror: null,
+        play: () => {
+          queueMicrotask(() => element.onended?.())
+          return Promise.resolve()
+        },
+        pause: () => {},
+      }
+      return element
+    }
+
+    const driver = new AudioFileDriver(
+      manifestUrl,
+      new FakeSpeechDriver({ available: false }),
+      onDiskFetch,
+      onDiskAudioFactory,
+    )
+    const fixtureCues: SpeechCue[] = [
+      { id: 'demo-c1', speaker: 'NARRATOR', text: 'One.' },
+      { id: 'demo-c2', speaker: 'NARRATOR', text: 'Two.' },
+      { id: 'demo-c3', speaker: 'NARRATOR', text: 'Three.' },
+    ]
+
+    const ended: string[] = []
+    const outcome = await driver.play(fixtureCues, { onCueEnd: (c) => ended.push(c.id) })
+
+    expect(outcome).toBe('completed')
+    expect(ended).toEqual(['demo-c1', 'demo-c2', 'demo-c3'])
+    expect(driver.kind).toBe('audio-file')
+  })
+
+  it('the manifest is fetched once, cached for the life of the driver', async () => {
+    let calls = 0
+    const countingFetch: ManifestFetcher = () => {
+      calls += 1
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(manifest) })
+    }
+    const { factory } = audioFactory()
+    const driver = new AudioFileDriver(
+      '/audio/listening-01/manifest.json',
+      new FakeSpeechDriver({ available: false }),
+      countingFetch,
+      factory,
+    )
+
+    await driver.play(cues, {})
+    await driver.play(cues, {})
+
+    expect(calls).toBe(1)
+  })
+})
+
+describe('createSpeechDriver preference order', () => {
+  it('prefers audio files over synthesis once the manifest has loaded', async () => {
+    const { engine } = fakeEngine([voice('Alpha', 'en-GB')])
+    const factory: AudioElementFactory = (url) => ({
+      src: url,
+      onended: null,
+      onerror: null,
+      play: () => Promise.resolve(),
+      pause: () => {},
+    })
+    // A manifest with zero cues is enough to prove the PREFERENCE, without
+    // depending on any specific cue's playback.
+    const empty: AudioManifest = {
+      generatedAtISO: '2026-08-11T00:00:00.000Z',
+      provider: 'openai:tts-1',
+      voiceMap: {},
+      cues: [],
+    }
+    const driver = createSpeechDriver({
+      engine,
+      manifestUrl: '/audio/listening-01/manifest.json',
+      fetchImpl: () => Promise.resolve({ ok: true, json: () => Promise.resolve(empty) }),
+      audioFactory: factory,
+    })
+
+    expect(driver.kind).toBe('speech-synthesis') // before the manifest resolves.
+    await driver.play([], {})
+    expect(driver.kind).toBe('audio-file') // after it does — audio wins.
+  })
+
+  it('falls back to synthesis when there is no manifestUrl at all', () => {
+    const { engine } = fakeEngine([voice('Alpha', 'en-GB')])
+    const driver = createSpeechDriver({ engine })
+    expect(driver.kind).toBe('speech-synthesis')
+  })
+
+  it('falls back to the paced transcript when there is neither a manifest nor an engine', () => {
+    const driver = createSpeechDriver({ engine: null, manifestUrl: undefined })
+    expect(driver.kind).toBe('transcript-pace')
+  })
+})
+
+/* ------------------------------- noticeFor / manifest parsing ---------------- */
+
+describe('noticeFor — the three-way honesty switch', () => {
+  it('names the audio-file case honestly, distinct from browser synthesis', () => {
+    expect(noticeFor('audio-file')).toBe(AUDIO_FILE_NOTICE)
+    expect(AUDIO_FILE_NOTICE).toContain('generated')
+    expect(AUDIO_FILE_NOTICE).not.toBe(SYNTHETIC_VOICE_NOTICE)
+    expect(noticeFor('speech-synthesis')).toBe(SYNTHETIC_VOICE_NOTICE)
+    expect(noticeFor('transcript-pace')).toBe(TRANSCRIPT_FALLBACK_NOTICE)
+    expect(noticeFor('fake')).toBe(SYNTHETIC_VOICE_NOTICE)
+  })
+})
+
+describe('parseAudioManifest — defensive against hostile data', () => {
+  const good = {
+    generatedAtISO: '2026-08-11T00:00:00.000Z',
+    provider: 'openai:tts-1',
+    voiceMap: { narrator: 'nova' },
+    cues: [{ id: 'c1', index: 0, file: '000.mp3', speakerId: 'narrator' }],
+  }
+
+  it('parses a well-formed manifest', () => {
+    expect(parseAudioManifest(good)).toEqual(good)
+  })
+
+  it.each([
+    null,
+    undefined,
+    42,
+    'a string',
+    [],
+    { ...good, generatedAtISO: 7 },
+    { ...good, provider: undefined },
+    { ...good, voiceMap: 'nope' },
+    { ...good, voiceMap: { narrator: 7 } },
+    { ...good, cues: 'nope' },
+    { ...good, cues: [{ id: '', index: 0, file: '000.mp3', speakerId: 'narrator' }] },
+    { ...good, cues: [{ id: 'c1', index: -1, file: '000.mp3', speakerId: 'narrator' }] },
+    { ...good, cues: [{ id: 'c1', index: 1.5, file: '000.mp3', speakerId: 'narrator' }] },
+    { ...good, cues: [{ id: 'c1', index: 0, file: '', speakerId: 'narrator' }] },
+    { ...good, cues: [{ id: 'c1', index: 0, file: '000.mp3', speakerId: '' }] },
+    { ...good, cues: [{ index: 0, file: '000.mp3', speakerId: 'narrator' }] },
+  ])('rejects malformed manifest %#', (bad) => {
+    expect(parseAudioManifest(bad)).toBeNull()
   })
 })

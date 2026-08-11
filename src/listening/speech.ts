@@ -24,7 +24,7 @@
  *    the transcript cue by cue at a fixed speaking pace rather than silently
  *    doing nothing — plan 011's STOP condition, discharged.
  *
- * ## Plan 032: picking a GOOD synthetic voice
+ * ## Plan 032: picking a GOOD synthetic voice, and shipping better ones
  *
  * Plan 011 chose option B and stopped there — `pickVoice` took the first
  * platform voice that matched a language, which is reliably the platform's
@@ -41,6 +41,14 @@
  *  - A learner can override the automatic choice from the Listening picker;
  *    the choice is `preferredVoiceURI` in `src/profile/prefs.ts`, read here at
  *    driver construction (see `createSpeechDriver`), never on every play.
+ *
+ * Plan 032 Prong B adds `AudioFileDriver`, a THIRD option — audio generated
+ * once by a maintainer from a real TTS API and shipped as static files under
+ * `public/audio/` — that `createSpeechDriver` prefers over synthesis when a
+ * test has a manifest, and that falls back to synthesis (then the paced
+ * transcript) when it does not. See `AudioFileDriver`'s own doc comment and
+ * `scripts/generate-audio.mjs`. Nothing about the audio DECISION above
+ * changes: this app still calls no TTS API at runtime, for the same reasons.
  *
  * ## Why there is an interface at all
  *
@@ -78,6 +86,22 @@ export const TRANSCRIPT_FALLBACK_NOTICE =
   'Your browser has no speech voice available, so the transcript is being ' +
   'revealed line by line at speaking pace instead. This is a reading exercise ' +
   'with a clock on it, not a listening one — be aware of the difference.'
+
+/**
+ * Shown when `AudioFileDriver` is playing generated files instead of live
+ * browser synthesis (plan 032 Prong B). The honesty rule `SYNTHETIC_VOICE_
+ * NOTICE` states EXTENDS here, never retracts: a maintainer-generated
+ * recording usually sounds closer to a real voice than the browser's own
+ * synthesiser, but it is still not the exam's studio-recorded actors, and the
+ * UI must keep saying so.
+ */
+export const AUDIO_FILE_NOTICE =
+  'This audio was generated once, ahead of time, from this test’s transcript ' +
+  'using a text-to-speech service — it is not the real IELTS Listening recording. ' +
+  'It usually sounds closer to a real voice than your browser’s own speech ' +
+  'engine, but it is still not the exam’s British, Australian, North American ' +
+  'and New Zealand actors. Treat this as practice for the question types and ' +
+  'note-taking, not for accents.'
 
 /* ----------------------------------- cues ----------------------------------- */
 
@@ -120,7 +144,7 @@ export function sectionCues(section: ListeningSection): SpeechCue[] {
 
 /* --------------------------------- the driver -------------------------------- */
 
-export type SpeechDriverKind = 'speech-synthesis' | 'transcript-pace' | 'fake'
+export type SpeechDriverKind = 'speech-synthesis' | 'transcript-pace' | 'fake' | 'audio-file'
 
 /**
  * How a playback ended.
@@ -602,6 +626,267 @@ export class TranscriptPaceDriver implements SpeechDriver {
   }
 }
 
+/* --------------------------------- audio files -------------------------------- */
+
+/** One cue's entry in a generated-audio manifest. */
+export interface AudioManifestCue {
+  /**
+   * `ListeningCue.id` / `SpeechCue.id`. Matching by id, rather than by
+   * `index` below, is what lets `AudioFileDriver.play` — called once per
+   * SECTION, with that section's own zero-based cue array — find the right
+   * file for a cue without knowing its position in the whole TEST, which is
+   * what the manifest is written against (99 cues across 4 sections, not 4
+   * separately-indexed queues).
+   */
+  id: string
+  /** Position within the whole test. Not consulted for matching — it exists
+   *  so the generated file names (`scripts/generate-audio.mjs` writes
+   *  `String(index).padStart(3, '0') + '.mp3'`) are walkable in a directory
+   *  listing and stay stable across regeneration as long as the transcript's
+   *  cue order does not change. */
+  index: number
+  /** Path relative to the manifest's own URL, e.g. `'000.mp3'`. */
+  file: string
+  speakerId: string
+}
+
+/** The contract `scripts/generate-audio.mjs` writes and `AudioFileDriver`
+ *  reads — plan 032 Prong B's manifest, `public/audio/<testId>/manifest.json`. */
+export interface AudioManifest {
+  generatedAtISO: string
+  /** Which TTS provider/model produced the audio, e.g. `'openai:tts-1'`. */
+  provider: string
+  /** speakerId -> the API voice name used for it — the reviewable record of
+   *  who sounds like what, checked in beside the generated files themselves. */
+  voiceMap: Record<string, string>
+  cues: AudioManifestCue[]
+}
+
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseManifestCue(value: unknown): AudioManifestCue | null {
+  if (!isRecordObject(value)) return null
+  const { id, index, file, speakerId } = value
+  if (typeof id !== 'string' || id.length === 0) return null
+  if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) return null
+  if (typeof file !== 'string' || file.length === 0) return null
+  if (typeof speakerId !== 'string' || speakerId.length === 0) return null
+  return { id, index, file, speakerId }
+}
+
+function parseVoiceMap(value: unknown): Record<string, string> | null {
+  if (!isRecordObject(value)) return null
+  const map: Record<string, string> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== 'string') return null
+    map[key] = entry
+  }
+  return map
+}
+
+/**
+ * Parse a fetched manifest defensively.
+ *
+ * A malformed or hostile file must not throw, only fail to load — the same
+ * discipline `sanitizePrefs` (`src/profile/prefs.ts`) applies to hostile
+ * localStorage: `null` means "could not use this", and the caller's honest
+ * response to `null` is to fall back, never to crash the section.
+ */
+export function parseAudioManifest(value: unknown): AudioManifest | null {
+  if (!isRecordObject(value)) return null
+  if (typeof value.generatedAtISO !== 'string') return null
+  if (typeof value.provider !== 'string') return null
+  const voiceMap = parseVoiceMap(value.voiceMap)
+  if (voiceMap === null) return null
+  if (!Array.isArray(value.cues)) return null
+
+  const cues: AudioManifestCue[] = []
+  for (const raw of value.cues) {
+    const cue = parseManifestCue(raw)
+    if (cue === null) return null
+    cues.push(cue)
+  }
+
+  return { generatedAtISO: value.generatedAtISO, provider: value.provider, voiceMap, cues }
+}
+
+/** The slice of `fetch` this module needs to load a manifest, injectable so
+ *  no test hits a real network — same discipline as `SpeechEngine`. */
+export type ManifestFetcher = (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>
+
+function defaultManifestFetcher(url: string): Promise<{ ok: boolean; json(): Promise<unknown> }> {
+  const scope = globalThis as { fetch?: typeof fetch }
+  if (scope.fetch === undefined) {
+    return Promise.resolve({ ok: false, json: () => Promise.resolve(null) })
+  }
+  return scope.fetch(url)
+}
+
+/** The slice of `HTMLAudioElement` a driver needs to play one file. */
+export interface AudioElementLike {
+  src: string
+  play(): Promise<void> | void
+  pause(): void
+  onended: (() => void) | null
+  onerror: (() => void) | null
+}
+
+export type AudioElementFactory = (url: string) => AudioElementLike
+
+function defaultAudioFactory(url: string): AudioElementLike {
+  const scope = globalThis as { Audio?: new (src?: string) => AudioElementLike }
+  const Ctor = scope.Audio
+  if (Ctor !== undefined) return new Ctor(url)
+
+  // No <audio> element in this environment at all. Fail the cue on the next
+  // tick rather than hang forever waiting for an event that will never come
+  // — `onerror` drives the same skip-to-next-cue path a real failed load
+  // would. This app always runs in a browser, so the branch above is the one
+  // that actually executes; this exists so "never fails" stays true even off
+  // one.
+  const inert: AudioElementLike = {
+    src: url,
+    play: () => Promise.resolve(),
+    pause: () => {},
+    onended: null,
+    onerror: null,
+  }
+  queueMicrotask(() => inert.onerror?.())
+  return inert
+}
+
+/** A file's URL, relative to the manifest that named it. */
+function resolveAudioFileUrl(manifestUrl: string, file: string): string {
+  const dir = manifestUrl.slice(0, manifestUrl.lastIndexOf('/') + 1)
+  return dir + file
+}
+
+/**
+ * Plays a test's generated audio files instead of live browser synthesis —
+ * plan 032 Prong B. Implements the same `SpeechDriver` interface every other
+ * driver does, so the runner cannot tell the difference, which is the whole
+ * point of the seam.
+ *
+ * The manifest is fetched once, lazily, on the first `play()` call (there is
+ * nothing to play before then) and cached for the life of the driver.
+ *
+ * **A missing or malformed manifest is not an error — it is Prong A.** `kind`
+ * reports `'audio-file'` only once a manifest has actually loaded; until then
+ * (or if it never does, because this test has no generated audio yet) `kind`
+ * reports whatever `fallback`'s kind is, and `play()` delegates to `fallback`
+ * outright. Optimistically claiming `'audio-file'` — and the honesty text
+ * that goes with it — for a test that has no generated recording would be
+ * exactly the kind of overclaiming this whole plan exists to remove. This is
+ * how `createSpeechDriver`'s "audio files → synthesis → transcript pace"
+ * preference order is really implemented: not as three mutually exclusive
+ * choices, but as this wrapper trying the best one and falling through.
+ *
+ * A single cue's audio failing to load or play (one bad file, one track that
+ * 404s) does NOT fall back to `fallback` — it skips to the next cue, the same
+ * "one mangled line is better than a dead section" doctrine
+ * `SpeechSynthesisDriver` already applies to a synthesis error.
+ */
+export class AudioFileDriver implements SpeechDriver {
+  private manifest: AudioManifest | null = null
+  private loadPromise: Promise<void> | null = null
+  private cancelled = false
+  private currentAudio: AudioElementLike | null = null
+
+  constructor(
+    private readonly manifestUrl: string,
+    private readonly fallback: SpeechDriver,
+    private readonly fetchImpl: ManifestFetcher = defaultManifestFetcher,
+    private readonly audioFactory: AudioElementFactory = defaultAudioFactory,
+  ) {}
+
+  get kind(): SpeechDriverKind {
+    return this.manifest !== null ? 'audio-file' : this.fallback.kind
+  }
+
+  /** Manifest fetched and parsed. Does NOT reflect `fallback`'s own
+   *  availability — `play()` is what actually falls back, regardless of what
+   *  this reports, matching every other driver's "nothing here is consulted
+   *  to decide whether to try" contract. */
+  available(): boolean {
+    return this.manifest !== null
+  }
+
+  cancel(): void {
+    this.cancelled = true
+    this.currentAudio?.pause()
+    this.fallback.cancel()
+  }
+
+  private async ensureManifestLoaded(): Promise<void> {
+    if (this.loadPromise !== null) return this.loadPromise
+    this.loadPromise = (async () => {
+      try {
+        const response = await this.fetchImpl(this.manifestUrl)
+        if (!response.ok) return
+        this.manifest = parseAudioManifest(await response.json())
+      } catch {
+        // Network failure, CORS, malformed JSON — all the same outcome: no
+        // manifest, fall back. Never throws.
+      }
+    })()
+    return this.loadPromise
+  }
+
+  async play(cues: readonly SpeechCue[], events: SpeechEvents = {}): Promise<SpeechOutcome> {
+    this.cancelled = false
+    await this.ensureManifestLoaded()
+
+    if (this.manifest === null) return this.fallback.play(cues, events)
+    const manifest = this.manifest
+
+    const byId = new Map(manifest.cues.map((entry) => [entry.id, entry]))
+
+    return new Promise<SpeechOutcome>((resolve) => {
+      const finish = (outcome: SpeechOutcome): void => {
+        this.currentAudio = null
+        events.onOutcome?.(outcome)
+        resolve(outcome)
+      }
+
+      const playFrom = (index: number): void => {
+        if (this.cancelled) return finish('cancelled')
+        if (index >= cues.length) return finish('completed')
+
+        const cue = cues[index]
+        const entry = byId.get(cue.id)
+
+        let advanced = false
+        const advance = (): void => {
+          if (advanced) return
+          advanced = true
+          this.currentAudio = null
+          events.onCueEnd?.(cue, index)
+          playFrom(index + 1)
+        }
+
+        events.onCueStart?.(cue, index)
+
+        if (entry === undefined) {
+          // No file for this cue in the manifest — the "one mangled line"
+          // doctrine: skip it rather than stop the section.
+          advance()
+          return
+        }
+
+        const audio = this.audioFactory(resolveAudioFileUrl(this.manifestUrl, entry.file))
+        this.currentAudio = audio
+        audio.onended = advance
+        audio.onerror = advance
+        void audio.play()
+      }
+
+      playFrom(0)
+    })
+  }
+}
+
 /* ------------------------------- the test double ----------------------------- */
 
 export interface FakeSpeechDriverOptions {
@@ -699,33 +984,64 @@ export interface CreateSpeechDriverOptions {
   engine?: SpeechEngine | null
   scheduler?: SpeechScheduler
   wordsPerMinute?: number
+  /**
+   * URL of a generated-audio manifest for the test about to be played, or
+   * `undefined` when none applies (no test selected yet, or this test has no
+   * generated audio). Plan 032 Prong B: when given, playback PREFERS the
+   * manifest's files and falls back to synthesis/transcript-pace on its own
+   * if the manifest cannot be loaded — see `AudioFileDriver`.
+   */
+  manifestUrl?: string
+  /** Injectable fetch for the manifest loader, so no test hits a real
+   *  network — same discipline as `engine`. */
+  fetchImpl?: ManifestFetcher
+  /** Injectable per-cue audio element factory, same discipline. */
+  audioFactory?: AudioElementFactory
 }
 
 /**
- * The driver this platform can actually use: the browser's synthesiser where
- * there is one, the paced transcript where there is not.
+ * The driver this platform can actually use, in preference order: generated
+ * audio files for this test (plan 032 Prong B, when `manifestUrl` is given
+ * and actually loads), then the browser's synthesiser where there is one,
+ * then the paced transcript where there is not.
  *
- * The choice is made once, at construction, and the caller can see which it got
- * from `driver.kind` — which is how the UI knows whether to show
- * `SYNTHETIC_VOICE_NOTICE` or `TRANSCRIPT_FALLBACK_NOTICE`.
+ * The choice of FALLBACK is made once, at construction, and the caller can
+ * see which it got from `driver.kind` — which is how the UI knows which of
+ * `SYNTHETIC_VOICE_NOTICE` / `TRANSCRIPT_FALLBACK_NOTICE` / `AUDIO_FILE_
+ * NOTICE` to show. When `manifestUrl` is given, `kind` starts as the
+ * fallback's and becomes `'audio-file'` once the manifest has actually
+ * loaded — see `AudioFileDriver`'s own doc comment for why that is not
+ * decided optimistically.
  *
- * `preferredVoiceURI` (plan 032) is read from `src/profile/prefs.ts` HERE,
- * once, and threaded into `SpeechSynthesisDriver` — the driver itself never
- * imports `prefs.ts`, keeping it constructor-testable like every other driver
- * in this file.
+ * `preferredVoiceURI` (plan 032 Prong A) is read from `src/profile/prefs.ts`
+ * HERE, once, and threaded into `SpeechSynthesisDriver` — the driver itself
+ * never imports `prefs.ts`, keeping it constructor-testable like every other
+ * driver in this file.
  */
 export function createSpeechDriver(options: CreateSpeechDriverOptions = {}): SpeechDriver {
   const engine = options.engine !== undefined ? options.engine : browserSpeechEngine()
   const preferredVoiceURI = loadPrefs().preferredVoiceURI
-  if (engine !== null) return new SpeechSynthesisDriver(engine, preferredVoiceURI)
 
-  return new TranscriptPaceDriver(
-    options.scheduler ?? realScheduler,
-    options.wordsPerMinute ?? TRANSCRIPT_PACE_WPM,
-  )
+  const fallback: SpeechDriver =
+    engine !== null
+      ? new SpeechSynthesisDriver(engine, preferredVoiceURI)
+      : new TranscriptPaceDriver(
+          options.scheduler ?? realScheduler,
+          options.wordsPerMinute ?? TRANSCRIPT_PACE_WPM,
+        )
+
+  if (options.manifestUrl === undefined) return fallback
+  return new AudioFileDriver(options.manifestUrl, fallback, options.fetchImpl, options.audioFactory)
 }
 
 /** The notice a driver's kind obliges the UI to show. */
 export function noticeFor(kind: SpeechDriverKind): string {
-  return kind === 'transcript-pace' ? TRANSCRIPT_FALLBACK_NOTICE : SYNTHETIC_VOICE_NOTICE
+  switch (kind) {
+    case 'transcript-pace':
+      return TRANSCRIPT_FALLBACK_NOTICE
+    case 'audio-file':
+      return AUDIO_FILE_NOTICE
+    default:
+      return SYNTHETIC_VOICE_NOTICE
+  }
 }

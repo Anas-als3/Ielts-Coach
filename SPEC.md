@@ -1394,16 +1394,19 @@ exam. The real test uses actors recorded in a studio with British, Australian, N
 Zealand accents, and accents are part of what it examines. This practice trains the question types and
 note-taking; it does not train accents.
 
-Two exported constants carry that honesty so it cannot quietly go missing:
+Three exported constants carry that honesty so it cannot quietly go missing (the third, plan 032 Prong
+B, below):
 
 | Constant | Shown when | Says |
 |---|---|---|
 | `SYNTHETIC_VOICE_NOTICE` | a voice exists (`SpeechSynthesisDriver`) | the voice is the browser's, not a recording, and names the four real accents |
 | `TRANSCRIPT_FALLBACK_NOTICE` | no voice exists (`TranscriptPaceDriver`) | the transcript is being revealed at speaking pace and this is a reading exercise |
+| `AUDIO_FILE_NOTICE` | generated audio has loaded (`AudioFileDriver`) | the audio is generated once ahead of time by a TTS service, closer to a real voice than the browser's own but still not the exam's studio-recorded actors |
 
-`noticeFor(driver.kind)` picks between them. One of the two is on screen the whole time a Listening
-paper is open, and again on the picker before the learner commits 40 minutes. The runner shows the
-transcript text **only** under the fallback driver: printing the script while a voice speaks would be
+`noticeFor(driver.kind)` picks between them (a three-way switch since plan 032 Prong B). One of the
+three is on screen the whole time a Listening paper is open, and again on the picker before the learner
+commits 40 minutes. The runner shows the transcript text **only** under the fallback driver: printing
+the script while a voice speaks would be
 subtitling, and a subtitled listening test is a reading test. The rule ends when the paper does — the
 report prints the full tapescript after submission, which is what the practice books do.
 
@@ -1441,6 +1444,65 @@ place, inside option B's existing zero-bundled-bytes budget; the audio DECISION 
   differentiated. The choice applies the next time a Listening driver is built (construction-time only,
   not live mid-session) and a vanished URI falls back to Automatic silently, both in the driver
   (`rankVoices` simply does not find it) and in the picker's own select (`resolveSelectedVoiceURI`).
+
+### Generated audio files — CANONICAL (plan 032 Prong B)
+
+A third option alongside browser synthesis and the paced transcript: audio generated ONCE by a
+maintainer from a real TTS API and shipped as ordinary static files under `public/audio/<testId>/`. The
+audio DECISION above still holds — **this app calls no TTS API at runtime**, for the reasons stated
+there (a public key, per-play cost and network dependency, non-determinism). Generating once and
+committing the result sidesteps all three: the key lives only in the maintainer's shell (`TTS_API_KEY`,
+read once, written nowhere), learners pay nothing per play, and the same file plays the same way on
+every sitting.
+
+- **The script.** `scripts/generate-audio.mjs` (dev-only, never imported by `src/`, excluded from the
+  Vite bundle by living outside it and outside `npm run build`) reads a test from
+  `src/listening/tests/index.ts`, flattens its transcript into cues, looks each speaker up in
+  `scripts/voice-map.json` (one entry per test id, one per `speakerId`, checked in beside the script as
+  the reviewable record of who sounds like what — the run refuses if a speaker is missing, rather than
+  defaulting silently), calls OpenAI's `gpt-4o-mini-tts`, and writes
+  `public/audio/<testId>/<###>.mp3` plus `public/audio/<testId>/manifest.json`. `--dry-run` prints the
+  cue count and voice map, calls no API and needs no key — that IS this plan's automated test
+  (`tests/generate-audio.test.ts` spawns the real script). Without `TTS_API_KEY` and without `--dry-run`
+  the script exits non-zero with a one-line explanation. Extensionless imports from `src/` (this
+  project's own convention, resolved by Vite/tsc at build time) are resolved for
+  `node --experimental-strip-types` by a small loader hook, `scripts/ts-resolve-loader.mjs` — Node's own
+  `node:module` extension point, not a new dependency. Full maintainer checklist: `scripts/README.md`.
+- **The manifest contract.** `{generatedAtISO, provider, voiceMap, cues: [{id, index, file, speakerId}]}`
+  (`AudioManifest`/`AudioManifestCue`, `src/listening/speech.ts`), parsed defensively
+  (`parseAudioManifest`) with the same field-by-field discipline `sanitizePrefs` uses: malformed JSON
+  never throws, only fails to load. `id` is what a driver matches a cue to a file by — NOT `index`, which
+  exists only so file names (`String(index).padStart(3,'0') + '.mp3'`) are stable and walkable in a
+  listing — because the manifest is written once per TEST (every section's cues together) while
+  `AudioFileDriver.play()` is called once per SECTION, so a cue's position within its own section's
+  queue is not its position in the manifest.
+- **`AudioFileDriver`.** Implements the same `SpeechDriver` interface every other driver does. Fetches
+  its manifest once, lazily, on the first `play()`; a missing or malformed manifest is not an error — it
+  is Prong A: `kind` reports whatever the wrapped FALLBACK driver's kind is until a manifest has actually
+  loaded, and never optimistically claims `'audio-file'` (and `AUDIO_FILE_NOTICE`) for a test that has no
+  generated recording yet — the honesty rule this whole plan is about would be broken by claiming
+  otherwise. One cue's file failing to load or play (a bad file, one track that 404s) skips to the next
+  cue rather than ending the section — the same "one mangled line is better than a dead section"
+  doctrine `SpeechSynthesisDriver` already applies to a synthesis error; a fully unreachable manifest
+  delegates the whole section to the fallback driver instead.
+- **The preference order.** `createSpeechDriver` gains an optional `{manifestUrl?}` — App.tsx's ONE
+  driver-construction call site (`App.tsx`, `listeningDriver ?? createSpeechDriver({...})`) passes
+  `/audio/<testId>/manifest.json` once a test is selected (`undefined` on the picker screen, before any
+  test is chosen) and nothing else; `createSpeechDriver` still reads `preferredVoiceURI` itself. Audio
+  files are preferred over synthesis, which is preferred over the paced transcript — realised as
+  `AudioFileDriver` wrapping whichever of the other two `createSpeechDriver` would have built anyway, not
+  as three independent branches. Until a maintainer runs the script for a given test, this resolves to
+  exactly today's behaviour (Prong A's improved synthesis, or the paced transcript) with no visible
+  change.
+- **Static assets, not a runtime network call.** A same-origin fetch of `/audio/<testId>/manifest.json`
+  is how `index.html` itself already arrives — it is not the runtime TTS API call the audio decision
+  forbids. Stated plainly because shipping ANY new asset changes the offline story: **offline behaviour
+  for a test's audio now depends on the browser having cached those files** (the same as any other static
+  asset this app serves), unlike the rest of the app's guaranteed-offline localStorage-only behaviour.
+  `public/audio/_fixtures/` is NOT real Listening content — three ~104-byte generated-silence MP3
+  fixtures (a few bytes of valid MPEG frame header, never a recording) plus a matching manifest, used only
+  by `tests/speech.test.ts` to prove the on-disk contract round-trips; no registered test id ever resolves
+  to it.
 
 ### The conversion table — CANONICAL DATA
 
