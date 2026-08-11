@@ -19,7 +19,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import Dashboard from '../../src/components/Dashboard'
-import type { ErrorProfile, WritingSessionRecord } from '../../src/types'
+import type { ErrorProfile, ImportSummary, WritingSessionRecord } from '../../src/types'
 
 /* --------------------------------- fixture --------------------------------- */
 
@@ -82,6 +82,12 @@ const SESSIONS = [
 
 const PROFILE: ErrorProfile = { totalSessions: 3, categories: {}, focusCategories: [] }
 
+/** These tests never actually import — the picker is never opened — so the
+ *  stub summary's values are unused; only its shape is load-bearing. */
+function noopImport(): ImportSummary {
+  return { mode: 'replace', sessionCount: 0, evictedCount: 0 }
+}
+
 /** Mirrors Dashboard.tsx's chart-axis date format (no year). */
 function chartDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
@@ -110,7 +116,7 @@ function renderDashboard(): void {
       onStartPractice={() => {}}
       onDeleteSession={() => {}}
       onExport={() => {}}
-      onImport={() => {}}
+      onImport={noopImport}
       // plan 027: this suite is about the band readouts, not the goals card —
       // an empty prefs record and no-op handlers keep the card's own
       // behaviour out of these assertions (see tests/ui/goals.test.tsx).

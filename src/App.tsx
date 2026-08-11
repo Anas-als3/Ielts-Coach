@@ -5,6 +5,8 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import './App.css'
 import type {
   AppProps,
+  ImportMode,
+  ImportSummary,
   Issue,
   IssueCategory,
   LetterPromptSpec,
@@ -26,7 +28,14 @@ import type { ReadingAnswers } from './reading/types'
 import type { ListeningAnswers } from './listening/types'
 import { MODULE_META, TASK_CONSTANTS, WRITING_MODE_META } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
-import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
+import {
+  deleteSession,
+  exportData,
+  importData,
+  loadSessions,
+  onExternalStoreChange,
+  saveSession,
+} from './profile/store'
 import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/draft'
 import type { WritingDraft } from './profile/draft'
 import { computeProfile, computeTrends } from './profile/profile'
@@ -427,6 +436,13 @@ export default function App({
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [view, readingStage, listeningStage])
+
+  // Another tab saved, deleted, or imported into the store — re-read so both
+  // tabs agree. `onExternalStoreChange` already excludes this tab's own
+  // writes (the 'storage' event never fires in the tab that wrote) and any
+  // backup-key write; this effect stays in App because it feeds the
+  // top-level `sessions` state above.
+  useEffect(() => onExternalStoreChange(() => setSessions(loadSessions())), [])
 
   /* --------------------------------- actions -------------------------------- */
   handleSubmitRef.current = () => handleSubmit()
@@ -905,9 +921,12 @@ export default function App({
     setPrefs(loadPrefs())
   }
 
-  function handleImport(json: string) {
-    importData(json)
+  function handleImport(json: string, mode: ImportMode): ImportSummary {
+    const summary = importData(json, mode)
     setSessions(loadSessions())
+    // A no-op read+set when merge left prefs untouched (importData only
+    // restores them in replace mode) — harmless, and the same
+    // storage-is-source-of-truth rule every other mutation here follows.
     const restored = loadPrefs()
     setPrefs(restored)
     // Through switchModule, not setModule: away from the desk it keeps a
@@ -915,6 +934,7 @@ export default function App({
     // (see switchModule above); a bare setModule would strand a
     // General-only prompt on an Academic desk.
     if (restored.module && restored.module !== module) switchModule(restored.module)
+    return summary
   }
 
   function handleDelete(id: string) {

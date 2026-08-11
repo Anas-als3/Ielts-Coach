@@ -3,12 +3,15 @@
  *
  * Store shape (key 'ielts-coach.v1' — the key is opaque, the version is in the
  * payload):
- *   { schemaVersion: 5, sessions: SessionRecord[] }
+ *   { schemaVersion: 6, sessions: SessionRecord[], deletedIds: string[] }
  *
  * Versions are migrated forward on read, never discarded (see migrateSessions).
  * v1 -> v2 added SessionRecord.task; v2 -> v3 added SessionRecord.module;
  * v3 -> v4 added SessionRecord.section, the Writing/Reading discriminator;
- * v4 -> v5 added the 'listening' member of that discriminator. The rungs apply
+ * v4 -> v5 added the 'listening' member of that discriminator; v5 -> v6 added
+ * StoreShape.deletedIds, the delete tombstones a merge-import needs so a
+ * session removed on one device is never resurrected by another device's
+ * copy (see capDeletedIds and importData's merge mode). The rungs apply
  * in sequence, so a v1 store arriving at this build gains every field in a
  * SINGLE read.
  *
@@ -29,13 +32,20 @@
  * never crashes the app — we warn on the console and keep going.
  */
 
-import type { Criterion, SaveResult, SessionRecord, SessionSection } from '../types'
+import type {
+  Criterion,
+  ImportMode,
+  ImportSummary,
+  SaveResult,
+  SessionRecord,
+  SessionSection,
+} from '../types'
 import { isWritingSession } from '../types'
 import { byDateAscending } from './chronology'
 import { loadPrefs, sanitizePrefs, savePrefs } from './prefs'
 
 const STORAGE_KEY = 'ielts-coach.v1'
-const SCHEMA_VERSION = 5
+const SCHEMA_VERSION = 6
 /** Lowest stored version this build knows how to migrate forward from. */
 const MIN_MIGRATABLE_VERSION = 1
 /**
@@ -62,6 +72,21 @@ const BACKUP_KEY_PREFIX = 'ielts-coach.backup.'
  */
 const MAX_SESSIONS_PER_SECTION = 200
 /**
+ * How many delete tombstones to keep (newest wins).
+ *
+ * A tombstone is ~40 bytes of id, but "per delete, forever" is still unbounded
+ * growth inside the same quota that holds the essays — an id can outlive its
+ * session by years and the list would only ever grow. 500 is far beyond the
+ * store's own live ceiling (3 sections x MAX_SESSIONS_PER_SECTION = 600 live
+ * records): to WANT more than 500 tombstones a learner must have deleted more
+ * sessions one by one than the store can even hold, and the oldest tombstones
+ * are the ones whose sessions are least likely to still exist on any other
+ * device. Dropping an old tombstone risks, at worst, one resurrected record on
+ * a merge with a very stale file — recoverable by deleting it again — while an
+ * unbounded list risks the quota, which loses essays.
+ */
+const MAX_DELETED_IDS = 500
+/**
  * How many timestamped backup copies to keep.
  *
  * Backups exist so nothing is destroyed without a recoverable copy — but a copy
@@ -75,11 +100,20 @@ const MAX_SESSIONS_PER_SECTION = 200
  * times is not the one they will reach for.
  */
 const MAX_BACKUPS = 5
-const EXPORT_FILENAME = 'ielts-coach-data.json'
+/**
+ * The export file's name, minus its date — plan 016 froze the export format
+ * within its own scope, but the filename now carries the export's date (see
+ * `buildExport`), so a bare constant filename is no longer accurate. Also
+ * used to build the import JSON-parse error's learner-facing copy, so the
+ * two names can never drift apart.
+ */
+const EXPORT_FILENAME_PREFIX = 'ielts-coach-data'
 
 interface StoreShape {
   schemaVersion: number
   sessions: SessionRecord[]
+  /** Ids the learner explicitly deleted. See MAX_DELETED_IDS for why capped. */
+  deletedIds: string[]
 }
 
 function isRecordObject(value: unknown): value is Record<string, unknown> {
@@ -233,10 +267,24 @@ function looksLikeSession(value: unknown): value is SessionRecord {
  * A record whose `section` is absent counts as Writing, via the same
  * `isWritingSession` guard the profile uses, so the cap and the profile can
  * never disagree about what a pre-v4 record is.
+ *
+ * **Cap eviction is NOT a delete.** This function must never write a
+ * tombstone for a record it drops — only the learner's explicit
+ * `deleteSession` does that (see `capDeletedIds` / `MAX_DELETED_IDS`).
+ * Otherwise a future sync would turn a local retention policy into global
+ * history loss: this device evicting record 201 must not tell every other
+ * device, via a merge-import, to destroy its own copy of that same record.
+ * This function taking no `deletedIds` parameter and returning none is that
+ * rule enforced by the type signature, not only by the comment.
+ *
+ * Reports `evictedCount` alongside the survivors: `saveSession`'s eviction is
+ * the documented per-section retention policy and ignores it, but merging two
+ * devices each already near the cap can silently evict on import, and the
+ * learner must be told (see `ImportSummary`).
  */
-function capSessions(sessions: SessionRecord[]): SessionRecord[] {
+function capSessions(sessions: SessionRecord[]): { kept: SessionRecord[]; evictedCount: number } {
   // Nothing can be over a per-section cap while the whole list is under it.
-  if (sessions.length <= MAX_SESSIONS_PER_SECTION) return sessions
+  if (sessions.length <= MAX_SESSIONS_PER_SECTION) return { kept: sessions, evictedCount: 0 }
 
   const keptPerSection = new Map<SessionSection, number>()
   const kept: SessionRecord[] = []
@@ -248,7 +296,31 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
     if (n <= MAX_SESSIONS_PER_SECTION) kept.push(session)
   }
   kept.reverse()
-  return kept
+  return { kept, evictedCount: sessions.length - kept.length }
+}
+
+/**
+ * Deduplicate and cap a tombstone list at `MAX_DELETED_IDS`, keeping the
+ * NEWEST ids (the tail of the append-ordered list).
+ *
+ * A repeated id keeps its LAST occurrence's position rather than its first:
+ * an id can only be deleted once at a time this device knows about, so a
+ * later occurrence (from a merged file, say) is the more recent fact about
+ * when the deletion became known here, not a stale duplicate to discard.
+ */
+function capDeletedIds(ids: string[]): string[] {
+  const deduped: string[] = []
+  const seen = new Set<string>()
+  // Walk from the end so each id's LAST occurrence decides its position,
+  // then reverse back into append (oldest-first) order.
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const id = ids[i]
+    if (seen.has(id)) continue
+    seen.add(id)
+    deduped.push(id)
+  }
+  deduped.reverse()
+  return deduped.length > MAX_DELETED_IDS ? deduped.slice(deduped.length - MAX_DELETED_IDS) : deduped
 }
 
 /**
@@ -257,14 +329,14 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
  *
  * A user can arrive from ANY older version, so the steps are cumulative and
  * **must never be reordered or collapsed**. A v1 store reaching this build
- * climbs all four rungs in a single read and comes out with `task`, `module`
+ * climbs all five rungs in a single read and comes out with `task`, `module`
  * and `section` all stamped; `tests/store.test.ts` pins that chain end to end.
  *
  * Each rung tests `version < N`, NOT `version === N - 1`, and that is the whole
  * difference between a ladder and a lucky guess. `readStore` admits any version
  * in the RANGE [1, SCHEMA_VERSION], so `2.5` — a half-written store, a build
  * that shipped a fractional version, a hand-edited payload — reached here and
- * matched no `===` rung at all: zero steps ran, the store was stamped 5 on the
+ * matched no `===` rung at all: zero steps ran, the store was stamped 6 on the
  * next write, and every record kept `task`, `module` and `section` undefined
  * forever. With `<`, anything below a rung climbs it. The stamps are already
  * conditional on the field being absent, so climbing a rung a record did not
@@ -321,6 +393,15 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
   // without anyone having to work out where v5 went.
   if (version < 5) {
     version = 5
+  }
+
+  // v5 -> v6: StoreShape gained `deletedIds` — a STORE-level field, not a
+  // record field, so there is nothing to stamp onto a session here.
+  // `readStore` supplies the [] default when the payload predates the field;
+  // this rung exists so the ladder still reads one line per version and so
+  // `importData` knows a v6 export is readable while refusing a v7 one.
+  if (version < 6) {
+    version = 6
   }
 
   return out as unknown as SessionRecord[]
@@ -478,6 +559,8 @@ function backupCurrentStore(reason: string): void {
  * - A known older version, but SOME records fail validation → the raw string is
  *   backed up too, and the records that did validate are returned.
  * - A known older version → migrated forward and returned.
+ * - `deletedIds` missing (any payload older than v6) → defaults to [], which
+ *   IS the migration for that field — see the note above the return below.
  *
  * Never throws.
  */
@@ -526,10 +609,33 @@ function readStore(): StoreShape | null {
         'could not be read by this version of the app and were left out.',
     )
   }
+
+  // `deletedIds` is hostile input exactly like `sessions`: a v5 (or older)
+  // payload has no such key at all, and the [] default here IS the v5 -> v6
+  // migration for this STORE-level field — there is no record to stamp it
+  // onto, so `migrateSessions`' v5 -> v6 rung is a version bump only.
+  const rawDeletedIds: unknown = parsed.deletedIds
+  const deletedIds = capDeletedIds(
+    Array.isArray(rawDeletedIds)
+      ? rawDeletedIds.filter((d): d is string => typeof d === 'string')
+      : [],
+  )
+
   return {
     schemaVersion: SCHEMA_VERSION,
     sessions: migrateSessions(valid, version),
+    deletedIds,
   }
+}
+
+/**
+ * `readStore`, but never null — an empty store rather than a missing one.
+ * Every mutation below (`saveSession`, `deleteSession`, `importData`) reads
+ * through this so sessions and tombstones come from ONE read, never two
+ * separate calls that could observe two different writes in between.
+ */
+function loadStore(): StoreShape {
+  return readStore() ?? { schemaVersion: SCHEMA_VERSION, sessions: [], deletedIds: [] }
 }
 
 /**
@@ -584,8 +690,8 @@ function unavailableFailure(): SaveResult {
  * sessions rather than of backups, and the honest answer is to tell the
  * learner rather than to keep deleting their history to make room.
  */
-function writeStore(sessions: SessionRecord[]): SaveResult {
-  const store: StoreShape = { schemaVersion: SCHEMA_VERSION, sessions }
+function writeStore(sessions: SessionRecord[], deletedIds: string[]): SaveResult {
+  const store: StoreShape = { schemaVersion: SCHEMA_VERSION, sessions, deletedIds }
   const json = JSON.stringify(store)
   try {
     window.localStorage.setItem(STORAGE_KEY, json)
@@ -634,48 +740,92 @@ export function loadSessions(): SessionRecord[] {
  * here and had no way to tell a silent failure from a success.
  */
 export function saveSession(s: SessionRecord): SaveResult {
+  const store = loadStore()
   // Replace any record with the same id so a double-save never duplicates.
-  const sessions = loadSessions().filter((existing) => existing.id !== s.id)
+  const sessions = store.sessions.filter((existing) => existing.id !== s.id)
   sessions.push(s)
   sessions.sort(byDateAscending)
-  return writeStore(capSessions(sessions))
+  // A deliberate re-save wins over a stale tombstone: the invariant this
+  // module keeps is that no id ever appears in both `sessions` and
+  // `deletedIds` at once. Without this, resurrecting a session by saving it
+  // again would leave a tombstone that a later merge could use to delete it
+  // right back out.
+  const deletedIds = store.deletedIds.filter((d) => d !== s.id)
+  // The eviction count is ignored here: a single session's cap eviction is
+  // the documented per-section retention policy, not news to the caller —
+  // `importData`'s merge/replace surfaces its own count instead.
+  const { kept } = capSessions(sessions)
+  return writeStore(kept, deletedIds)
 }
 
 /** Remove one session by id. Unknown ids are a no-op. */
 export function deleteSession(id: string): void {
-  const sessions = loadSessions()
-  const remaining = sessions.filter((s) => s.id !== id)
-  if (remaining.length === sessions.length) return
-  writeStore(remaining)
+  const store = loadStore()
+  const remaining = store.sessions.filter((s) => s.id !== id)
+  if (remaining.length === store.sessions.length) return
+  // A tombstone must testify to a REAL deletion this device performed — an
+  // unknown id above returned already, so nothing is appended for a session
+  // that never existed here. Recording one anyway would let a future merge
+  // subtract a record this device never even saw, which is not what "the
+  // learner deleted this" means.
+  const deletedIds = capDeletedIds([...store.deletedIds.filter((d) => d !== id), id])
+  writeStore(remaining, deletedIds)
 }
 
 /**
- * The export payload as a JSON string. Split from exportData so the engine
- * tests can pin the payload without a DOM (Blob/anchor stay in exportData).
+ * The export payload, and the ONE `exportedAtISO` clock read both
+ * `buildExportJson` and `buildExport` derive from — a second `new Date()`
+ * between building the payload and naming the file could straddle midnight
+ * and stamp a filename date that contradicts the payload's own timestamp.
  *
- * Prefs ride along ADDITIVELY: importData has never enumerated keys — it
- * reads schemaVersion and sessions and ignores the rest — so an older build
- * importing a newer file keeps working, and the field is omitted when empty
- * so a prefs-less export is byte-identical to today's.
+ * Sessions and tombstones come from a single `loadStore()` read, matching
+ * every mutation in this file. Prefs ride along ADDITIVELY: `importData` has
+ * never enumerated keys — it reads the fields it knows and ignores the rest
+ * — so an older build importing a newer file keeps working, and the field is
+ * omitted when empty so a prefs-less export stays exactly as small as before.
  */
-export function buildExportJson(): string {
+function buildExportPayload(): { json: string; exportedAtISO: string } {
   const prefs = loadPrefs()
+  const store = loadStore()
+  const exportedAtISO = new Date().toISOString()
   const payload = {
     schemaVersion: SCHEMA_VERSION,
-    sessions: loadSessions(),
+    exportedAtISO,
+    sessions: store.sessions,
+    deletedIds: store.deletedIds,
     ...(Object.keys(prefs).length > 0 ? { prefs } : {}),
   }
-  return JSON.stringify(payload, null, 2)
+  return { json: JSON.stringify(payload, null, 2), exportedAtISO }
 }
 
-/** Download the full store as pretty-printed JSON named ielts-coach-data.json. */
+/**
+ * The export payload as a JSON string alone. Split from `exportData` so the
+ * engine tests can pin the payload without a DOM (Blob/anchor stay in
+ * `exportData`); kept as its own export (rather than folded into
+ * `buildExport`) because existing callers already read it this way.
+ */
+export function buildExportJson(): string {
+  return buildExportPayload().json
+}
+
+/**
+ * The export payload and its dated filename, sharing the ONE clock read in
+ * `buildExportPayload` — see that function's doc comment for why a second
+ * clock read would be a bug, not a simplification.
+ */
+export function buildExport(): { json: string; filename: string } {
+  const { json, exportedAtISO } = buildExportPayload()
+  return { json, filename: `${EXPORT_FILENAME_PREFIX}-${exportedAtISO.slice(0, 10)}.json` }
+}
+
+/** Download the full store as pretty-printed, dated JSON. */
 export function exportData(): void {
-  const json = buildExportJson()
+  const { json, filename } = buildExport()
   const blob = new Blob([json], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = EXPORT_FILENAME
+  anchor.download = filename
   document.body.appendChild(anchor)
   anchor.click()
   document.body.removeChild(anchor)
@@ -683,27 +833,31 @@ export function exportData(): void {
 }
 
 /**
- * Validate an exported JSON string and REPLACE the store with it.
+ * Validate an exported JSON string and reconcile it against the store,
+ * either MERGING it in (`mode: 'merge'`, the UI's default) or REPLACING the
+ * store with it outright (`mode: 'replace'`, the default here so every
+ * pre-existing call site and test keeps its exact old behaviour).
  * Throws an Error with a learner-facing message when the input is not valid
  * IELTS Coach data — callers should catch and show the message.
  *
- * The existing store is copied to a backup key first. This is the only
- * destructive action in the app a learner reaches through a file picker: one
- * wrong file — last month's export, a sibling's — and a whole history of essays
- * is gone, with no undo anywhere in the UI. Every other path in this file backs
- * up before it clobbers; the one that clobbers on purpose has the least excuse
- * not to.
+ * The existing store is copied to a backup key first, AFTER validation (a
+ * file that is going to be rejected never mints a backup of data nothing was
+ * going to touch) and BEFORE the write. `replace` is the only destructive
+ * action in the app a learner reaches through a file picker with no undo in
+ * the UI; `merge` is not destructive by design (see the resurrect-prevention
+ * comment below) but backs up too, since a merge still rewrites the live key.
  *
- * The backup is taken AFTER validation, so a file that is going to be rejected
- * never mints a backup of data nothing was going to touch.
+ * Returns an `ImportSummary` so the caller can tell the learner what
+ * happened, including an eviction count — merging two devices each already
+ * near the per-section cap can silently evict on import.
  */
-export function importData(json: string): void {
+export function importData(json: string, mode: ImportMode = 'replace'): ImportSummary {
   let parsed: unknown
   try {
     parsed = JSON.parse(json)
   } catch {
     throw new Error(
-      'That file is not valid JSON. Choose the ielts-coach-data.json file you exported from this app.',
+      `That file is not valid JSON. Choose an ${EXPORT_FILENAME_PREFIX} file you exported from this app.`,
     )
   }
   if (!isRecordObject(parsed)) {
@@ -739,22 +893,111 @@ export function importData(json: string): void {
     }
   }
 
-  // Deduplicate by id, last occurrence winning — the same rule `saveSession`
-  // applies when it filters the id it is about to push. Two records sharing an
-  // id are not two sessions: they collide as React keys in the history list,
-  // and `deleteSession(id)` removes BOTH, so deleting an essay can silently
-  // take a Reading paper with it. A file can carry them (it may have been
-  // hand-merged from two exports); the store must not.
-  const deduplicated = new Map<string, SessionRecord>()
-  for (const session of incoming as SessionRecord[]) deduplicated.set(session.id, session)
+  // The file's own tombstones, parsed exactly as hostile as `readStore`
+  // parses the live key's: missing or malformed -> []. A pre-v6 file simply
+  // has none.
+  const rawFileDeletedIds: unknown = parsed.deletedIds
+  const fileDeletedIds = Array.isArray(rawFileDeletedIds)
+    ? rawFileDeletedIds.filter((d): d is string => typeof d === 'string')
+    : []
 
-  const sessions = migrateSessions(Array.from(deduplicated.values()), version).sort(byDateAscending)
-  backupCurrentStore('your saved sessions were replaced by an imported file.')
-  writeStore(capSessions(sessions))
+  // Migrate BEFORE deduplicating: order does not matter for the dedupe (it
+  // keys on `id`, which no rung ever touches) but matters for merge's union
+  // below, which needs every incoming record already carrying its stamps.
+  const migratedIncoming = migrateSessions(incoming as SessionRecord[], version)
+  // Deduplicate the FILE's own records by id, last occurrence winning — the
+  // same rule `saveSession` applies when it filters the id it is about to
+  // push. Two records sharing an id are not two sessions: they collide as
+  // React keys in the history list, and `deleteSession(id)` removes BOTH, so
+  // deleting an essay can silently take a Reading paper with it. A file can
+  // carry them (it may have been hand-merged from two exports); the store
+  // must not.
+  const fileDeduped = new Map<string, SessionRecord>()
+  for (const s of migratedIncoming) fileDeduped.set(s.id, s)
+  const fileSessions = Array.from(fileDeduped.values())
 
-  // Prefs ride the export additively (see buildExportJson). Restore them the
-  // same way they are read from disk: sanitized field-by-field, so a
-  // hand-edited file with one hostile number still restores its good fields —
-  // and a file from before prefs existed leaves the current prefs untouched.
-  if (isRecordObject(parsed.prefs)) savePrefs(sanitizePrefs(parsed.prefs))
+  let sessions: SessionRecord[]
+  let deletedIds: string[]
+
+  if (mode === 'merge') {
+    const current = loadStore()
+    // Union by id — current first, incoming last, so an incoming record wins
+    // an id collision (same last-wins rule as the file-only dedupe above;
+    // records are immutable after creation, so this is a tie-break between
+    // two copies of the same fact, not a data choice).
+    const unioned = new Map<string, SessionRecord>()
+    for (const s of current.sessions) unioned.set(s.id, s)
+    for (const s of fileSessions) unioned.set(s.id, s)
+
+    deletedIds = capDeletedIds([...current.deletedIds, ...fileDeletedIds])
+    const deletedSet = new Set(deletedIds)
+    // THE RESURRECT-PREVENTION LINE. Without it, a session this device
+    // deleted — or a session the FILE's own author deleted, on their end —
+    // would come right back the moment either side merged a copy the other
+    // still held. This is tombstones' entire reason to exist.
+    const surviving = Array.from(unioned.values()).filter((s) => !deletedSet.has(s.id))
+    // ORDER IS LOAD-BEARING: subtract (above) THEN cap (via capSessions,
+    // below) — never the reverse. Capping first could evict a record to
+    // protect one that the tombstone subtraction was about to remove anyway,
+    // silently costing the learner a survivor for no reason.
+    sessions = surviving.sort(byDateAscending)
+  } else {
+    // replace: the file's sessions and the file's tombstones wholesale — but
+    // still subtract the file's OWN tombstones from the file's OWN sessions,
+    // so the no-id-appears-in-both invariant holds even for a hand-edited
+    // file that violated it on disk.
+    deletedIds = capDeletedIds(fileDeletedIds)
+    const deletedSet = new Set(deletedIds)
+    sessions = fileSessions.filter((s) => !deletedSet.has(s.id)).sort(byDateAscending)
+  }
+
+  backupCurrentStore(
+    mode === 'merge'
+      ? 'your saved sessions were changed by a merged file.'
+      : 'your saved sessions were replaced by an imported file.',
+  )
+  const { kept, evictedCount } = capSessions(sessions)
+  writeStore(kept, deletedIds)
+
+  // Prefs are device-local taste, not history, so the two modes treat them
+  // differently: REPLACE takes the file's (unchanged from the old
+  // behaviour — restored only after the sessions have fully validated and
+  // been written, sanitized field-by-field so one hostile value cannot
+  // poison the good fields beside it); MERGE keeps THIS device's, because
+  // combining two devices' session histories is not the same request as
+  // overwriting this device's font-size-adjacent preferences with a
+  // laptop's.
+  if (mode === 'replace' && isRecordObject(parsed.prefs)) {
+    savePrefs(sanitizePrefs(parsed.prefs))
+  }
+
+  return { mode, sessionCount: kept.length, evictedCount }
+}
+
+/**
+ * Notify `callback` when ANOTHER tab writes this store. Returns unsubscribe.
+ *
+ * The 'storage' event fires only in OTHER same-origin tabs — never in the tab
+ * that wrote — so this closes the read-staleness half of multi-tab use: tab B
+ * sees tab A's new essay without a reload. The write race stays open and
+ * accepted: every mutation here re-reads inside the call (`saveSession` starts
+ * from `loadStore()`), so a tab holding stale REACT state can render stale
+ * but can never clobber the store with it.
+ *
+ * `e.key === null` means `localStorage.clear()` — treat it as a change too.
+ *
+ * Filtered to `STORAGE_KEY` (and `null`) specifically so a backup write —
+ * `ielts-coach.backup.<iso>`, minted on every damaged read or replace/merge
+ * — can never fire this callback. `STORAGE_KEY` itself stays unexported (the
+ * whole point of this function existing instead) so no caller outside this
+ * module can be tempted to compare against a DIFFERENT key by hand and drift
+ * out of sync with the filter here.
+ */
+export function onExternalStoreChange(callback: () => void): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== STORAGE_KEY && e.key !== null) return
+    callback()
+  }
+  window.addEventListener('storage', onStorage)
+  return () => window.removeEventListener('storage', onStorage)
 }

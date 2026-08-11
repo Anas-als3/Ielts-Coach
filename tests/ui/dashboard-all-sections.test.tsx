@@ -68,7 +68,11 @@ describe('Progress surfaces Export and counts every section, not only essays', (
     ).toBeInTheDocument()
   })
 
-  it('counts every saved section in the import confirm, not the filtered essay list', async () => {
+  it('counts every saved section in the import choice card, not the filtered essay list', async () => {
+    // Plan 031 replaced the binary `window.confirm` with an inline three-way
+    // Merge/Replace/Cancel card, but the truth-telling property this test
+    // pins is unchanged: the copy must count every saved SECTION, not only
+    // the writing-only `sessions` list Progress renders.
     const user = userEvent.setup()
     renderApp()
     await sitReadingPaper(user)
@@ -76,25 +80,22 @@ describe('Progress surfaces Export and counts every section, not only essays', (
     await user.click(navLink('Progress'))
     await screen.findByText('Write your first essay and your profile starts here.')
 
-    // Returns false so the import never actually runs — this asserts on what
-    // the confirm SAYS, not on a real replace happening.
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    // Drop the "blank questions" confirm recorded while sitting the paper —
-    // only the file-picker's confirm is under test here.
-    confirmSpy.mockClear()
-
     const file = new File(['{"schemaVersion":5,"sessions":[]}'], 'ielts-coach-data.json', {
       type: 'application/json',
     })
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     await user.upload(input, file)
 
-    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1))
-    const message = confirmSpy.mock.calls[0][0]
-    // Fails today: the message reads `sessions.length`, the writing-only
-    // list, so it said "(0 essays)" immediately before replacing a complete
-    // Reading history.
-    expect(message).toMatch(/Reading paper/)
-    expect(message).not.toMatch(/0 essays/)
+    const card = await screen.findByRole('region', { name: 'Import this file?' })
+    const body = within(card).getByText(/Replace throws away your current history/)
+    // Fails today: the message would read `sessions.length`, the
+    // writing-only list, so it would say "(0 essays)" immediately before
+    // replacing a complete Reading history.
+    expect(body.textContent).toMatch(/Reading paper/)
+    expect(body.textContent).not.toMatch(/0 essays/)
+
+    // Cancel, so the import never actually runs — this test is about what
+    // the card SAYS, not about a real replace happening.
+    await user.click(within(card).getByRole('button', { name: 'Cancel' }))
   })
 })

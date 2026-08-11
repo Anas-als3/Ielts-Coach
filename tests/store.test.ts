@@ -12,7 +12,8 @@
  * migration ladder and the backup-before-clobber safety net together.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { deleteSession, importData, loadSessions, saveSession } from '../src/profile/store'
+import { buildExport, deleteSession, importData, loadSessions, saveSession } from '../src/profile/store'
+import { loadPrefs, savePrefs } from '../src/profile/prefs'
 import { rawToBand } from '../src/reading/bandTable'
 import type { ReadingModule } from '../src/reading/types'
 import { isWritingSession } from '../src/types'
@@ -310,9 +311,9 @@ describe('v1 -> v4 in a single read', () => {
     expect(sessions.map((s) => s.id)).toEqual(['a', 'b', 'c', 'd'])
     expect(sessions.every((s) => s.section === 'writing')).toBe(true)
     // Whatever the current SCHEMA_VERSION is — 4 when this was written, 5 since
-    // Listening. The assertion that matters is that the three v1 essays above
-    // came through the rewrite, not the digit itself.
-    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(5)
+    // Listening, 6 since delete tombstones. The assertion that matters is that
+    // the three v1 essays above came through the rewrite, not the digit itself.
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(6)
   })
 
   it('lets a v1 store gain a Reading session without losing an essay', () => {
@@ -520,7 +521,7 @@ describe('v1 -> v5 in a single read', () => {
     expect(raw.sessions[0].section).toBeUndefined()
   })
 
-  it('rewrites a v1 store as v5 on the next save, losing nothing', () => {
+  it('rewrites a v1 store as v6 on the next save, losing nothing', () => {
     seed(1, [
       makeSession('a', '2026-01-01T10:00:00.000Z'),
       makeSession('b', '2026-01-02T10:00:00.000Z'),
@@ -529,7 +530,7 @@ describe('v1 -> v5 in a single read', () => {
     saveSession(newRecord('c', '2026-01-04T10:00:00.000Z'))
 
     expect(loadSessions().map((s) => s.id)).toEqual(['a', 'b', 'c'])
-    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(5)
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(6)
   })
 
   it('lets a v1 store gain a Listening session without losing an essay', () => {
@@ -571,11 +572,11 @@ describe('an unrecognised future version is backed up, never destroyed', () => {
     // 99 is an obvious stranger; the NEXT version is the dangerous one, because
     // it is what a learner gets by opening a newer build of this same app on
     // another device and then coming back. It must be treated exactly as
-    // cautiously. This case tracks SCHEMA_VERSION + 1 and was re-pointed from 5
-    // to 6 when Listening made 5 a version this build understands — the
+    // cautiously. This case tracks SCHEMA_VERSION + 1 and was re-pointed from 6
+    // to 7 when delete tombstones made 6 a version this build understands — the
     // assertion is unchanged, only the boundary moved.
     const payload = {
-      schemaVersion: 6,
+      schemaVersion: 7,
       sessions: [
         makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
       ],
@@ -588,12 +589,12 @@ describe('an unrecognised future version is backed up, never destroyed', () => {
     expect(keys).toHaveLength(1)
     expect(JSON.parse(store.get(keys[0]) as string)).toEqual(payload)
 
-    // The live key moved on, but the v6 data is recoverable by hand.
+    // The live key moved on, but the v7 data is recoverable by hand.
     expect(loadSessions().map((s) => s.id)).toEqual(['new'])
   })
 
-  it('refuses to import a v6 export rather than dropping its unknown fields', () => {
-    const json = JSON.stringify({ schemaVersion: 6, sessions: [] })
+  it('refuses to import a v7 export rather than dropping its unknown fields', () => {
+    const json = JSON.stringify({ schemaVersion: 7, sessions: [] })
     expect(() => importData(json)).toThrow(/newer version/i)
   })
 })
@@ -922,7 +923,8 @@ describe('importData backs up the store it is about to replace', () => {
     seed(5, [makeSession('mine', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
 
     expect(() => importData('{not json')).toThrow()
-    expect(() => importData(JSON.stringify({ schemaVersion: 6, sessions: [] }))).toThrow()
+    // Tracks SCHEMA_VERSION + 1, same re-point as above.
+    expect(() => importData(JSON.stringify({ schemaVersion: 7, sessions: [] }))).toThrow()
 
     expect(loadSessions().map((s) => s.id)).toEqual(['mine'])
     expect(backupKeys()).toEqual([])
@@ -932,12 +934,13 @@ describe('importData backs up the store it is about to replace', () => {
 /* --------------------- a version between two rungs -------------------------- */
 
 describe('a fractional schemaVersion still climbs every rung above it', () => {
-  it('migrates a 2.5 store instead of stamping it v5 with nothing filled in', () => {
-    // `readStore` admits any version in the RANGE [1, 5], but the ladder used to
+  it('migrates a 2.5 store instead of stamping it v6 with nothing filled in', () => {
+    // `readStore` admits any version in the RANGE [1, 6], but the ladder used to
     // step on exact `===` integers, so 2.5 ran ZERO rungs and was then written
-    // back as v5 — permanently, with `module` and `section` undefined on every
-    // record. A store can hold such a version from a half-finished write, a
-    // hand edit, or a build that ever shipped a fractional one.
+    // back as the current version — permanently, with `module` and `section`
+    // undefined on every record. A store can hold such a version from a
+    // half-finished write, a hand edit, or a build that ever shipped a
+    // fractional one.
     seed(2.5, [makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2' })])
 
     const sessions = loadSessions()
@@ -957,7 +960,7 @@ describe('a fractional schemaVersion still climbs every rung above it', () => {
     expect(sessions[0].section).toBe('writing')
   })
 
-  it('survives the write that stamps the fractional store as v5', () => {
+  it('survives the write that stamps the fractional store as v6', () => {
     seed(2.5, [makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2' })])
 
     saveSession(newRecord('b', '2026-01-02T10:00:00.000Z'))
@@ -965,7 +968,7 @@ describe('a fractional schemaVersion still climbs every rung above it', () => {
     const sessions = loadSessions()
     expect(sessions.map((s) => s.id)).toEqual(['a', 'b'])
     expect(sessions.every((s) => s.section === 'writing')).toBe(true)
-    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(5)
+    expect(JSON.parse(store.get(STORAGE_KEY) as string).schemaVersion).toBe(6)
   })
 
   it('imports a fractional export the same way', () => {
@@ -1275,5 +1278,390 @@ describe('016-e: an imported or stored record must carry all four criteria', () 
     seed(5, [makeSession('good', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
 
     expect(loadSessions().map((s) => s.id)).toEqual(['good'])
+  })
+})
+
+/* -------------------- 031: v6 delete tombstones -------------------- */
+
+/** The raw payload as written, typed loosely enough to read `deletedIds` off it. */
+function rawStore(): { schemaVersion: number; sessions: unknown[]; deletedIds?: unknown[] } {
+  return JSON.parse(store.get(STORAGE_KEY) as string) as {
+    schemaVersion: number
+    sessions: unknown[]
+    deletedIds?: unknown[]
+  }
+}
+
+describe('031: v5 -> v6 migration (deletedIds)', () => {
+  it('defaults deletedIds to [] on a v5 store, read stays pure, next save writes v6', () => {
+    seed(5, [makeSession('a', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['a'])
+
+    // Reads stay pure: the payload is still v5 with no deletedIds key at all.
+    const before = rawStore()
+    expect(before.schemaVersion).toBe(5)
+    expect(before.deletedIds).toBeUndefined()
+
+    saveSession(newRecord('b', '2026-01-02T10:00:00.000Z'))
+
+    const after = rawStore()
+    expect(after.schemaVersion).toBe(6)
+    expect(after.deletedIds).toEqual([])
+  })
+
+  it('climbs every rung from v1, stamping task/module/section and gaining deletedIds', () => {
+    seed(1, [
+      makeSession('a', '2026-01-01T10:00:00.000Z'),
+      makeSession('b', '2026-01-02T10:00:00.000Z'),
+    ])
+
+    const sessions = loadSessions()
+    expect(sessions.map((s) => s.id)).toEqual(['a', 'b'])
+    expect(sessions.every((s) => s.section === 'writing')).toBe(true)
+    expect(sessions.every((s) => writingTask(s) === 'task2')).toBe(true)
+    expect(sessions.every((s) => writingModule(s) === 'academic')).toBe(true)
+
+    // One read climbed every rung. Reads stay pure: the payload is still v1.
+    const before = rawStore()
+    expect(before.schemaVersion).toBe(1)
+    expect(before.deletedIds).toBeUndefined()
+
+    saveSession(newRecord('c', '2026-01-03T10:00:00.000Z'))
+
+    const after = rawStore()
+    expect(after.sessions).toHaveLength(3)
+    expect(after.schemaVersion).toBe(6)
+    expect(after.deletedIds).toEqual([])
+  })
+})
+
+describe('031: deleteSession writes a tombstone', () => {
+  it('appends the deleted id to deletedIds', () => {
+    saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+
+    deleteSession('a')
+
+    expect(loadSessions()).toEqual([])
+    expect(rawStore().deletedIds).toEqual(['a'])
+  })
+
+  it('deleting an unknown id is a no-op — no tombstone, no write at all', () => {
+    saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+    const before = store.get(STORAGE_KEY)
+
+    deleteSession('never-existed')
+
+    // Nothing changed: the live key is byte-identical, so no tombstone was
+    // minted for a session this device never actually held.
+    expect(store.get(STORAGE_KEY)).toBe(before)
+  })
+})
+
+describe('031: the tombstone list is capped at MAX_DELETED_IDS, newest kept', () => {
+  it('keeps only the newest 500 ids once more than 500 distinct sessions are deleted', () => {
+    const CAP = 500
+    const TOTAL = CAP + 1
+
+    seed(
+      6,
+      Array.from({ length: TOTAL }, (_, i) =>
+        makeSession(`id-${i}`, day(i), { task: 'task2', section: 'writing' }),
+      ),
+    )
+
+    for (let i = 0; i < TOTAL; i++) deleteSession(`id-${i}`)
+
+    const deletedIds = rawStore().deletedIds as string[]
+    expect(deletedIds).toHaveLength(CAP)
+    // The oldest deletion (id-0) is the one that fell off; every id deleted
+    // after it survives.
+    expect(deletedIds).not.toContain('id-0')
+    expect(deletedIds).toContain('id-1')
+    expect(deletedIds).toContain(`id-${TOTAL - 1}`)
+  })
+})
+
+describe('031: capSessions never writes a tombstone for what it evicts', () => {
+  it('leaves deletedIds empty after a save that evicts an over-cap session', () => {
+    seed(
+      6,
+      Array.from({ length: 200 }, (_, i) =>
+        makeSession(`essay-${i}`, day(i), { task: 'task2', section: 'writing' }),
+      ),
+    )
+
+    // Pushes the writing section from 200 to 201, which the per-section cap
+    // must trim back to 200 by dropping the oldest — a retention policy, not
+    // a learner delete.
+    saveSession(newRecord('newest', day(500)))
+
+    const sessions = loadSessions()
+    expect(sessions).toHaveLength(200)
+    expect(sessions.map((s) => s.id)).not.toContain('essay-0')
+
+    // The eviction above must be invisible to the tombstone list: only an
+    // explicit `deleteSession` may ever write one.
+    expect(rawStore().deletedIds).toEqual([])
+  })
+})
+
+describe('031: saveSession clears a stale tombstone for the id it writes', () => {
+  it('removes the id from deletedIds when the same id is saved again', () => {
+    store.set(
+      STORAGE_KEY,
+      JSON.stringify({ schemaVersion: 6, sessions: [], deletedIds: ['x', 'y'] }),
+    )
+
+    saveSession(newRecord('x', '2026-01-01T10:00:00.000Z'))
+
+    const after = rawStore()
+    expect(after.deletedIds).toEqual(['y'])
+    expect((after.sessions as Array<{ id: string }>).map((s) => s.id)).toEqual(['x'])
+  })
+})
+
+/* -------------------- 031: merge-import -------------------- */
+
+describe('031: merge-import', () => {
+  it('unions two disjoint histories — every id from both survives', () => {
+    saveSession(newRecord('mine', '2026-01-01T10:00:00.000Z'))
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [
+        makeSession('theirs', '2026-01-02T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      ],
+      deletedIds: [],
+    })
+    const summary = importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['mine', 'theirs'])
+    expect(summary).toEqual({ mode: 'merge', sessionCount: 2, evictedCount: 0 })
+  })
+
+  it('an id collision in merge keeps ONE record — the incoming file wins', () => {
+    saveSession(
+      makeSession('dup', '2026-01-01T10:00:00.000Z', {
+        task: 'task2',
+        section: 'writing',
+        essayText: 'mine',
+      }) as SessionRecord,
+    )
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [
+        makeSession('dup', '2026-01-01T10:00:00.000Z', {
+          task: 'task2',
+          section: 'writing',
+          essayText: 'theirs',
+        }),
+      ],
+    })
+    const summary = importData(json, 'merge')
+
+    const sessions = loadSessions()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].section === 'writing' && sessions[0].essayText).toBe('theirs')
+    expect(summary.sessionCount).toBe(1)
+  })
+
+  it('RESURRECT PREVENTION: a session this device deleted stays deleted after merging a file that still carries it', () => {
+    // The core case tombstones exist for: without the subtract step, a merge
+    // would bring back exactly the essay the learner deliberately removed.
+    saveSession(newRecord('x', '2026-01-01T10:00:00.000Z'))
+    deleteSession('x')
+    expect(loadSessions()).toEqual([])
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [
+        makeSession('x', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      ],
+    })
+    importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).not.toContain('x')
+    expect(rawStore().deletedIds).toContain('x')
+  })
+
+  it('a tombstone carried BY THE FILE removes a session this device still has', () => {
+    saveSession(newRecord('x', '2026-01-01T10:00:00.000Z'))
+
+    const json = JSON.stringify({ schemaVersion: 6, sessions: [], deletedIds: ['x'] })
+    importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).not.toContain('x')
+    expect(rawStore().deletedIds).toContain('x')
+  })
+
+  it('ORDER PIN: subtract runs before cap, so a tombstoned record does not cost the cap an extra survivor', () => {
+    const current = Array.from({ length: 200 }, (_, i) =>
+      makeSession(`essay-${i}`, day(i), { task: 'task2', section: 'writing' }),
+    )
+    seed(6, current)
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [makeSession('fresh', day(300), { task: 'task2', section: 'writing' })],
+      // The FILE's own author deleted essay-100 on their end; this device
+      // still has a copy.
+      deletedIds: ['essay-100'],
+    })
+
+    const summary = importData(json, 'merge')
+
+    const ids = loadSessions().map((s) => s.id)
+    expect(ids).toHaveLength(200)
+    expect(ids).not.toContain('essay-100')
+    // Proves subtraction ran BEFORE the cap: removing essay-100 first leaves
+    // a union of exactly 200, so nothing else needs to be evicted and
+    // essay-0 — the true oldest — survives. Cap-then-subtract would have
+    // evicted essay-0 to bring 201 down to 200, THEN subtracted essay-100
+    // too, losing two records instead of one.
+    expect(ids).toContain('essay-0')
+    expect(ids).toContain('fresh')
+    expect(summary.evictedCount).toBe(0)
+  })
+
+  it('merge caps a near-cap section and reports the eviction', () => {
+    const current = Array.from({ length: 200 }, (_, i) =>
+      makeSession(`local-${i}`, day(i), { task: 'task2', section: 'writing' }),
+    )
+    seed(6, current)
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: Array.from({ length: 5 }, (_, i) =>
+        makeSession(`remote-${i}`, day(300 + i), { task: 'task2', section: 'writing' }),
+      ),
+    })
+
+    const summary = importData(json, 'merge')
+
+    expect(summary).toEqual({ mode: 'merge', sessionCount: 200, evictedCount: 5 })
+    const ids = loadSessions().map((s) => s.id)
+    expect(ids).toHaveLength(200)
+    // The newest 200 survive: the 5 oldest locals are gone.
+    expect(ids).not.toContain('local-0')
+    expect(ids).not.toContain('local-4')
+    expect(ids).toContain('local-5')
+    expect(ids).toContain('remote-0')
+  })
+
+  it('replace via the default parameter behaves exactly as the old replace-only importData did', () => {
+    seed(5, [makeSession('mine', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    const json = JSON.stringify({
+      schemaVersion: 5,
+      sessions: [
+        makeSession('theirs', '2026-02-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      ],
+    })
+    const summary = importData(json) // no mode argument at all — defaults to 'replace'
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['theirs'])
+    expect(summary).toEqual({ mode: 'replace', sessionCount: 1, evictedCount: 0 })
+  })
+
+  it('merge backs up the pre-import store, same as replace', () => {
+    seed(6, [makeSession('mine', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    importData(JSON.stringify({ schemaVersion: 6, sessions: [] }), 'merge')
+
+    const keys = backupKeys()
+    expect(keys).toHaveLength(1)
+    const rescued = JSON.parse(store.get(keys[0]) as string) as { sessions: Array<{ id: string }> }
+    expect(rescued.sessions.map((s) => s.id)).toEqual(['mine'])
+  })
+
+  it('refuses a v7 file in merge mode too', () => {
+    expect(() =>
+      importData(JSON.stringify({ schemaVersion: 7, sessions: [] }), 'merge'),
+    ).toThrow(/newer version/i)
+  })
+})
+
+describe('031: prefs are device-local, so merge and replace treat them differently', () => {
+  it('replace mode restores the file’s prefs — unchanged from the old replace-only behaviour', () => {
+    savePrefs({ targetOverall: 5 })
+    seed(6, [])
+
+    importData(
+      JSON.stringify({ schemaVersion: 6, sessions: [], prefs: { targetOverall: 9 } }),
+      'replace',
+    )
+
+    expect(loadPrefs()).toEqual({ targetOverall: 9 })
+  })
+
+  it('merge mode keeps THIS device’s prefs — prefs are taste, not history, so a merge never overwrites them', () => {
+    savePrefs({ targetOverall: 5 })
+    seed(6, [])
+
+    importData(
+      JSON.stringify({ schemaVersion: 6, sessions: [], prefs: { targetOverall: 9 } }),
+      'merge',
+    )
+
+    expect(loadPrefs()).toEqual({ targetOverall: 5 })
+  })
+})
+
+/* -------------------- 031: buildExport — dated, self-describing exports -------------------- */
+
+describe('031: buildExport', () => {
+  it('the payload carries schemaVersion, sessions, tombstones and exportedAtISO', () => {
+    saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+    saveSession(newRecord('b', '2026-01-02T10:00:00.000Z'))
+    deleteSession('b')
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    const { json } = buildExport()
+    const parsed = JSON.parse(json) as {
+      schemaVersion: number
+      exportedAtISO: string
+      sessions: Array<{ id: string }>
+      deletedIds: string[]
+    }
+
+    expect(parsed.schemaVersion).toBe(6)
+    expect(parsed.sessions.map((s) => s.id)).toEqual(['a'])
+    expect(parsed.deletedIds).toEqual(['b'])
+    expect(parsed.exportedAtISO).toBe('2026-08-10T12:00:00.000Z')
+
+    vi.useRealTimers()
+  })
+
+  it('names the file from the SAME exportedAtISO the payload carries — one clock read, not two', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    const { json, filename } = buildExport()
+    const exportedAtISO = (JSON.parse(json) as { exportedAtISO: string }).exportedAtISO
+
+    expect(filename).toBe('ielts-coach-data-2026-08-10.json')
+    // Pins the DERIVATION, not just the frozen-clock coincidence: the
+    // filename's date is a slice of the payload's own `exportedAtISO`.
+    expect(filename.slice(17, 27)).toBe(exportedAtISO.slice(0, 10))
+
+    vi.useRealTimers()
+  })
+
+  it('round-trips sessions AND tombstones through a merge import', () => {
+    saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+    saveSession(newRecord('b', '2026-01-02T10:00:00.000Z'))
+    deleteSession('b')
+
+    const { json } = buildExport()
+    store.clear()
+
+    importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['a'])
+    expect(rawStore().deletedIds).toEqual(['b'])
   })
 })

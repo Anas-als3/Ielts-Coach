@@ -1,7 +1,8 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type {
   DashboardProps,
+  ImportMode,
   IssueCategory,
   Module,
   Prefs,
@@ -435,6 +436,14 @@ export default function Dashboard({
   onSwitchModule,
 }: DashboardProps) {
   const fileRef = useRef<HTMLInputElement>(null)
+  // The file picked but not yet acted on — an import is never applied on
+  // pick, only offered. A plain browser confirm dialog is binary and could
+  // not offer Merge / Replace / Cancel, so a small inline choice card
+  // replaced it (the delete confirm below is unaffected and stays as it was).
+  const [pendingImport, setPendingImport] = useState<{ text: string } | null>(null)
+  // What the last completed import did, shown as a non-urgent `role="status"`
+  // notice — nothing was lost on a successful import, so this is not an alert.
+  const [importResult, setImportResult] = useState<string | null>(null)
 
   // By parsed instant, not text — see profile/chronology. This is the band
   // chart's x-axis; an imported file with an offset would draw the learner's
@@ -449,23 +458,66 @@ export default function Dashboard({
     if (!file) return
     try {
       const text = await file.text()
-      // Read from `allSessions`, the WHOLE store, not the writing-only
-      // `sessions` — `importData` replaces every section, and the count here
-      // must match what it actually destroys, not just the essays this page
-      // renders. On a genuinely empty store there is nothing to name, and a
-      // first-run import is a legitimate restore, not something to scare.
-      const summary = describeSections(allSessions)
-      const ok = window.confirm(
-        summary === ''
-          ? 'Importing will restore your history from this file. Continue?'
-          : `Importing replaces your current history (${summary}) with the file's contents. Continue?`,
-      )
-      if (!ok) return
-      onImport(text)
+      setImportResult(null)
+      setPendingImport({ text })
     } catch (err) {
       alert(err instanceof Error ? err.message : 'That file could not be imported.')
     }
   }
+
+  function chooseImport(mode: ImportMode) {
+    if (!pendingImport) return
+    const text = pendingImport.text
+    try {
+      const summary = onImport(text, mode)
+      setPendingImport(null)
+      let message =
+        mode === 'merge'
+          ? `Merged — your history now holds ${summary.sessionCount} sessions.`
+          : `Replaced — your history now holds ${summary.sessionCount} sessions.`
+      if (summary.evictedCount > 0) {
+        message +=
+          ` Storage keeps the newest 200 per section, so ${summary.evictedCount} older ` +
+          `session(s) were left out.`
+      }
+      setImportResult(message)
+    } catch (err) {
+      setPendingImport(null)
+      alert(err instanceof Error ? err.message : 'That file could not be imported.')
+    }
+  }
+
+  // Built once and reused in BOTH returns (the empty state below and the
+  // populated view further down) so a learner reaching the picker from
+  // either entry point sees the identical card.
+  const importChoiceCard = pendingImport ? (
+    <section className="card db-import-choice" aria-label="Import this file?">
+      <p className="eyebrow">Import this file?</p>
+      <p className="db-import-choice-body">
+        Merge adds the file&rsquo;s sessions to your history (recommended — nothing here is
+        replaced, and sessions you deleted stay deleted). Replace throws away your current
+        history{describeSections(allSessions) ? ` (${describeSections(allSessions)})` : ''} and
+        keeps only the file.
+      </p>
+      <div className="db-import-choice-actions">
+        <button className="btn btn-primary" onClick={() => chooseImport('merge')}>
+          Merge (recommended)
+        </button>
+        <button className="btn" onClick={() => chooseImport('replace')}>
+          Replace everything
+        </button>
+        <button className="btn" onClick={() => setPendingImport(null)}>
+          Cancel
+        </button>
+      </div>
+    </section>
+  ) : null
+
+  const importResultStatus = importResult ? (
+    <p className="db-import-result" role="status">
+      {importResult}
+    </p>
+  ) : null
 
   function confirmDelete(session: WritingSessionRecord) {
     const when = fmtDate(session.dateISO, true)
@@ -529,6 +581,8 @@ export default function Dashboard({
             </>
           )}
         </div>
+        {importChoiceCard}
+        {importResultStatus}
       </div>
     )
   }
@@ -561,6 +615,9 @@ export default function Dashboard({
           </button>
         </div>
       </header>
+
+      {importChoiceCard}
+      {importResultStatus}
 
       <ExamGoalCard
         prefs={prefs}

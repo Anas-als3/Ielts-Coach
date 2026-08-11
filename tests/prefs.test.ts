@@ -263,7 +263,9 @@ describe('prefs ride the export additively', () => {
   it('the export carries saved prefs', () => {
     savePrefs({ targetOverall: 7 })
     const parsed = JSON.parse(buildExportJson()) as { schemaVersion: number; prefs?: { targetOverall?: number } }
-    expect(parsed.schemaVersion).toBe(5)
+    // Tracks whatever SCHEMA_VERSION currently is (6, since delete tombstones
+    // landed) — not the digit itself; see tests/store.test.ts's convention.
+    expect(parsed.schemaVersion).toBe(6)
     expect(parsed.prefs?.targetOverall).toBe(7)
   })
 

@@ -136,8 +136,11 @@ describe('6. the dashboard gap line', () => {
 })
 
 describe('7. import restores prefs, including the module', () => {
-  it('a file carrying prefs restores them through switchModule', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('a file carrying prefs restores them through switchModule on Replace', async () => {
+    // Prefs are device-local taste, not history (SPEC.md "profile/"): only
+    // REPLACE takes the file's prefs, MERGE keeps this device's — so this
+    // case picks "Replace everything" from the inline choice card, not
+    // "Merge (recommended)".
     const user = userEvent.setup()
     renderApp()
     await user.click(screen.getByRole('button', { name: 'Progress' }))
@@ -146,7 +149,7 @@ describe('7. import restores prefs, including the module', () => {
     const file = new File(
       [
         JSON.stringify({
-          schemaVersion: 5,
+          schemaVersion: 6,
           sessions: [],
           prefs: { module: 'general', targetOverall: 7 },
         }),
@@ -155,6 +158,8 @@ describe('7. import restores prefs, including the module', () => {
       { type: 'application/json' },
     )
     fireEvent.change(fileInput, { target: { files: [file] } })
+
+    await user.click(await screen.findByRole('button', { name: 'Replace everything' }))
 
     await waitFor(() => expect(readPrefs().module).toBe('general'))
 
