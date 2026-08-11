@@ -1846,7 +1846,7 @@ nouns after a preposition would suppress genuine errors ("he walked to shop"). O
 - Future hook (plan 014): the drill loop can deep-link a technique disclosure
   from a drill card. Nothing is built for that here.
 
-### Writing templates (plans 033, 034)
+### Writing templates (plans 033, 034, 035)
 
 A learner staring at a blank sheet knows WHAT the question asks but not what
 shape the answer should take. The coach panel gets a fourth tab, `Template`
@@ -1855,26 +1855,39 @@ a concrete paragraph-by-paragraph skeleton to follow WHILE writing — as
 opposed to the cheat sheets, which teach technique in the abstract, and the
 Structure Rail, which checks the shape after the fact. Plan 033 shipped
 section descriptions with a couple of reworded openers; plan 034 rebuilt every
-section as complete fill-in-the-blank sentence frames, followed sentence by
-sentence while writing.
+section as complete fill-in-the-blank sentence frames; plan 035 rebuilt every
+section again as ONE flowing paragraph skeleton — fixed prose surrounding
+every slot, front and back, so the learner reads the whole context a sentence
+lives in — with a fully filled worked version of that same paragraph shown
+beneath it.
 
 - **The bank (`src/templates/bank.ts`)** — 15 `WritingTemplate`s, all original
   prose (no prep-site or publisher content, same rule as `bandDescriptors.ts`
   and the Task 1 study sheets): 2 per Task 2 `QuestionType` (10), 2
   chart-kind-agnostic Academic Task 1 shapes, 1 per `LetterTone` (3). Each has
-  `paragraphs: TemplateSection[]` — `{ title, guidance, frames }` — and an
-  optional `note` explaining when to prefer it over its sibling. IDs
-  (`tpl-op-onesided`, `tpl-lt-formal`, …) are frozen and append-only, in case
-  a future persistence layer stores a learner's choice.
-- **Slot syntax** — a section's `frames` is 1-4 sentences, each written to be
-  filled in the learner's own words. Slots are square-bracketed, lowercase
-  descriptive text, e.g. `[your first reason]`, `[a concrete example — a
-  country, a study, a workplace]`; a frame never nests brackets.
-  `TemplatePanel` splits on `\[([^\]]+)\]` and wraps each slot in a
-  `<span class="tp-slot">`, so the learner sees the sentence and its blanks at
-  a glance. Each question type's two templates deliberately use different
-  connective sets and different frame phrasings — the panel exists to
-  scaffold structure, not to hand every learner the same essay.
+  `paragraphs: TemplateSection[]` — `{ title, guidance, frame, example }` —
+  plus a template-level `exampleTopic` (the one running prompt every section's
+  worked version in that template answers, shown as "Worked example answers:
+  …"), and an optional `note` explaining when to prefer it over its sibling.
+  IDs (`tpl-op-onesided`, `tpl-lt-formal`, …) are frozen and append-only, in
+  case a future persistence layer stores a learner's choice.
+- **Slot syntax** — a section's `frame` is ONE continuous skeleton: fixed
+  prose surrounds every `[slot]`, text before AND after, so a learner reads a
+  full sentence's context rather than a fragment. Slots are square-bracketed
+  descriptive text, e.g. `[your first reason]`, `[a country, a study, or a
+  workplace]`, or (where the slot enumerates verbatim forms to choose from)
+  `[agree / disagree]`; a frame never nests brackets. `TemplatePanel` splits
+  on `\[([^\]]+)\]` and wraps each slot in a `<span class="tp-slot">`, so the
+  learner sees the sentence and its blanks at a glance. The section's
+  `example` is the SAME paragraph with every slot filled — original prose,
+  invented figures labelled as examples — and is proven to genuinely fill the
+  frame (not merely echo its topic) by a checker in
+  `tests/templates.test.ts`: for every slot it takes up to 3 whitespace-
+  separated tokens of fixed prose on each side and asserts each such window
+  appears verbatim (whitespace-normalised) in the example. Each question
+  type's two templates deliberately use different connective sets and
+  different skeleton phrasings — the panel exists to scaffold structure, not
+  to hand every learner the same essay.
 - **The filter rule** — `templatesFor(task, isLetter, questionType?, tone?)`
   returns, in bank order: the letter templates matching `tone` when
   `isLetter`; the 2 chart templates on Academic Task 1; otherwise the task2
@@ -1882,19 +1895,30 @@ sentence while writing.
   template fails `tests/templates.test.ts`'s coverage checks on purpose — the
   bank must keep pace with the prompt bank.
 - **Structural agreement with the engine** — every Task 2 body paragraph's
-  frames carry an example-type slot, matching `rules/structure.ts`'s
-  `EXAMPLE_MARKERS` check; every letter template opens with a greeting, states
-  its purpose in the first frame, gives one paragraph per bullet, and closes
-  with a sign-off that PAIRS with the greeting exactly as
-  `rules/letterAchievement.ts`'s `SALUTATION_FORMS` / `SIGNOFF_FORMS` license
-  it (`tpl-lt-formal`'s "Yours sincerely," / "Yours faithfully," split, for
-  instance, mirrors the `named-formal` / `unnamed` distinction there exactly,
-  and the informal opener's "I am writing because" is a recognised
-  `PURPOSE_MARKERS` entry there too). The letter templates still have exactly
-  FOUR sections each (greeting+purpose, then one per bullet); the sign-off
-  frames are folded into the fourth section rather than added as a fifth,
-  because `paragraphCount` counts blank-line paragraphs and a sign-off is not
-  its own.
+  fixed prose carries an engine-recognised example-marker phrase (matching
+  `rules/structure.ts`'s `EXAMPLE_MARKERS` check), inherited verbatim by the
+  filled example; every Task 2 conclusion's `frame` AND `example` open with a
+  recognised conclusion signal (`rules/structure.ts`'s `CONCLUSION_SIGNAL`,
+  e.g. "In conclusion," or "On balance,"). Both chart templates' Overview
+  sections start "Overall," and stay figure-free in both `frame` and
+  `example` (matching `task1Achievement.ts`'s overview and `FIGURE` checks),
+  while their detail sections' examples quote real figures. Every letter
+  template opens with a greeting, states its purpose in the first sentence,
+  gives one paragraph per bullet, and closes with a sign-off that PAIRS with
+  the greeting exactly as `rules/letterAchievement.ts`'s `SALUTATION_FORMS` /
+  `SIGNOFF_FORMS` license it (`tpl-lt-formal`'s "Yours faithfully," after
+  "Dear Sir or Madam,"; `tpl-lt-semiformal`'s "Yours sincerely," after "Dear
+  Mr Harris,"; `tpl-lt-informal`'s "Take care," after "Dear Sam," — all
+  licensed pairings), and the informal opener's "I am writing because" is a
+  recognised `PURPOSE_MARKERS` entry there too, kept uncontracted on purpose
+  (the contracted form is not in that list). The formal and semi-formal
+  examples obey the tone's contraction rule: zero forms from
+  `letterAchievement.ts`'s `FORMAL_CONTRACTIONS` list and no exclamation
+  marks; the informal template's examples contract freely except in that one
+  purpose sentence. The letter templates still have exactly FOUR sections
+  each (greeting+purpose, then one per bullet); the sign-off sits inside the
+  fourth section's `frame`/`example` rather than a fifth, because
+  `paragraphCount` counts blank-line paragraphs and a sign-off is not its own.
 - **The paragraph-progress mapping** — `TemplatePanel` marks section `i`
   `tp-done` when `i < paragraphCount`, `tp-current` at `i === paragraphCount`
   (clamped to the last section), plain otherwise, where `paragraphCount` is
@@ -1903,13 +1927,19 @@ sentence while writing.
   treats every paragraph that already has text as finished and highlights the
   next one, so it assumes template section order tracks paragraph order; a
   future template with optional sections would need a smarter mapping — noted,
-  not built. Below the sections, a memorisation warning (verbatim): "Frames
-  are scaffolding. Fill every slot in your own words, and swap the connectors
-  for ones you'd naturally use — examiners discount sentences they have read a
-  thousand times, and every candidate using a template unchanged writes the
-  same essay." — sharper than plan 033's, and deliberately its own wording
-  rather than `ModelAnswer.tsx`'s: a fill-in sentence is closer to something a
-  learner could paste unchanged, so the warning says so more pointedly.
+  not built. Each section shows its `frame` as one flowing paragraph (slots
+  still `tp-slot` chips), and beneath it, muted and prefixed "Example: ", the
+  filled `example` — hideable panel-wide via a "Hide worked examples"
+  checkbox (default unchecked, i.e. examples shown), alongside a running
+  "Worked example answers: …" topic line that disappears with them. Below the
+  sections, a memorisation warning (verbatim): "Frames are scaffolding. Fill
+  every slot in your own words, and swap the connectors for ones you'd
+  naturally use — examiners discount sentences they have read a thousand
+  times, and every candidate using a template unchanged writes the same
+  essay. The worked examples show how a slot gets filled, never words to
+  reuse — copying an example into your essay is the same trap as copying the
+  frame." — the second sentence new in plan 035, because a completed worked
+  answer is the thing most tempting to copy outright.
 - **No auto-insert, deliberately** — a template is a reference pane the
   learner reads beside the sheet, never text inserted into it. Pasted
   scaffolding would be analysed as the learner's own words and flagged by the
