@@ -1041,7 +1041,10 @@ export function noticeFor(kind: SpeechDriverKind): string {
       return TRANSCRIPT_FALLBACK_NOTICE
     case 'audio-file':
       return AUDIO_FILE_NOTICE
-    default:
+    // 'fake' (tests only) reads as synthetic too — there is no fifth notice
+    // for a driver that exists only to be deterministic in a test.
+    case 'speech-synthesis':
+    case 'fake':
       return SYNTHETIC_VOICE_NOTICE
   }
 }
