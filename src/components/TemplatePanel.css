@@ -159,19 +159,13 @@
   margin-top: 4px;
 }
 
-.tp-frames {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 .tp-frame {
   font-family: var(--font-serif);
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--ink);
-  margin: 0;
+  white-space: pre-line;
+  margin-top: 6px;
 }
 
 .tp-slot {
@@ -183,6 +177,44 @@
   border-radius: 4px;
   padding: 0 5px;
   margin: 1px 0;
+}
+
+/* -------------------------------------------------------------- worked examples */
+.tp-example {
+  font-family: var(--font-serif);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin: 4px 0 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--rule-line);
+  white-space: pre-line;
+}
+
+.tp-example-label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.tp-example-topic {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin: 0 0 4px;
+}
+
+.tp-example-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
 }
 
 /* -------------------------------------------------------------- disclosure */
