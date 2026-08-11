@@ -880,6 +880,11 @@ export interface ModelLibraryProps {
 
 /* ------------------------------ reading component props --------------------- */
 
+/** Where the learner is inside the Reading section: choosing, sitting, reviewing.
+ *  Owned by `App` (survives `ReadingSection`'s unmount on navigation) — see
+ *  `ReadingSectionProps.stage`. */
+export type ReadingStage = 'picker' | 'running' | 'report';
+
 export interface ReadingRunnerProps {
   /** The paper being sat. Its `module` decides which band table marks it. */
   test: ReadingTest;
@@ -919,6 +924,51 @@ export interface ReadingReportProps {
   onPickAnother: () => void;
 }
 
+/**
+ * `ReadingSection`'s own props — plan 023. The container owns rendering and
+ * registry lookups (`readingTestsForModule`, `readingTestById`) only; every
+ * atom of STATE stays in `App` (`readingStage`/`readingTestId`/
+ * `readingSessionId` at `App.tsx:129-131`), because `App` writes the stage
+ * from `openReading` while the container is unmounted, and the container is
+ * torn down on every navigation away — see plan 023's "Decided, not left to
+ * the executor" note for the two reasons neither can move.
+ */
+export interface ReadingSectionProps {
+  module: Module;
+  /** Where the learner is in the section. Owned by App so it survives the
+   *  container's unmount on navigation, and so `openReading` can still reset
+   *  it while the container does not exist. */
+  stage: ReadingStage;
+  /** Move to another stage without the mock-abandon side effect below —
+   *  `ReadingReport`'s "back to the list" uses this. */
+  onStageChange: (stage: ReadingStage) => void;
+  /**
+   * Leave a running paper: resets the stage to 'picker' AND abandons a mock
+   * sitting in progress (`App`'s `abandonMockIfActive`) — the runner already
+   * asked its own "leave this test?" question before ever calling this, so no
+   * second confirm belongs here. A distinct prop from `onStageChange` because
+   * only the runner's exit carries that second effect.
+   */
+  onExit: () => void;
+  /** The paper being sat or reviewed; null on the picker. App owns it. */
+  testId: string | null;
+  /** Start a paper — App's `startReadingTest`, unchanged. */
+  onStart: (testId: string) => void;
+  /** Reading sessions for the ACTIVE module, newest first, for the picker's
+   *  history list. Derived in App, which filters by `module`. */
+  history: ReadingSessionRecord[];
+  /** The stored sitting being reviewed, or null. Derived in App from the
+   *  UNFILTERED session list — the container must not re-derive it from
+   *  `history`, which IS filtered (see `App.tsx`'s `readingSession` memo). */
+  session: ReadingSessionRecord | null;
+  /** Open a stored result — App's `openReadingSession`, which takes the
+   *  record, not an id. */
+  onOpenSession: (session: ReadingSessionRecord) => void;
+  /** A completed paper, marked. The container marks (`markAnswerKey`) and
+   *  builds the record; App persists it and handles the mock hand-off. */
+  onSubmit: (record: ReadingSessionRecord) => void;
+}
+
 /* ----------------------------- listening component props -------------------- */
 
 /**
@@ -928,6 +978,10 @@ export interface ReadingReportProps {
  * legitimately read — and the first time somebody read it anyway, a learner
  * would be shown a distinction the exam does not make.
  */
+
+/** The same three places as `ReadingStage`, for Listening. */
+export type ListeningStage = 'picker' | 'running' | 'report';
+
 export interface ListeningRunnerProps {
   /** The paper being sat. */
   test: ListeningTest;
@@ -977,6 +1031,49 @@ export interface ListeningReportProps {
   onRetake: () => void;
   /** Back to the list of papers. */
   onPickAnother: () => void;
+}
+
+/**
+ * `ListeningSection`'s own props — plan 023. `ReadingSectionProps`'s mirror:
+ * the container owns rendering, the registry lookup (`listeningTestById`,
+ * `LISTENING_TESTS`) and the speech driver's fallback construction; every
+ * atom of state stays in `App`, for the same two reasons `ReadingSectionProps`
+ * documents.
+ */
+export interface ListeningSectionProps {
+  stage: ListeningStage;
+  /** Move to another stage without the mock-abandon side effect — see
+   *  `ReadingSectionProps.onStageChange`. */
+  onStageChange: (stage: ListeningStage) => void;
+  /** Leave a running paper — see `ReadingSectionProps.onExit`. */
+  onExit: () => void;
+  /** The paper being sat or reviewed; null on the picker. App owns it. */
+  testId: string | null;
+  /** Start a paper — App's `startListeningTest`, unchanged. */
+  onStart: (testId: string, practice: boolean) => void;
+  /** Chosen on the picker before the clock starts; held in App for the length
+   *  of the attempt so "sit this paper again" repeats the SAME conditions. */
+  practice: boolean;
+  /** Past attempts, most recent first. Never filtered by module — see
+   *  `App.tsx`'s `listeningHistory` memo for why Listening has no such filter. */
+  history: ListeningSessionRecord[];
+  /** The stored sitting being reviewed, or null. */
+  session: ListeningSessionRecord | null;
+  /** Open a stored result — App's `openListeningSession`. */
+  onOpenSession: (session: ListeningSessionRecord) => void;
+  /** A completed paper, marked. The container marks (`markListening`) and
+   *  builds the record; App persists it and handles the mock hand-off. */
+  onSubmit: (record: ListeningSessionRecord) => void;
+  /**
+   * The OPTIONAL injected driver — `AppProps.listeningDriver` forwarded
+   * verbatim. When absent the container calls `createSpeechDriver()` itself,
+   * exactly as `App` used to. That keeps test injection working (every test
+   * that needs one injects it through `AppProps`) while taking
+   * `src/listening/speech.ts` OUT of the entry chunk: a required prop would
+   * force `App.tsx` to keep importing `createSpeechDriver`, pinning that
+   * module in the entry graph.
+   */
+  driver?: SpeechDriver;
 }
 
 /* --------------------------------- mock test --------------------------------- */
@@ -1052,6 +1149,29 @@ export interface MockTestProps {
    *  completed is lost). */
   onExit: () => void;
   /** From the summary: start a fresh sitting. */
+  onRestart: () => void;
+  onViewDashboard: () => void;
+}
+
+/**
+ * `MockSection`'s own props — plan 023 (extended beyond the plan as written,
+ * since plan 013 landed after it: MockTest did not exist when 023 was
+ * authored). `MockTestProps` minus `readingTests`/`listeningTests`: the
+ * container derives those itself from `module` (`readingTestsForModule`) and
+ * from `LISTENING_TESTS`, exactly as `ReadingSection`/`ListeningSection` do
+ * for their own pickers, so the two registries leave the entry chunk here
+ * too. The mock's paper PICKS (the two ids inside `attempt`) and its stage
+ * state stay in `App`, same as every other section — only the lookup that
+ * turns `module` into a paper LIST is the container's job.
+ */
+export interface MockSectionProps {
+  stage: MockStage;
+  module: Module;
+  attempt: MockAttempt | null;
+  nextSection: MockSection;
+  onStart: (readingTestId: string, listeningTestId: string) => void;
+  onContinue: () => void;
+  onExit: () => void;
   onRestart: () => void;
   onViewDashboard: () => void;
 }

@@ -25,11 +25,16 @@ function navLink(name: string): HTMLElement {
   return within(document.querySelector('.nav') as HTMLElement).getByText(name)
 }
 
-/** The "Start this paper" button on one paper's card. Each module lists more
+/**
+ * The "Start this paper" button on one paper's card. Each module lists more
  * than one paper (see tests/ui/reading.test.tsx's `startButtonFor`), so the
- * button has to be found through its own card rather than by role alone. */
-function startButtonFor(title: string): HTMLElement {
-  const card = screen.getByText(title).closest('.rdp-test') as HTMLElement
+ * button has to be found through its own card rather than by role alone.
+ *
+ * Async: the picker is rendered by the lazily-loaded `ReadingSection` (plan
+ * 023), so the title lookup is the first query against section content.
+ */
+async function startButtonFor(title: string): Promise<HTMLElement> {
+  const card = (await screen.findByText(title)).closest('.rdp-test') as HTMLElement
   return within(card).getByRole('button', { name: 'Start this paper' })
 }
 
@@ -42,7 +47,7 @@ function startButtonFor(title: string): HTMLElement {
 async function sitReadingPaper(user: User): Promise<void> {
   vi.spyOn(window, 'confirm').mockReturnValue(true)
   await user.click(navLink('Reading'))
-  await user.click(startButtonFor('Academic Reading Test 1'))
+  await user.click(await startButtonFor('Academic Reading Test 1'))
   await screen.findByRole('tab', { name: /Reading Passage 1/ })
   await user.click(screen.getByRole('button', { name: 'Submit answers' }))
   await screen.findByText(/This band is exact/i)

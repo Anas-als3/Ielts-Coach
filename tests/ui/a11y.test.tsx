@@ -90,8 +90,10 @@ function assertTabPattern(tablistName: string): HTMLElement {
 async function startReadingPaper(user: User): Promise<void> {
   await user.click(navLink('Reading'))
   // Each module now lists more than one paper, so the start button is found
-  // through the first paper's own card.
-  const card = screen.getByText('Academic Reading Test 1').closest('.rdp-test') as HTMLElement
+  // through the first paper's own card. The picker is rendered by the
+  // lazily-loaded `ReadingSection` (plan 023), so this lookup — the first
+  // query against section content — awaits the chunk.
+  const card = (await screen.findByText('Academic Reading Test 1')).closest('.rdp-test') as HTMLElement
   await user.click(within(card).getByRole('button', { name: 'Start this paper' }))
   await screen.findByRole('tab', { name: /Reading Passage 1/ })
 }
@@ -99,10 +101,11 @@ async function startReadingPaper(user: User): Promise<void> {
 async function startListeningPaper(user: User): Promise<void> {
   await user.click(navLink('Listening'))
   // Scoped to test 1's card: the picker lists every authored paper, and each
-  // card carries its own pair of start buttons.
-  const card = screen
-    .getByRole('heading', { name: LISTENING_TEST_01.title })
-    .closest('.lsp-test') as HTMLElement
+  // card carries its own pair of start buttons. `ListeningSection` is lazy
+  // (plan 023) too, so this first lookup awaits the chunk.
+  const card = (
+    await screen.findByRole('heading', { name: LISTENING_TEST_01.title })
+  ).closest('.lsp-test') as HTMLElement
   await user.click(within(card).getByRole('button', { name: 'Sit under exam conditions' }))
   await screen.findByRole('tab', { name: /Section 1/ })
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 // Aliased: the plain name is the DOM's `KeyboardEvent`, which the
 // Cmd/Ctrl+Enter window listener below still uses.
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
@@ -12,6 +12,7 @@ import type {
   LetterPromptSpec,
   LibrarySelection,
   ListeningSessionRecord,
+  ListeningStage,
   MockAttempt,
   MockSection,
   MockStage,
@@ -19,6 +20,7 @@ import type {
   Prefs,
   PromptSpec,
   ReadingSessionRecord,
+  ReadingStage,
   SessionRecord,
   SessionSection,
   Task1PromptSpec,
@@ -27,8 +29,7 @@ import type {
   WritingSessionRecord,
 } from './types'
 import { isListeningSession, isReadingSession, isWritingSession } from './types'
-import type { ReadingAnswers } from './reading/types'
-import type { ListeningAnswers } from './listening/types'
+import { makeId } from './ids'
 import {
   CATEGORY_META,
   LETTER_ONLY_CATEGORIES,
@@ -55,11 +56,6 @@ import { loadPrefs, savePrefs } from './profile/prefs'
 import { PROMPTS, promptsForModule, randomPrompt, suitsModule } from './prompts/bank'
 import { TASK1_PROMPTS, randomTask1Prompt } from './prompts/task1Bank'
 import { LETTER_PROMPTS, randomLetterPrompt } from './prompts/letterBank'
-import { readingTestById, readingTestsForModule } from './reading/tests'
-import { LISTENING_TESTS, listeningTestById } from './listening/tests'
-import { createSpeechDriver } from './listening/speech'
-import { markListening } from './listening/mark'
-import { markAnswerKey } from './marking/markAnswerKey'
 import Chart from './components/Chart'
 import Editor from './components/Editor'
 import StructureRail from './components/StructureRail'
@@ -72,22 +68,44 @@ import CheatSheet from './components/CheatSheet'
 import ChartSheet from './components/ChartSheet'
 import LetterSheet from './components/LetterSheet'
 import ModelAnswer from './components/ModelAnswer'
-import ModelLibrary from './components/ModelLibrary'
-import ReadingRunner from './components/ReadingRunner'
-import ReadingReport from './components/ReadingReport'
-import ReadingPicker from './components/ReadingPicker'
-import ListeningRunner from './components/ListeningRunner'
-import ListeningReport from './components/ListeningReport'
-import ListeningPicker from './components/ListeningPicker'
-import MockTest from './components/MockTest'
+import SectionFallback from './components/SectionFallback'
+
+/*
+ * Reading, Listening, the Mock test view and the model-answer library all
+ * load on demand — plan 023, extended beyond its original two-section scope
+ * to also cover plan 013's mock test mode and plan 029's model library, both
+ * of which landed after 023 was authored.
+ *
+ * The app boots to the writing desk (`useState<View>('write')` below), and a
+ * learner who came to write an essay was downloading four complete authored
+ * Reading/Listening papers, the mock setup screen's own copy of both
+ * registries, and the model library's UI to get there. Nothing here is about
+ * evaluation cost — a paper's object literal evaluates in under a
+ * millisecond — it is about not transferring and parsing what was never
+ * asked for.
+ *
+ * The thunks are hoisted so the same promise backs both `lazy()` and the
+ * prefetch on nav hover (added in the next commit): the module registry
+ * caches by specifier, so reaching for the link starts the fetch and clicking
+ * it usually finds the chunk already there.
+ */
+const importReadingSection = () => import('./components/ReadingSection')
+const importListeningSection = () => import('./components/ListeningSection')
+const importMockSection = () => import('./components/MockSection')
+const importModelLibrary = () => import('./components/ModelLibrary')
+
+const ReadingSection = lazy(importReadingSection)
+const ListeningSection = lazy(importListeningSection)
+// Aliased: `MockSection` the TYPE (imported above, from `./types`) names
+// which of the mock's three legs is up next; `MockSectionView` is the
+// component that renders the mock test screen itself. Same word, two
+// unrelated meanings that happen to collide only in this file.
+const MockSectionView = lazy(importMockSection)
+const ModelLibrary = lazy(importModelLibrary)
 
 type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening' | 'library' | 'mock'
 type ExamState = 'idle' | 'running'
 type PanelTab = 'feedback' | 'cheatsheet' | 'model'
-/** Where the learner is inside the Reading section: choosing, sitting, reviewing. */
-type ReadingStage = 'picker' | 'running' | 'report'
-/** The same three places inside the Listening section. */
-type ListeningStage = 'picker' | 'running' | 'report'
 
 /** The coach panel's tabs and the labels they print, in printed order. */
 const PANEL_TAB_LABELS: Record<PanelTab, string> = {
@@ -280,15 +298,6 @@ export default function App({
   const liveWordCount = countWords(essayText)
 
   /* --------------------------------- reading -------------------------------- */
-  // Only the ACTIVE exam's papers, ever. The two modules' papers are structured
-  // differently and — the part that would actually mislead a learner — are
-  // converted by different tables, so offering the wrong one would report a
-  // band that is simply not theirs.
-  const readingTests = useMemo(() => readingTestsForModule(module), [module])
-  const readingTest = useMemo(
-    () => (readingTestId === null ? null : readingTestById(readingTestId)),
-    [readingTestId],
-  )
   // The Writing views read `analysis`, `essayText` and `task` on nearly every
   // line, so they are handed the writing sessions only; Reading has its own
   // report and its own history list below the paper picker.
@@ -326,34 +335,6 @@ export default function App({
   )
 
   /* -------------------------------- listening ------------------------------- */
-  // `LISTENING_TESTS` is used whole and is NEVER filtered by `module` — there is
-  // deliberately no `listeningTestsForModule` to call. Academic and General
-  // Training candidates sit the identical Listening paper and convert through
-  // the identical table, so a filter here would have nothing to filter on and
-  // would only teach the next reader that the distinction exists. Compare the
-  // Reading block above, where the filter is load-bearing because the two
-  // exams' papers really are different objects marked by different tables.
-  const listeningTest = useMemo(
-    () => (listeningTestId === null ? null : listeningTestById(listeningTestId)),
-    [listeningTestId],
-  )
-  // The browser's synthesiser where there is one, the paced transcript where
-  // there is not, and generated audio files ahead of either when the
-  // SELECTED test has a manifest (plan 032 Prong B) — `createSpeechDriver`
-  // decides the preference order and reads the learner's preferred-voice URI
-  // itself. Re-derived when `listeningTestId` changes so a manifest URL for
-  // the newly picked test reaches it; `listeningDriver` short-circuits this
-  // entirely, so tests injecting `FakeSpeechDriver` through props never touch
-  // any of it, because jsdom has no `speechSynthesis` and no test may depend
-  // on a real one.
-  const speechDriver = useMemo(
-    () =>
-      listeningDriver ??
-      createSpeechDriver({
-        manifestUrl: listeningTestId === null ? undefined : `/audio/${listeningTestId}/manifest.json`,
-      }),
-    [listeningDriver, listeningTestId],
-  )
   // Not filtered by module either, for the same reason, and the absence of a
   // `.filter(s => s.module === module)` line here — which the Reading history
   // above does have — is the whole difference between the two sections.
@@ -512,13 +493,6 @@ export default function App({
       submittingRef.current = false
       throw err
     }
-  }
-
-  function makeId(): string {
-    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-    return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
-      b.toString(16).padStart(2, '0'),
-    ).join('')
   }
 
   function submitInner() {
@@ -881,29 +855,15 @@ export default function App({
 
   /**
    * Persist a sat paper. The ONLY place a Reading session is written — the
-   * runner holds answers in memory until this is called, so an abandoned
-   * attempt leaves no band in the learner's history.
+   * runner holds answers in memory until `ReadingSection` calls this, so an
+   * abandoned attempt leaves no band in the learner's history.
+   *
+   * `ReadingSection` now builds the record (it owns the registry lookup and
+   * the `markAnswerKey` call — plan 023); this is the part that stays in App
+   * because it touches state a container that unmounts on navigation cannot
+   * hold: `sessions`, and the mock sitting's hand-off to the interstitial.
    */
-  function handleReadingSubmit(answers: ReadingAnswers, durationSec: number) {
-    const test = readingTest
-    if (test === null) {
-      setReadingStage('picker')
-      return
-    }
-    const record: ReadingSessionRecord = {
-      section: 'reading',
-      id: makeId(),
-      dateISO: new Date().toISOString(),
-      // Taken from the TEST, not from the app's current toggle: the paper was
-      // marked against its own module's table, and a learner who flips the
-      // toggle afterwards must not have their band relabelled.
-      module: test.module,
-      testId: test.id,
-      testTitle: test.title,
-      answers,
-      result: markAnswerKey(test, answers),
-      durationSec,
-    }
+  function handleReadingRecord(record: ReadingSessionRecord) {
     const result = saveSession(record)
     if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
@@ -948,43 +908,22 @@ export default function App({
 
   /**
    * Persist a sat paper. The ONLY place a Listening session is written — the
-   * runner holds answers in memory until this is called, so an abandoned
-   * attempt leaves no band in the learner's history.
+   * runner holds answers in memory until `ListeningSection` calls this, so an
+   * abandoned attempt leaves no band in the learner's history.
    *
-   * No `module` is recorded, and there is nothing missing: both exams sit this
-   * paper and convert through the one table, so there is no fact to store.
+   * `ListeningSection` now builds the record (it owns the registry lookup and
+   * the `markListening` call — plan 023), including the `practice` flag taken
+   * from the runner. This is the part that stays in App for the same reason
+   * `handleReadingRecord` does.
    */
-  function handleListeningSubmit(
-    answers: ListeningAnswers,
-    durationSec: number,
-    practice: boolean,
-  ) {
-    const test = listeningTest
-    if (test === null) {
-      setListeningStage('picker')
-      return
-    }
-    const record: ListeningSessionRecord = {
-      section: 'listening',
-      id: makeId(),
-      dateISO: new Date().toISOString(),
-      testId: test.id,
-      testTitle: test.title,
-      answers,
-      result: markListening(test, answers),
-      durationSec,
-      // Taken from the RUNNER rather than from `listeningPractice`, so the flag
-      // records the conditions the paper was actually sat under even if the
-      // app's own state has since moved on.
-      practice,
-    }
+  function handleListeningRecord(record: ListeningSessionRecord) {
     const result = saveSession(record)
     if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
     setSessions(loadSessions())
     // Mid-mock, Listening hands off to the interstitial rather than to this
     // section's own report screen — see the identical branch in
-    // `handleReadingSubmit` for why.
+    // `handleReadingRecord` for why.
     if (mockAttempt !== null) {
       setMockAttempt({ ...mockAttempt, listeningRecord: record })
       setListeningStage('picker')
@@ -1027,7 +966,7 @@ export default function App({
    * called the SAME way, always under exam conditions (a mock sat with
    * replays allowed would not be the thing a mock exists to measure). Nothing
    * about how a leg begins is mock-specific; only what happens once it ends
-   * (see `handleListeningSubmit`, `handleReadingSubmit`, `submitInner`) knows
+   * (see `handleListeningRecord`, `handleReadingRecord`, `submitInner`) knows
    * a mock is running at all.
    */
   function startMock(readingTestId: string, listeningTestId: string) {
@@ -1313,6 +1252,14 @@ export default function App({
               <button
                 className={view === 'reading' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'reading' ? 'page' : undefined}
+                // Reaching for the link is the earliest honest signal of
+                // intent, and it buys the whole round trip: by the time the
+                // click lands the chunk is usually already in the module
+                // registry, so the Suspense fallback never paints. `onFocus`
+                // as well as `onMouseEnter` so keyboard users get the same
+                // head start.
+                onMouseEnter={importReadingSection}
+                onFocus={importReadingSection}
                 onClick={openReading}
               >
                 Reading
@@ -1320,6 +1267,8 @@ export default function App({
               <button
                 className={view === 'listening' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'listening' ? 'page' : undefined}
+                onMouseEnter={importListeningSection}
+                onFocus={importListeningSection}
                 onClick={openListening}
               >
                 Listening
@@ -1327,6 +1276,8 @@ export default function App({
               <button
                 className={view === 'mock' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'mock' ? 'page' : undefined}
+                onMouseEnter={importMockSection}
+                onFocus={importMockSection}
                 onClick={openMock}
               >
                 Mock test
@@ -1334,6 +1285,8 @@ export default function App({
               <button
                 className={view === 'library' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'library' ? 'page' : undefined}
+                onMouseEnter={importModelLibrary}
+                onFocus={importModelLibrary}
                 onClick={() => setView('library')}
               >
                 Models
@@ -1821,11 +1774,12 @@ export default function App({
         </main>
       )}
 
-      {view === 'reading' && readingStage === 'running' && readingTest !== null && (
-        <main className="reading-main">
-          <ReadingRunner
-            test={readingTest}
-            onSubmit={handleReadingSubmit}
+      {view === 'reading' && (
+        <Suspense fallback={<SectionFallback label="Reading" />}>
+          <ReadingSection
+            module={module}
+            stage={readingStage}
+            onStageChange={setReadingStage}
             onExit={() => {
               setReadingStage('picker')
               // The runner already asked its own "leave this test?" question
@@ -1834,82 +1788,37 @@ export default function App({
               // second confirm.
               abandonMockIfActive()
             }}
-          />
-        </main>
-      )}
-
-      {view === 'reading' && readingStage === 'report' && readingSession !== null && (
-        <main className="page">
-          <ReadingReport
+            testId={readingTestId}
+            onStart={startReadingTest}
+            history={readingHistory}
             session={readingSession}
-            test={readingTestById(readingSession.testId)}
-            onRetake={() => startReadingTest(readingSession.testId)}
-            onPickAnother={() => setReadingStage('picker')}
+            onOpenSession={openReadingSession}
+            onSubmit={handleReadingRecord}
           />
-        </main>
+        </Suspense>
       )}
 
-      {view === 'reading' &&
-        (readingStage === 'picker' ||
-          (readingStage === 'running' && readingTest === null) ||
-          (readingStage === 'report' && readingSession === null)) && (
-          <main className="page">
-            <ReadingPicker
-              module={module}
-              tests={readingTests}
-              history={readingHistory}
-              onStart={startReadingTest}
-              onOpen={openReadingSession}
-            />
-          </main>
-        )}
-
-      {view === 'listening' && listeningStage === 'running' && listeningTest !== null && (
-        <main className="listening-main">
-          <ListeningRunner
-            test={listeningTest}
-            practice={listeningPractice}
-            driver={speechDriver}
-            onSubmit={handleListeningSubmit}
+      {view === 'listening' && (
+        <Suspense fallback={<SectionFallback label="Listening" />}>
+          <ListeningSection
+            stage={listeningStage}
+            onStageChange={setListeningStage}
             onExit={() => {
               setListeningStage('picker')
-              // See the identical comment on ReadingRunner's onExit above.
+              // See the identical comment on ReadingSection's onExit above.
               abandonMockIfActive()
             }}
-          />
-        </main>
-      )}
-
-      {view === 'listening' && listeningStage === 'report' && listeningSession !== null && (
-        <main className="page">
-          <ListeningReport
+            testId={listeningTestId}
+            onStart={startListeningTest}
+            practice={listeningPractice}
+            history={listeningHistory}
             session={listeningSession}
-            test={listeningTestById(listeningSession.testId)}
-            onRetake={() =>
-              // The same conditions as last time. Turning a practice run into an
-              // exam run behind the learner's back would relabel a band they
-              // did not earn that way.
-              startListeningTest(listeningSession.testId, listeningSession.practice)
-            }
-            onPickAnother={() => setListeningStage('picker')}
+            onOpenSession={openListeningSession}
+            onSubmit={handleListeningRecord}
+            driver={listeningDriver}
           />
-        </main>
+        </Suspense>
       )}
-
-      {view === 'listening' &&
-        (listeningStage === 'picker' ||
-          (listeningStage === 'running' && listeningTest === null) ||
-          (listeningStage === 'report' && listeningSession === null)) && (
-          <main className="page">
-            <ListeningPicker
-              tests={[...LISTENING_TESTS]}
-              history={listeningHistory}
-              driverKind={speechDriver.kind}
-              onStart={startListeningTest}
-              onOpen={openListeningSession}
-            />
-          </main>
-        )}
 
       {/* A running leg never reaches here: while Listening, Reading or Writing
           is actually being sat, `view` is 'listening', 'reading' or 'write'
@@ -1917,12 +1826,10 @@ export default function App({
           screen — MockTest only ever draws the setup, the pause between legs,
           and the final summary. */}
       {view === 'mock' && (
-        <main className="page">
-          <MockTest
+        <Suspense fallback={<SectionFallback label="Mock test" />}>
+          <MockSectionView
             stage={mockStage}
             module={module}
-            readingTests={readingTests}
-            listeningTests={[...LISTENING_TESTS]}
             attempt={mockAttempt}
             nextSection={mockNextSection}
             onStart={startMock}
@@ -1931,7 +1838,7 @@ export default function App({
             onRestart={openMock}
             onViewDashboard={() => setView('dashboard')}
           />
-        </main>
+        </Suspense>
       )}
 
       {view === 'dashboard' && (
@@ -1959,9 +1866,11 @@ export default function App({
       )}
 
       {view === 'library' && (
-        <main className="page">
-          <ModelLibrary onPractise={handlePractiseFromLibrary} />
-        </main>
+        <Suspense fallback={<SectionFallback label="Models" />}>
+          <main className="page">
+            <ModelLibrary onPractise={handlePractiseFromLibrary} />
+          </main>
+        </Suspense>
       )}
     </div>
   )

@@ -214,7 +214,9 @@ describe('the beforeunload guard', () => {
     // At the picker, nothing running yet — nothing to warn about.
     expect(fireBeforeUnload()).toBe(false)
 
-    await user.click(screen.getAllByRole('button', { name: 'Start this paper' })[0])
+    // The picker is rendered by the lazily-loaded `ReadingSection` (plan 023),
+    // so this is the first query against section content.
+    await user.click((await screen.findAllByRole('button', { name: 'Start this paper' }))[0])
     await screen.findByRole('tab', { name: /Reading Passage 1/ })
 
     expect(fireBeforeUnload()).toBe(true)
