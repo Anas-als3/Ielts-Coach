@@ -978,3 +978,80 @@ export interface ListeningReportProps {
   /** Back to the list of papers. */
   onPickAnother: () => void;
 }
+
+/* --------------------------------- mock test --------------------------------- */
+
+/** Which section a mock's own screens are about to hand off to (the
+ *  interstitial's "up next"), or already have (a completed leg). */
+export type MockSection = 'listening' | 'reading' | 'writing';
+
+/**
+ * Which screen `MockTest` itself draws. Deliberately has NO member for "a
+ * section is running": while Listening, Reading or Writing is actually being
+ * sat, the ordinary `view` / `readingStage` / `listeningStage` / exam state in
+ * `App` already say so, and `MockTest` steps out of the way so the real runner
+ * (or the real writing desk) owns the screen. That absence is the whole point
+ * of reusing them rather than forking a duplicate — see `MockAttempt`.
+ */
+export type MockStage = 'setup' | 'interstitial' | 'summary';
+
+/**
+ * One mock sitting's scratch state, held in `App` and handed to `MockTest` as
+ * a prop.
+ *
+ * Deliberately NOT a fourth `SessionRecord` variant and NEVER persisted on its
+ * own: each leg still saves through the ordinary `saveSession` path as an
+ * ordinary record — a `ListeningSessionRecord`, then a `ReadingSessionRecord`,
+ * then a `WritingSessionRecord` — exactly as a solo sitting of that section
+ * would produce. This is only the note that remembers which three ids belong
+ * to one attempt, so the summary can find and combine them; the combination
+ * itself is computed on the fly into a `MockBands`
+ * (`src/analysis/mockBand.ts`) rather than stored.
+ *
+ * A page reload mid-sitting loses this note. That is a deliberate, named gap
+ * for this pass, not an oversight: persisting a "this sitting spans these
+ * three ids" grouping is out of scope here (see `plans/013-mock-test-mode.md`)
+ * and a future plan may add it. It is NOT a gap in the underlying data —
+ * every leg that finished before the reload is already on disk under its
+ * ordinary section, exactly as if it had been sat on its own, so nothing a
+ * learner completed is lost, only the combined summary for THIS sitting.
+ */
+export interface MockAttempt {
+  module: Module;
+  listeningTestId: string;
+  readingTestId: string;
+  listeningRecord: ListeningSessionRecord | null;
+  readingRecord: ReadingSessionRecord | null;
+  writingRecord: WritingSessionRecord | null;
+}
+
+export interface MockTestProps {
+  /** Which of MockTest's own three screens to draw. */
+  stage: MockStage;
+  /** The exam currently active app-wide — a mock sits whichever exam the
+   *  learner already has open, the same as Reading and Listening do. */
+  module: Module;
+  /** This module's Reading papers, already filtered — MockTest never filters
+   *  a second time, the same rule `ReadingPicker` follows. */
+  readingTests: ReadingTest[];
+  /** Every authored Listening paper — there is no per-module list. */
+  listeningTests: ListeningTest[];
+  /** The sitting in progress, or null before Start / after a fresh reset. */
+  attempt: MockAttempt | null;
+  /** Which section the interstitial names as "up next". Read only while
+   *  `stage === 'interstitial'`. */
+  nextSection: MockSection;
+  /** Begin a sitting with these two paper choices, in the module above. */
+  onStart: (readingTestId: string, listeningTestId: string) => void;
+  /** Leave the interstitial and open the next leg's real runner (or the real
+   *  Writing desk, for the last one). */
+  onContinue: () => void;
+  /** Abandon the sitting from the interstitial, with its own confirm — the
+   *  "mock-level" exit guard, distinct from each running section's OWN leave
+   *  control (see `MockAttempt`'s doc comment for why nothing already
+   *  completed is lost). */
+  onExit: () => void;
+  /** From the summary: start a fresh sitting. */
+  onRestart: () => void;
+  onViewDashboard: () => void;
+}
