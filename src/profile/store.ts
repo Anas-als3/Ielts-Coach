@@ -100,7 +100,14 @@ const MAX_DELETED_IDS = 500
  * times is not the one they will reach for.
  */
 const MAX_BACKUPS = 5
-const EXPORT_FILENAME = 'ielts-coach-data.json'
+/**
+ * The export file's name, minus its date — plan 016 froze the export format
+ * within its own scope, but the filename now carries the export's date (see
+ * `buildExport`), so a bare constant filename is no longer accurate. Also
+ * used to build the import JSON-parse error's learner-facing copy, so the
+ * two names can never drift apart.
+ */
+const EXPORT_FILENAME_PREFIX = 'ielts-coach-data'
 
 interface StoreShape {
   schemaVersion: number
@@ -766,32 +773,59 @@ export function deleteSession(id: string): void {
 }
 
 /**
- * The export payload as a JSON string. Split from exportData so the engine
- * tests can pin the payload without a DOM (Blob/anchor stay in exportData).
+ * The export payload, and the ONE `exportedAtISO` clock read both
+ * `buildExportJson` and `buildExport` derive from — a second `new Date()`
+ * between building the payload and naming the file could straddle midnight
+ * and stamp a filename date that contradicts the payload's own timestamp.
  *
- * Prefs ride along ADDITIVELY: importData has never enumerated keys — it
- * reads schemaVersion and sessions and ignores the rest — so an older build
- * importing a newer file keeps working, and the field is omitted when empty
- * so a prefs-less export is byte-identical to today's.
+ * Sessions and tombstones come from a single `loadStore()` read, matching
+ * every mutation in this file. Prefs ride along ADDITIVELY: `importData` has
+ * never enumerated keys — it reads the fields it knows and ignores the rest
+ * — so an older build importing a newer file keeps working, and the field is
+ * omitted when empty so a prefs-less export stays exactly as small as before.
  */
-export function buildExportJson(): string {
+function buildExportPayload(): { json: string; exportedAtISO: string } {
   const prefs = loadPrefs()
+  const store = loadStore()
+  const exportedAtISO = new Date().toISOString()
   const payload = {
     schemaVersion: SCHEMA_VERSION,
-    sessions: loadSessions(),
+    exportedAtISO,
+    sessions: store.sessions,
+    deletedIds: store.deletedIds,
     ...(Object.keys(prefs).length > 0 ? { prefs } : {}),
   }
-  return JSON.stringify(payload, null, 2)
+  return { json: JSON.stringify(payload, null, 2), exportedAtISO }
 }
 
-/** Download the full store as pretty-printed JSON named ielts-coach-data.json. */
+/**
+ * The export payload as a JSON string alone. Split from `exportData` so the
+ * engine tests can pin the payload without a DOM (Blob/anchor stay in
+ * `exportData`); kept as its own export (rather than folded into
+ * `buildExport`) because existing callers already read it this way.
+ */
+export function buildExportJson(): string {
+  return buildExportPayload().json
+}
+
+/**
+ * The export payload and its dated filename, sharing the ONE clock read in
+ * `buildExportPayload` — see that function's doc comment for why a second
+ * clock read would be a bug, not a simplification.
+ */
+export function buildExport(): { json: string; filename: string } {
+  const { json, exportedAtISO } = buildExportPayload()
+  return { json, filename: `${EXPORT_FILENAME_PREFIX}-${exportedAtISO.slice(0, 10)}.json` }
+}
+
+/** Download the full store as pretty-printed, dated JSON. */
 export function exportData(): void {
-  const json = buildExportJson()
+  const { json, filename } = buildExport()
   const blob = new Blob([json], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = EXPORT_FILENAME
+  anchor.download = filename
   document.body.appendChild(anchor)
   anchor.click()
   document.body.removeChild(anchor)
@@ -823,7 +857,7 @@ export function importData(json: string, mode: ImportMode = 'replace'): ImportSu
     parsed = JSON.parse(json)
   } catch {
     throw new Error(
-      'That file is not valid JSON. Choose an ielts-coach-data file you exported from this app.',
+      `That file is not valid JSON. Choose an ${EXPORT_FILENAME_PREFIX} file you exported from this app.`,
     )
   }
   if (!isRecordObject(parsed)) {

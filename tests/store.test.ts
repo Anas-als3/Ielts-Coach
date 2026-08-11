@@ -12,7 +12,7 @@
  * migration ladder and the backup-before-clobber safety net together.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { deleteSession, importData, loadSessions, saveSession } from '../src/profile/store'
+import { buildExport, deleteSession, importData, loadSessions, saveSession } from '../src/profile/store'
 import { loadPrefs, savePrefs } from '../src/profile/prefs'
 import { rawToBand } from '../src/reading/bandTable'
 import type { ReadingModule } from '../src/reading/types'
@@ -1606,5 +1606,62 @@ describe('031: prefs are device-local, so merge and replace treat them different
     )
 
     expect(loadPrefs()).toEqual({ targetOverall: 5 })
+  })
+})
+
+/* -------------------- 031: buildExport — dated, self-describing exports -------------------- */
+
+describe('031: buildExport', () => {
+  it('the payload carries schemaVersion, sessions, tombstones and exportedAtISO', () => {
+    saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+    saveSession(newRecord('b', '2026-01-02T10:00:00.000Z'))
+    deleteSession('b')
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    const { json } = buildExport()
+    const parsed = JSON.parse(json) as {
+      schemaVersion: number
+      exportedAtISO: string
+      sessions: Array<{ id: string }>
+      deletedIds: string[]
+    }
+
+    expect(parsed.schemaVersion).toBe(6)
+    expect(parsed.sessions.map((s) => s.id)).toEqual(['a'])
+    expect(parsed.deletedIds).toEqual(['b'])
+    expect(parsed.exportedAtISO).toBe('2026-08-10T12:00:00.000Z')
+
+    vi.useRealTimers()
+  })
+
+  it('names the file from the SAME exportedAtISO the payload carries — one clock read, not two', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'))
+
+    const { json, filename } = buildExport()
+    const exportedAtISO = (JSON.parse(json) as { exportedAtISO: string }).exportedAtISO
+
+    expect(filename).toBe('ielts-coach-data-2026-08-10.json')
+    // Pins the DERIVATION, not just the frozen-clock coincidence: the
+    // filename's date is a slice of the payload's own `exportedAtISO`.
+    expect(filename.slice(17, 27)).toBe(exportedAtISO.slice(0, 10))
+
+    vi.useRealTimers()
+  })
+
+  it('round-trips sessions AND tombstones through a merge import', () => {
+    saveSession(newRecord('a', '2026-01-01T10:00:00.000Z'))
+    saveSession(newRecord('b', '2026-01-02T10:00:00.000Z'))
+    deleteSession('b')
+
+    const { json } = buildExport()
+    store.clear()
+
+    importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['a'])
+    expect(rawStore().deletedIds).toEqual(['b'])
   })
 })
