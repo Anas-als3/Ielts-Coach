@@ -12,6 +12,9 @@ import type {
   LetterPromptSpec,
   LibrarySelection,
   ListeningSessionRecord,
+  MockAttempt,
+  MockSection,
+  MockStage,
   Module,
   Prefs,
   PromptSpec,
@@ -76,8 +79,9 @@ import ReadingPicker from './components/ReadingPicker'
 import ListeningRunner from './components/ListeningRunner'
 import ListeningReport from './components/ListeningReport'
 import ListeningPicker from './components/ListeningPicker'
+import MockTest from './components/MockTest'
 
-type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening' | 'library'
+type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening' | 'library' | 'mock'
 type ExamState = 'idle' | 'running'
 type PanelTab = 'feedback' | 'cheatsheet' | 'model'
 /** Where the learner is inside the Reading section: choosing, sitting, reviewing. */
@@ -209,6 +213,21 @@ export default function App({
    * conditions rather than quietly swapping them.
    */
   const [listeningPractice, setListeningPractice] = useState(false)
+  /**
+   * A mock sitting in progress, or null when none is. See `MockAttempt`'s own
+   * doc comment in `types.ts` for why this is scratch state rather than a
+   * fourth `SessionRecord` variant. Each leg's actual answers and marking live
+   * entirely in the ordinary `readingTestId`/`readingStage`,
+   * `listeningTestId`/`listeningStage`, and `task`/`mode`/`examState` state
+   * above — this only remembers which three ids belong to one sitting.
+   */
+  const [mockAttempt, setMockAttempt] = useState<MockAttempt | null>(null)
+  /** Which of MockTest's own three screens to draw. A running leg is NOT a
+   *  member — see `MockStage`'s doc comment. */
+  const [mockStage, setMockStage] = useState<MockStage>('setup')
+  /** Which section the interstitial names as "up next". Read only while
+   *  `mockStage === 'interstitial'`. */
+  const [mockNextSection, setMockNextSection] = useState<MockSection>('listening')
   const submittingRef = useRef(false)
   // The coach tab buttons, so arrow keys can move focus with the selection.
   const panelTabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({})
@@ -542,15 +561,25 @@ export default function App({
     if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
     setSessions(loadSessions())
-    setReportSessionId(record.id)
     setExamState('idle')
     setExamSecondsLeft(taskConstants.examDurationSec)
     examDeadlineRef.current = null
     // Cleared HERE rather than left to the persistence effect: the view is
-    // about to become 'report', so that effect never runs again to do it, and
-    // a stale draft would offer back an essay that is already in the history.
+    // about to change, so that effect never runs again to do it, and a stale
+    // draft would offer back an essay that is already in the history.
     clearDraft()
     draftTextRef.current = ''
+    // A mock sitting's Writing leg is its LAST leg — hand off to the combined
+    // summary instead of the ordinary single-essay report. Nothing forks
+    // here: the record above was built, marked and saved by the exact same
+    // code this function always runs; only the navigation below differs.
+    if (mockAttempt !== null) {
+      setMockAttempt({ ...mockAttempt, writingRecord: record })
+      setMockStage('summary')
+      setView('mock')
+      return
+    }
+    setReportSessionId(record.id)
     setView('report')
     // submittingRef stays true until a new writing session starts, so a
     // double-fired timer expiry can never save the same essay twice.
@@ -745,6 +774,9 @@ export default function App({
       )
       if (!leave) return
     }
+    // See `switchMode`'s identical call for why this can only matter mid-mock
+    // and is a no-op otherwise.
+    abandonMockIfActive()
     submittingRef.current = false
     examDeadlineRef.current = null
     setTask(next)
@@ -780,6 +812,9 @@ export default function App({
       )
       if (!leave) return
     }
+    // See `switchMode`'s identical call for why this can only matter mid-mock
+    // and is a no-op otherwise.
+    abandonMockIfActive()
     setModule(next)
     // Persisted so a returning General candidate does not have to re-choose
     // every visit — see the lazy initializer above. Sits AFTER the confirm
@@ -873,6 +908,18 @@ export default function App({
     if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
     setSessions(loadSessions())
+    // Mid-mock, Reading hands off to the interstitial rather than to this
+    // section's own report screen — the real exam does not show a Reading
+    // score before Writing begins, and the mock's summary is where all three
+    // bands appear together, not before.
+    if (mockAttempt !== null) {
+      setMockAttempt({ ...mockAttempt, readingRecord: record })
+      setReadingStage('picker')
+      setMockNextSection('writing')
+      setMockStage('interstitial')
+      setView('mock')
+      return
+    }
     setReadingSessionId(record.id)
     setReadingStage('report')
   }
@@ -935,6 +982,17 @@ export default function App({
     if (!result.ok) setSaveFailureMessage(result.message)
     // Re-read the store so in-memory state always matches persistence (cap, sort).
     setSessions(loadSessions())
+    // Mid-mock, Listening hands off to the interstitial rather than to this
+    // section's own report screen — see the identical branch in
+    // `handleReadingSubmit` for why.
+    if (mockAttempt !== null) {
+      setMockAttempt({ ...mockAttempt, listeningRecord: record })
+      setListeningStage('picker')
+      setMockNextSection('reading')
+      setMockStage('interstitial')
+      setView('mock')
+      return
+    }
     setListeningSessionId(record.id)
     setListeningStage('report')
   }
@@ -946,6 +1004,115 @@ export default function App({
     setListeningStage('report')
   }
 
+  /* --------------------------------- mock test ------------------------------- */
+
+  /**
+   * Open the Mock test tab. Resets to a fresh setup screen unless a sitting is
+   * already at its summary — the interstitial and every running leg clear the
+   * desk (`deskCleared`, below), so this nav link is reachable only while a
+   * sitting is at 'setup' (nothing to reset) or 'summary' (start again).
+   */
+  function openMock() {
+    setView('mock')
+    if (mockAttempt === null || mockStage === 'summary') {
+      setMockAttempt(null)
+      setMockStage('setup')
+    }
+  }
+
+  /**
+   * Begin a sitting: remember the two chosen papers and the active module,
+   * then open Listening exactly as the standalone section's own "Sit under
+   * exam conditions" button would — `startListeningTest` is the SAME function,
+   * called the SAME way, always under exam conditions (a mock sat with
+   * replays allowed would not be the thing a mock exists to measure). Nothing
+   * about how a leg begins is mock-specific; only what happens once it ends
+   * (see `handleListeningSubmit`, `handleReadingSubmit`, `submitInner`) knows
+   * a mock is running at all.
+   */
+  function startMock(readingTestId: string, listeningTestId: string) {
+    setMockAttempt({
+      module,
+      listeningTestId,
+      readingTestId,
+      listeningRecord: null,
+      readingRecord: null,
+      writingRecord: null,
+    })
+    setView('listening')
+    startListeningTest(listeningTestId, false)
+  }
+
+  /**
+   * Leave the interstitial and open the next leg — Reading through the same
+   * `startReadingTest` the standalone section uses, Writing through the same
+   * "start the clock" sequence the idle exam-start card's button runs
+   * (`examDeadlineRef` / `examState('running')`), just triggered here instead
+   * of by a click, since the interstitial IS the "are you ready" screen for
+   * this leg and a mock does not make the learner click twice.
+   */
+  function continueMock() {
+    if (mockAttempt === null) return
+    if (mockNextSection === 'reading') {
+      setView('reading')
+      startReadingTest(mockAttempt.readingTestId)
+      return
+    }
+    // Writing: Task 2, exam conditions, the sitting's own module — captured
+    // again defensively even though it cannot have changed since `startMock`
+    // (no screen the mock ever shows exposes the module toggle).
+    submittingRef.current = false
+    setDrillFocus(null)
+    setModule(mockAttempt.module)
+    setTask('task2')
+    setPrompt(randomPrompt(mockAttempt.module))
+    setEssayText('')
+    setFocusIssueId(null)
+    setClockNotice(null)
+    pacingRef.current = []
+    pasteAttemptsRef.current = 0
+    examDeadlineRef.current = Date.now() + TASK_CONSTANTS.task2.examDurationSec * 1000
+    setExamSecondsLeft(TASK_CONSTANTS.task2.examDurationSec)
+    setMode('exam')
+    setExamState('running')
+    setView('write')
+  }
+
+  /**
+   * Abandon the sitting from the interstitial — the "mock-level" exit guard
+   * plan 013 asks for, distinct from each leg's OWN leave control (Reading and
+   * Listening's runners ask their own question before ever calling their
+   * `onExit`; the Writing desk's mode/task/module toggles ask theirs — both
+   * call `abandonMockIfActive` below once confirmed, rather than this). Only
+   * reachable here because no runner is on screen at an interstitial to ask
+   * its own question. Nothing already completed is lost: every finished leg
+   * is already an ordinary saved `SessionRecord` (see `MockAttempt`'s doc
+   * comment) — only the note that would have combined the three is discarded.
+   */
+  function exitMock() {
+    const leave = window.confirm(
+      'Leave the mock test now? Sections you have already completed stay saved in your history, ' +
+        'but the combined mock report for this sitting will be lost.',
+    )
+    if (!leave) return
+    setMockAttempt(null)
+    setMockStage('setup')
+    setView('write')
+  }
+
+  /**
+   * Clear a mock sitting when one of its legs is abandoned through a control
+   * that ALREADY asked its own question (see `exitMock`'s doc comment for the
+   * interstitial's separate confirm, used where no such control exists). A
+   * no-op when no mock is active, so every call site can fire it
+   * unconditionally rather than re-deriving whether one is running.
+   */
+  function abandonMockIfActive() {
+    if (mockAttempt === null) return
+    setMockAttempt(null)
+    setMockStage('setup')
+  }
+
   function switchMode(next: WritingMode) {
     if (next === mode) return
     if (mode === 'exam' && examState === 'running') {
@@ -954,6 +1121,11 @@ export default function App({
       )
       if (!leave) return
     }
+    // A confirmed leave here can only be mid-mock's Writing leg (the mock's
+    // OTHER two legs clear the desk for their whole duration, so this toggle
+    // is never on screen while one runs) — see `abandonMockIfActive`'s doc
+    // comment for why this is a no-op the rest of the time.
+    abandonMockIfActive()
     submittingRef.current = false
     examDeadlineRef.current = null
     setMode(next)
@@ -1106,7 +1278,13 @@ export default function App({
   // The same for Listening, and more sharply: the recording plays once, so a
   // learner who navigated away mid-section would lose it for good.
   const inListeningTest = view === 'listening' && listeningStage === 'running'
-  const deskCleared = inExam || inReadingTest || inListeningTest
+  // The pause between a mock's legs is the one MockTest screen with no
+  // running section behind it (setup has nothing sat yet to protect; summary
+  // has everything already saved) — so it is the one MockTest screen that
+  // clears the desk on its own account, forcing the dedicated "Exit mock
+  // test" confirm rather than the ordinary nav.
+  const inMockInterstitial = view === 'mock' && mockStage === 'interstitial'
+  const deskCleared = inExam || inReadingTest || inListeningTest || inMockInterstitial
   const inlineIssues =
     mode === 'coach' && analysis ? analysis.issues.filter((i) => i.start != null) : []
 
@@ -1145,6 +1323,13 @@ export default function App({
                 onClick={openListening}
               >
                 Listening
+              </button>
+              <button
+                className={view === 'mock' ? 'nav-link active' : 'nav-link'}
+                aria-current={view === 'mock' ? 'page' : undefined}
+                onClick={openMock}
+              >
+                Mock test
               </button>
               <button
                 className={view === 'library' ? 'nav-link active' : 'nav-link'}
@@ -1434,7 +1619,8 @@ export default function App({
                   {inExam && prompt && (
                     <div className="exam-prompt card">
                       <p className="eyebrow">
-                        Task 2 · write at least {taskConstants.minWords} words
+                        {mockAttempt !== null && 'Mock test · '}Task 2 · write at least{' '}
+                        {taskConstants.minWords} words
                       </p>
                       <p className="exam-prompt-text">{prompt.text}</p>
                     </div>
@@ -1640,7 +1826,14 @@ export default function App({
           <ReadingRunner
             test={readingTest}
             onSubmit={handleReadingSubmit}
-            onExit={() => setReadingStage('picker')}
+            onExit={() => {
+              setReadingStage('picker')
+              // The runner already asked its own "leave this test?" question
+              // before ever calling this — see `abandonMockIfActive`'s doc
+              // comment for why a mock in progress ends here too, without a
+              // second confirm.
+              abandonMockIfActive()
+            }}
           />
         </main>
       )}
@@ -1678,7 +1871,11 @@ export default function App({
             practice={listeningPractice}
             driver={speechDriver}
             onSubmit={handleListeningSubmit}
-            onExit={() => setListeningStage('picker')}
+            onExit={() => {
+              setListeningStage('picker')
+              // See the identical comment on ReadingRunner's onExit above.
+              abandonMockIfActive()
+            }}
           />
         </main>
       )}
@@ -1713,6 +1910,29 @@ export default function App({
             />
           </main>
         )}
+
+      {/* A running leg never reaches here: while Listening, Reading or Writing
+          is actually being sat, `view` is 'listening', 'reading' or 'write'
+          and one of the blocks above (or the writing desk below) owns the
+          screen — MockTest only ever draws the setup, the pause between legs,
+          and the final summary. */}
+      {view === 'mock' && (
+        <main className="page">
+          <MockTest
+            stage={mockStage}
+            module={module}
+            readingTests={readingTests}
+            listeningTests={[...LISTENING_TESTS]}
+            attempt={mockAttempt}
+            nextSection={mockNextSection}
+            onStart={startMock}
+            onContinue={continueMock}
+            onExit={exitMock}
+            onRestart={openMock}
+            onViewDashboard={() => setView('dashboard')}
+          />
+        </main>
+      )}
 
       {view === 'dashboard' && (
         <main className="page">
