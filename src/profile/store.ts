@@ -3,12 +3,15 @@
  *
  * Store shape (key 'ielts-coach.v1' — the key is opaque, the version is in the
  * payload):
- *   { schemaVersion: 5, sessions: SessionRecord[] }
+ *   { schemaVersion: 6, sessions: SessionRecord[], deletedIds: string[] }
  *
  * Versions are migrated forward on read, never discarded (see migrateSessions).
  * v1 -> v2 added SessionRecord.task; v2 -> v3 added SessionRecord.module;
  * v3 -> v4 added SessionRecord.section, the Writing/Reading discriminator;
- * v4 -> v5 added the 'listening' member of that discriminator. The rungs apply
+ * v4 -> v5 added the 'listening' member of that discriminator; v5 -> v6 added
+ * StoreShape.deletedIds, the delete tombstones a merge-import needs so a
+ * session removed on one device is never resurrected by another device's
+ * copy (see capDeletedIds and importData's merge mode). The rungs apply
  * in sequence, so a v1 store arriving at this build gains every field in a
  * SINGLE read.
  *
@@ -35,7 +38,7 @@ import { byDateAscending } from './chronology'
 import { loadPrefs, sanitizePrefs, savePrefs } from './prefs'
 
 const STORAGE_KEY = 'ielts-coach.v1'
-const SCHEMA_VERSION = 5
+const SCHEMA_VERSION = 6
 /** Lowest stored version this build knows how to migrate forward from. */
 const MIN_MIGRATABLE_VERSION = 1
 /**
@@ -62,6 +65,21 @@ const BACKUP_KEY_PREFIX = 'ielts-coach.backup.'
  */
 const MAX_SESSIONS_PER_SECTION = 200
 /**
+ * How many delete tombstones to keep (newest wins).
+ *
+ * A tombstone is ~40 bytes of id, but "per delete, forever" is still unbounded
+ * growth inside the same quota that holds the essays — an id can outlive its
+ * session by years and the list would only ever grow. 500 is far beyond the
+ * store's own live ceiling (3 sections x MAX_SESSIONS_PER_SECTION = 600 live
+ * records): to WANT more than 500 tombstones a learner must have deleted more
+ * sessions one by one than the store can even hold, and the oldest tombstones
+ * are the ones whose sessions are least likely to still exist on any other
+ * device. Dropping an old tombstone risks, at worst, one resurrected record on
+ * a merge with a very stale file — recoverable by deleting it again — while an
+ * unbounded list risks the quota, which loses essays.
+ */
+const MAX_DELETED_IDS = 500
+/**
  * How many timestamped backup copies to keep.
  *
  * Backups exist so nothing is destroyed without a recoverable copy — but a copy
@@ -80,6 +98,8 @@ const EXPORT_FILENAME = 'ielts-coach-data.json'
 interface StoreShape {
   schemaVersion: number
   sessions: SessionRecord[]
+  /** Ids the learner explicitly deleted. See MAX_DELETED_IDS for why capped. */
+  deletedIds: string[]
 }
 
 function isRecordObject(value: unknown): value is Record<string, unknown> {
@@ -233,6 +253,13 @@ function looksLikeSession(value: unknown): value is SessionRecord {
  * A record whose `section` is absent counts as Writing, via the same
  * `isWritingSession` guard the profile uses, so the cap and the profile can
  * never disagree about what a pre-v4 record is.
+ *
+ * **Cap eviction is NOT a delete.** This function must never write a
+ * tombstone for a record it drops — only the learner's explicit
+ * `deleteSession` does that (see `capDeletedIds` / `MAX_DELETED_IDS`).
+ * Otherwise a future sync would turn a local retention policy into global
+ * history loss: this device evicting record 201 must not tell every other
+ * device, via a merge-import, to destroy its own copy of that same record.
  */
 function capSessions(sessions: SessionRecord[]): SessionRecord[] {
   // Nothing can be over a per-section cap while the whole list is under it.
@@ -252,19 +279,43 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
 }
 
 /**
+ * Deduplicate and cap a tombstone list at `MAX_DELETED_IDS`, keeping the
+ * NEWEST ids (the tail of the append-ordered list).
+ *
+ * A repeated id keeps its LAST occurrence's position rather than its first:
+ * an id can only be deleted once at a time this device knows about, so a
+ * later occurrence (from a merged file, say) is the more recent fact about
+ * when the deletion became known here, not a stale duplicate to discard.
+ */
+function capDeletedIds(ids: string[]): string[] {
+  const deduped: string[] = []
+  const seen = new Set<string>()
+  // Walk from the end so each id's LAST occurrence decides its position,
+  // then reverse back into append (oldest-first) order.
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const id = ids[i]
+    if (seen.has(id)) continue
+    seen.add(id)
+    deduped.push(id)
+  }
+  deduped.reverse()
+  return deduped.length > MAX_DELETED_IDS ? deduped.slice(deduped.length - MAX_DELETED_IDS) : deduped
+}
+
+/**
  * Upgrade a parsed session list from `fromVersion` to SCHEMA_VERSION, in
  * ascending single-version steps.
  *
  * A user can arrive from ANY older version, so the steps are cumulative and
  * **must never be reordered or collapsed**. A v1 store reaching this build
- * climbs all four rungs in a single read and comes out with `task`, `module`
+ * climbs all five rungs in a single read and comes out with `task`, `module`
  * and `section` all stamped; `tests/store.test.ts` pins that chain end to end.
  *
  * Each rung tests `version < N`, NOT `version === N - 1`, and that is the whole
  * difference between a ladder and a lucky guess. `readStore` admits any version
  * in the RANGE [1, SCHEMA_VERSION], so `2.5` — a half-written store, a build
  * that shipped a fractional version, a hand-edited payload — reached here and
- * matched no `===` rung at all: zero steps ran, the store was stamped 5 on the
+ * matched no `===` rung at all: zero steps ran, the store was stamped 6 on the
  * next write, and every record kept `task`, `module` and `section` undefined
  * forever. With `<`, anything below a rung climbs it. The stamps are already
  * conditional on the field being absent, so climbing a rung a record did not
@@ -321,6 +372,15 @@ function migrateSessions(sessions: SessionRecord[], fromVersion: number): Sessio
   // without anyone having to work out where v5 went.
   if (version < 5) {
     version = 5
+  }
+
+  // v5 -> v6: StoreShape gained `deletedIds` — a STORE-level field, not a
+  // record field, so there is nothing to stamp onto a session here.
+  // `readStore` supplies the [] default when the payload predates the field;
+  // this rung exists so the ladder still reads one line per version and so
+  // `importData` knows a v6 export is readable while refusing a v7 one.
+  if (version < 6) {
+    version = 6
   }
 
   return out as unknown as SessionRecord[]
@@ -478,6 +538,8 @@ function backupCurrentStore(reason: string): void {
  * - A known older version, but SOME records fail validation → the raw string is
  *   backed up too, and the records that did validate are returned.
  * - A known older version → migrated forward and returned.
+ * - `deletedIds` missing (any payload older than v6) → defaults to [], which
+ *   IS the migration for that field — see the note above the return below.
  *
  * Never throws.
  */
@@ -526,10 +588,33 @@ function readStore(): StoreShape | null {
         'could not be read by this version of the app and were left out.',
     )
   }
+
+  // `deletedIds` is hostile input exactly like `sessions`: a v5 (or older)
+  // payload has no such key at all, and the [] default here IS the v5 -> v6
+  // migration for this STORE-level field — there is no record to stamp it
+  // onto, so `migrateSessions`' v5 -> v6 rung is a version bump only.
+  const rawDeletedIds: unknown = parsed.deletedIds
+  const deletedIds = capDeletedIds(
+    Array.isArray(rawDeletedIds)
+      ? rawDeletedIds.filter((d): d is string => typeof d === 'string')
+      : [],
+  )
+
   return {
     schemaVersion: SCHEMA_VERSION,
     sessions: migrateSessions(valid, version),
+    deletedIds,
   }
+}
+
+/**
+ * `readStore`, but never null — an empty store rather than a missing one.
+ * Every mutation below (`saveSession`, `deleteSession`, `importData`) reads
+ * through this so sessions and tombstones come from ONE read, never two
+ * separate calls that could observe two different writes in between.
+ */
+function loadStore(): StoreShape {
+  return readStore() ?? { schemaVersion: SCHEMA_VERSION, sessions: [], deletedIds: [] }
 }
 
 /**
@@ -584,8 +669,8 @@ function unavailableFailure(): SaveResult {
  * sessions rather than of backups, and the honest answer is to tell the
  * learner rather than to keep deleting their history to make room.
  */
-function writeStore(sessions: SessionRecord[]): SaveResult {
-  const store: StoreShape = { schemaVersion: SCHEMA_VERSION, sessions }
+function writeStore(sessions: SessionRecord[], deletedIds: string[]): SaveResult {
+  const store: StoreShape = { schemaVersion: SCHEMA_VERSION, sessions, deletedIds }
   const json = JSON.stringify(store)
   try {
     window.localStorage.setItem(STORAGE_KEY, json)
@@ -634,19 +719,32 @@ export function loadSessions(): SessionRecord[] {
  * here and had no way to tell a silent failure from a success.
  */
 export function saveSession(s: SessionRecord): SaveResult {
+  const store = loadStore()
   // Replace any record with the same id so a double-save never duplicates.
-  const sessions = loadSessions().filter((existing) => existing.id !== s.id)
+  const sessions = store.sessions.filter((existing) => existing.id !== s.id)
   sessions.push(s)
   sessions.sort(byDateAscending)
-  return writeStore(capSessions(sessions))
+  // A deliberate re-save wins over a stale tombstone: the invariant this
+  // module keeps is that no id ever appears in both `sessions` and
+  // `deletedIds` at once. Without this, resurrecting a session by saving it
+  // again would leave a tombstone that a later merge could use to delete it
+  // right back out.
+  const deletedIds = store.deletedIds.filter((d) => d !== s.id)
+  return writeStore(capSessions(sessions), deletedIds)
 }
 
 /** Remove one session by id. Unknown ids are a no-op. */
 export function deleteSession(id: string): void {
-  const sessions = loadSessions()
-  const remaining = sessions.filter((s) => s.id !== id)
-  if (remaining.length === sessions.length) return
-  writeStore(remaining)
+  const store = loadStore()
+  const remaining = store.sessions.filter((s) => s.id !== id)
+  if (remaining.length === store.sessions.length) return
+  // A tombstone must testify to a REAL deletion this device performed — an
+  // unknown id above returned already, so nothing is appended for a session
+  // that never existed here. Recording one anyway would let a future merge
+  // subtract a record this device never even saw, which is not what "the
+  // learner deleted this" means.
+  const deletedIds = capDeletedIds([...store.deletedIds.filter((d) => d !== id), id])
+  writeStore(remaining, deletedIds)
 }
 
 /**
@@ -750,7 +848,12 @@ export function importData(json: string): void {
 
   const sessions = migrateSessions(Array.from(deduplicated.values()), version).sort(byDateAscending)
   backupCurrentStore('your saved sessions were replaced by an imported file.')
-  writeStore(capSessions(sessions))
+  // A pre-v6 file (checked above: `version <= SCHEMA_VERSION`) has no
+  // `deletedIds` of its own — this whole-store REPLACE is rewritten with
+  // merge/replace-mode-aware tombstone handling next (see importData below,
+  // added when merge-import ships), so a bare replace here starts the
+  // tombstone list empty rather than inventing one.
+  writeStore(capSessions(sessions), [])
 
   // Prefs ride the export additively (see buildExportJson). Restore them the
   // same way they are read from disk: sanitized field-by-field, so a
