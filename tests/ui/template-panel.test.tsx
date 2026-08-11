@@ -6,9 +6,11 @@
  * part a learner actually meets: the tab shows up beside Feedback, Cheat
  * sheet and Model answer on every desk, the offered templates match the
  * question on screen, switching templates swaps the visible skeleton,
- * progress through it tracks the live paragraph count, the memorisation
- * warning is on screen, and the whole tab disappears under exam conditions
- * exactly as the rest of the coach panel does.
+ * progress through it tracks the live paragraph count, the worked examples
+ * render beneath their skeletons and can be hidden with the panel's toggle
+ * (plan 035), the memorisation warning is on screen, and the whole tab
+ * disappears under exam conditions exactly as the rest of the coach panel
+ * does.
  *
  * Everything drives the real <App /> through `renderApp()`, which pins the
  * prompt draw — an unseeded render reintroduces the flake plan 007 removed.
@@ -118,17 +120,17 @@ describe('switching templates swaps the rendered sections', () => {
     // tpl-op-onesided's "Strongest reason" frame vs tpl-op-balanced's "The
     // part you accept" frame — scoped to `.tp-frame` so the match cannot
     // land on an ancestor `<li>`/`<ol>` whose text also contains it.
-    expect(screen.getByText(/the strongest reason is that/i, { selector: '.tp-frame' })).toBeInTheDocument()
+    expect(screen.getByText(/the strongest reason to/i, { selector: '.tp-frame' })).toBeInTheDocument()
     expect(
-      screen.queryByText(/where the claim convinces is/i, { selector: '.tp-frame' }),
+      screen.queryByText(/where the claim convinces me is/i, { selector: '.tp-frame' }),
     ).not.toBeInTheDocument()
 
     await user.selectOptions(templateSelect(), 'Balanced (partly agree)')
 
     expect(
-      screen.queryByText(/the strongest reason is that/i, { selector: '.tp-frame' }),
+      screen.queryByText(/the strongest reason to/i, { selector: '.tp-frame' }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText(/where the claim convinces is/i, { selector: '.tp-frame' })).toBeInTheDocument()
+    expect(screen.getByText(/where the claim convinces me is/i, { selector: '.tp-frame' })).toBeInTheDocument()
   })
 })
 
@@ -139,9 +141,49 @@ describe('frame slots render as styled spans', () => {
     await openTemplateTab(user)
 
     // op-01 (the seeded opinion prompt) defaults to tpl-op-onesided, whose
-    // introduction frame reads "...hear that [paraphrase the statement]."
-    const slot = screen.getByText('paraphrase the statement')
+    // introduction frame reads "...hear that [paraphrase the statement in
+    // your own words]."
+    const slot = screen.getByText('paraphrase the statement in your own words')
     expect(slot).toHaveClass('tp-slot')
+  })
+})
+
+describe('worked examples render beneath their frames', () => {
+  it('shows the default template\'s example text under its frame, and the running topic line', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await openTemplateTab(user)
+
+    // tpl-op-onesided's Introduction example, filled from the template's
+    // exampleTopic.
+    expect(
+      screen.getByText(/every child should begin a second language/i, { selector: '.tp-example' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/worked example answers:/i)).toBeInTheDocument()
+  })
+})
+
+describe('the "Hide worked examples" toggle', () => {
+  it('is unchecked by default, hides every .tp-example on check, and restores them on uncheck', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await openTemplateTab(user)
+
+    const toggle = screen.getByLabelText('Hide worked examples') as HTMLInputElement
+    expect(toggle).not.toBeChecked()
+    const sectionCount = document.querySelectorAll('.tp-example').length
+    expect(sectionCount).toBeGreaterThanOrEqual(4)
+
+    await user.click(toggle)
+
+    expect(toggle).toBeChecked()
+    expect(document.querySelectorAll('.tp-example')).toHaveLength(0)
+    expect(screen.queryByText(/worked example answers:/i)).not.toBeInTheDocument()
+
+    await user.click(toggle)
+
+    expect(toggle).not.toBeChecked()
+    expect(document.querySelectorAll('.tp-example')).toHaveLength(sectionCount)
   })
 })
 
@@ -180,12 +222,15 @@ describe('progress tracks the live paragraph count', () => {
 })
 
 describe('the memorisation warning', () => {
-  it('is visible on the template panel', async () => {
+  it('is visible on the template panel, and covers both the frame and the worked example', async () => {
     const user = userEvent.setup()
     renderApp()
     await openTemplateTab(user)
 
     expect(screen.getByText(/examiners discount sentences they have read a thousand times/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/copying an example into your essay is the same trap as copying the frame/i),
+    ).toBeInTheDocument()
   })
 })
 
