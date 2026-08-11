@@ -1,0 +1,191 @@
+/* TemplatePanel — coach-mode right panel. Prefix: .tp- */
+
+.tp-panel {
+  max-height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 20px;
+  /* one mount entrance for the whole panel, matching FeedbackPanel's */
+  animation: tp-panel-in 380ms ease both;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-line) transparent;
+}
+
+@keyframes tp-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tp-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tp-panel::-webkit-scrollbar-thumb {
+  background: var(--rule-line);
+  border-radius: 4px;
+}
+
+.tp-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --------------------------------------------------------------- empty state */
+.tp-empty {
+  padding: 2px 0;
+}
+
+.tp-empty-text {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------------------- header */
+.tp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tp-select-shell {
+  flex: 1;
+  min-width: 0;
+}
+
+.tp-select {
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+}
+
+.tp-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  background: var(--wash-blue);
+  border-left: 2px solid var(--exam-navy);
+  padding: 8px 10px;
+  border-radius: 0 4px 4px 0;
+}
+
+.tp-legend {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* ----------------------------------------------------------------- sections */
+.tp-sections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tp-section {
+  border: 1px solid var(--rule-line);
+  border-left: 3px solid var(--rule-line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  background: var(--sheet);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.tp-section.tp-done {
+  border-left-color: var(--ok-green);
+}
+
+.tp-section.tp-current {
+  border-left-color: var(--exam-navy);
+  background: var(--wash-blue);
+}
+
+.tp-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tp-section-num {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-radius: 50%;
+}
+
+.tp-done .tp-section-num {
+  color: var(--sheet);
+  background: var(--ok-green);
+  border-color: var(--ok-green);
+}
+
+.tp-current .tp-section-num {
+  color: var(--sheet);
+  background: var(--exam-navy);
+  border-color: var(--exam-navy);
+}
+
+.tp-section-guidance {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.tp-starters {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tp-starter-chip {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-line);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* -------------------------------------------------------------- disclosure */
+.tp-warning {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--marking-amber);
+  border-top: 1px solid var(--rule-line);
+  padding-top: 10px;
+  margin-top: 2px;
+}

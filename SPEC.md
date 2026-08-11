@@ -1845,3 +1845,61 @@ nouns after a preposition would suppress genuine errors ("he walked to shop"). O
   `tests/technique-meta.test.ts`.
 - Future hook (plan 014): the drill loop can deep-link a technique disclosure
   from a drill card. Nothing is built for that here.
+
+### Writing templates (plan 033)
+
+A learner staring at a blank sheet knows WHAT the question asks but not what
+shape the answer should take. The coach panel gets a fourth tab, `Template`
+(`'template'` in `PanelTab`, between `'feedback'` and `'cheatsheet'`), offering
+a concrete paragraph-by-paragraph skeleton to follow WHILE writing — as
+opposed to the cheat sheets, which teach technique in the abstract, and the
+Structure Rail, which checks the shape after the fact.
+
+- **The bank (`src/templates/bank.ts`)** — 15 `WritingTemplate`s, all original
+  prose (no prep-site or publisher content, same rule as `bandDescriptors.ts`
+  and the Task 1 study sheets): 2 per Task 2 `QuestionType` (10), 2
+  chart-kind-agnostic Academic Task 1 shapes, 1 per `LetterTone` (3). Each has
+  `paragraphs: TemplateSection[]` — `{ title, guidance, starters }` — and an
+  optional `note` explaining when to prefer it over its sibling. IDs
+  (`tpl-op-onesided`, `tpl-lt-formal`, …) are frozen and append-only, in case
+  a future persistence layer stores a learner's choice.
+- **The filter rule** — `templatesFor(task, isLetter, questionType?, tone?)`
+  returns, in bank order: the letter templates matching `tone` when
+  `isLetter`; the 2 chart templates on Academic Task 1; otherwise the task2
+  templates matching `questionType`. A question type or tone with no matching
+  template fails `tests/templates.test.ts`'s coverage checks on purpose — the
+  bank must keep pace with the prompt bank.
+- **Structural agreement with the engine** — every Task 2 body paragraph's
+  guidance calls for an example, matching `rules/structure.ts`'s
+  `EXAMPLE_MARKERS` check; every letter template opens with a greeting, states
+  its purpose in paragraph 1, gives one paragraph per bullet, and closes with
+  a sign-off that PAIRS with the greeting exactly as
+  `rules/letterAchievement.ts`'s `SALUTATION_FORMS` / `SIGNOFF_FORMS` license
+  it (`tpl-lt-formal`'s "Yours sincerely," / "Yours faithfully," split, for
+  instance, mirrors the `named-formal` / `unnamed` distinction there exactly).
+- **The paragraph-progress mapping** — `TemplatePanel` marks section `i`
+  `tp-done` when `i < paragraphCount`, `tp-current` at `i === paragraphCount`
+  (clamped to the last section), plain otherwise, where `paragraphCount` is
+  `analysis.paragraphs.length` (0 when `analysis` is null) — the same live,
+  deterministic paragraph segmentation `FeedbackPanel` reads. The mapping
+  treats every paragraph that already has text as finished and highlights the
+  next one, so it assumes template section order tracks paragraph order; a
+  future template with optional sections would need a smarter mapping — noted,
+  not built. Starters render as quoted chips with a memorisation warning
+  matching `ModelAnswer.tsx`'s voice ("Examiners recognise memorised phrasing
+  and discount it…"); `tpl-lt-formal`'s bullets and the whole of
+  `tpl-lt-informal` carry none on purpose (a formal purpose statement is
+  already the fixed formula "I am writing to…", and scripting canned informal
+  phrasing would contradict `tpl-lt-informal`'s own note that informal is a
+  register, not an excuse to sound rehearsed).
+- **No auto-insert, deliberately** — a template is a reference pane the
+  learner reads beside the sheet, never text inserted into it. Pasted
+  scaffolding would be analysed as the learner's own words and flagged by the
+  very rules the template is teaching, and the real exam bans pasting outright
+  anyway.
+- **Persistence is a future step** — which template a learner last chose is
+  desk state, not saved: `App` remounts `TemplatePanel` with
+  `key={`${task}-${isLetter}-${questionType ?? tone ?? 'chart'}`}`, so a
+  task or question-type change resets the pick naturally. A store field for
+  "preferred template per question type" is a plausible later addition (the
+  frozen ids exist for exactly that) but is not built here.

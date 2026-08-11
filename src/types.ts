@@ -878,6 +878,46 @@ export interface ModelLibraryProps {
   onPractise: (selection: LibrarySelection) => void;
 }
 
+/* ------------------------------ writing templates ---------------------------- */
+
+/**
+ * One paragraph's job inside a `WritingTemplate`: what it must accomplish, in
+ * order, plus a couple of openers the learner rewords rather than copies.
+ */
+export interface TemplateSection {
+  title: string;
+  /** 2-3 sentences: what this paragraph must do. */
+  guidance: string;
+  /** 0-2 openers, to be REWORDED, never pasted verbatim into the essay. */
+  starters: readonly string[];
+}
+
+/** A named paragraph-by-paragraph skeleton for one task, question type or tone. */
+export interface WritingTemplate {
+  /** Kebab, stable — append-only (plan 033's frozen-id discipline). */
+  id: string;
+  label: string;
+  kind: 'task2' | 'chart' | 'letter';
+  /** Task 2 templates only. */
+  questionTypes?: readonly QuestionType[];
+  /** Letter templates only. */
+  tones?: readonly LetterTone[];
+  paragraphs: readonly TemplateSection[];
+  /** When to prefer this template over its sibling for the same type/tone. */
+  note?: string;
+}
+
+export interface TemplatePanelProps {
+  task: TaskKind;
+  isLetter: boolean;
+  /** The active Task 2 prompt's question type. Null outside Task 2. */
+  questionType: QuestionType | null;
+  /** The active letter prompt's tone. Null outside a General Training letter. */
+  tone: LetterTone | null;
+  /** `analysis.paragraphs.length`, i.e. how many paragraphs are typed so far. */
+  paragraphCount: number;
+}
+
 /* ------------------------------ reading component props --------------------- */
 
 /** Where the learner is inside the Reading section: choosing, sitting, reviewing.

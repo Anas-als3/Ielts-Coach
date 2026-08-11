@@ -68,6 +68,7 @@ import CheatSheet from './components/CheatSheet'
 import ChartSheet from './components/ChartSheet'
 import LetterSheet from './components/LetterSheet'
 import ModelAnswer from './components/ModelAnswer'
+import TemplatePanel from './components/TemplatePanel'
 import SectionFallback from './components/SectionFallback'
 
 /*
@@ -105,11 +106,12 @@ const ModelLibrary = lazy(importModelLibrary)
 
 type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening' | 'library' | 'mock'
 type ExamState = 'idle' | 'running'
-type PanelTab = 'feedback' | 'cheatsheet' | 'model'
+type PanelTab = 'feedback' | 'template' | 'cheatsheet' | 'model'
 
 /** The coach panel's tabs and the labels they print, in printed order. */
 const PANEL_TAB_LABELS: Record<PanelTab, string> = {
   feedback: 'Feedback',
+  template: 'Template',
   cheatsheet: 'Cheat sheet',
   model: 'Model answer',
 }
@@ -1167,8 +1169,10 @@ export default function App({
   // Every task now has a sheet: Task 2 keeps its one-pager, Academic Task 1
   // gets the chart sheet, and the GT letter gets the letter sheet. The tab id
   // and label stay 'cheatsheet' / 'Cheat sheet' so the tab machinery,
-  // aria wiring and exam-mode gating are untouched.
-  const panelTabsShown: PanelTab[] = ['feedback', 'cheatsheet', 'model']
+  // aria wiring and exam-mode gating are untouched. 'template' (plan 033) sits
+  // between feedback and the sheet: a learner reaches for the skeleton right
+  // after seeing what is wrong, before rereading the technique sheet.
+  const panelTabsShown: PanelTab[] = ['feedback', 'template', 'cheatsheet', 'model']
   /**
    * The tab actually on screen. `panelTab` can name one that is not — Task 1
    * hides the cheat sheet — and a panel labelled by a button that does not
@@ -1208,6 +1212,13 @@ export default function App({
     // that is instant-ordered.
     ? writingSessions.filter((s) => isBefore(s, reportSession)).slice(-1)[0] ?? null
     : null
+
+  // The Template tab's desk facts (plan 033): a Task 2 question type only
+  // exists on Task 2, a letter tone only on a General Training letter — the
+  // other is always null, exactly as ModelAnswer's task1Prompt/letterPrompt
+  // split works.
+  const templateQuestionType = task === 'task1' ? null : prompt?.type ?? null
+  const templateTone = isLetter ? letterPrompt.tone : null
 
   const inExam = mode === 'exam' && view === 'write'
   // A Reading paper is exam conditions by definition — there is no coach mode
@@ -1693,8 +1704,8 @@ export default function App({
                 ))}
               </div>
               {/* The panel the tabs name. Wrapping rather than labelling the
-                  three components' own roots keeps the relationship stated in
-                  ONE place: a fourth tab cannot ship without a panel. */}
+                  four components' own roots keeps the relationship stated in
+                  ONE place: a fifth tab cannot ship without a panel. */}
               <div
                 className="panel-body"
                 role="tabpanel"
@@ -1715,6 +1726,19 @@ export default function App({
                     prompt={prompt}
                     task1Prompt={task === 'task1' && !isLetter ? task1Prompt : null}
                     letterPrompt={isLetter ? letterPrompt : null}
+                  />
+                ) : activePanelTab === 'template' ? (
+                  <TemplatePanel
+                    // A task/type change resets the learner's choice of
+                    // template naturally, the same trick a remount always
+                    // does: the old selection would otherwise carry across to
+                    // a desk it does not belong to.
+                    key={`${task}-${isLetter}-${templateQuestionType ?? templateTone ?? 'chart'}`}
+                    task={task}
+                    isLetter={isLetter}
+                    questionType={templateQuestionType}
+                    tone={templateTone}
+                    paragraphCount={analysis === null ? 0 : analysis.paragraphs.length}
                   />
                 ) : (
                   <FeedbackPanel
