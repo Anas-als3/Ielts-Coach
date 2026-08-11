@@ -1,18 +1,21 @@
 /**
- * TemplatePanel — the coach panel's "Template" tab (plan 033).
+ * TemplatePanel — the coach panel's "Template" tab. Plan 033 shipped section
+ * descriptions with a couple of reworded openers; plan 034 rebuilt every
+ * section as complete sentence frames, slots written `[like this]`.
  *
  * A learner staring at a blank sheet knows WHAT the question asks but not what
  * shape the answer should take. This panel offers a concrete, paragraph-by-
- * paragraph skeleton to follow WHILE writing, picked from `templatesFor` for
- * the exact desk on screen (task, letter tone or Task 2 question type), and
- * tracks which paragraph the learner is on against the live typed-paragraph
- * count.
+ * paragraph skeleton to follow WHILE writing — sentence frames with slots to
+ * fill in the learner's own words — picked from `templatesFor` for the exact
+ * desk on screen (task, letter tone or Task 2 question type), and tracks
+ * which paragraph the learner is on against the live typed-paragraph count.
  *
  * Coach mode only, same as the cheat sheet and model answer — `App` gates the
  * whole panel-zone on `mode === 'coach'`. The template is a reference pane,
  * never inserted into the essay: pasted scaffolding would be analysed as the
  * learner's own words and flagged, and the exam bans it anyway.
  */
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import type { TemplatePanelProps, WritingTemplate } from '../types'
 import { templatesFor } from '../templates/bank'
@@ -28,6 +31,32 @@ function sectionClass(index: number, paragraphCount: number, total: number): str
   if (index < paragraphCount) return 'tp-done'
   const current = Math.min(paragraphCount, total - 1)
   return index === current ? 'tp-current' : ''
+}
+
+/** Matches one `[bracketed]` slot. A frame never nests brackets. */
+const SLOT_RE = /\[([^\]]+)\]/g
+
+/**
+ * Splits a frame on its `[slot]` markers and wraps each slot in a
+ * `tp-slot` span, so the learner sees the sentence and its blanks at a
+ * glance rather than a wall of undifferentiated text.
+ */
+function renderFrame(frame: string): ReactNode[] {
+  const parts: ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  SLOT_RE.lastIndex = 0
+  while ((match = SLOT_RE.exec(frame)) !== null) {
+    if (match.index > lastIndex) parts.push(frame.slice(lastIndex, match.index))
+    parts.push(
+      <span key={match.index} className="tp-slot">
+        {match[1]}
+      </span>,
+    )
+    lastIndex = SLOT_RE.lastIndex
+  }
+  if (lastIndex < frame.length) parts.push(frame.slice(lastIndex))
+  return parts
 }
 
 export default function TemplatePanel({
@@ -88,14 +117,14 @@ export default function TemplatePanel({
                 {sectionSpec.title}
               </p>
               <p className="tp-section-guidance">{sectionSpec.guidance}</p>
-              {sectionSpec.starters.length > 0 && (
-                <ul className="tp-starters">
-                  {sectionSpec.starters.map((starter) => (
-                    <li key={starter} className="tp-starter-chip">
-                      {starter}
-                    </li>
+              {sectionSpec.frames.length > 0 && (
+                <div className="tp-frames">
+                  {sectionSpec.frames.map((frame, frameIndex) => (
+                    <p key={frameIndex} className="tp-frame">
+                      {renderFrame(frame)}
+                    </p>
                   ))}
-                </ul>
+                </div>
               )}
             </li>
           )
@@ -103,8 +132,9 @@ export default function TemplatePanel({
       </ol>
 
       <p className="tp-warning">
-        Reword every starter in your own words — examiners recognise memorised phrasing and
-        discount it.
+        Frames are scaffolding. Fill every slot in your own words, and swap the connectors for
+        ones you'd naturally use — examiners discount sentences they have read a thousand times,
+        and every candidate using a template unchanged writes the same essay.
       </p>
     </div>
   )

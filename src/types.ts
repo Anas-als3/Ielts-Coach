@@ -881,15 +881,21 @@ export interface ModelLibraryProps {
 /* ------------------------------ writing templates ---------------------------- */
 
 /**
- * One paragraph's job inside a `WritingTemplate`: what it must accomplish, in
- * order, plus a couple of openers the learner rewords rather than copies.
+ * One paragraph's job inside a `WritingTemplate`: what it must accomplish, and
+ * the paragraph itself as fill-in-the-blank sentence frames, slots written
+ * `[like this]`.
  */
 export interface TemplateSection {
   title: string;
-  /** 2-3 sentences: what this paragraph must do. */
+  /** One line: what this paragraph must do — the frames below say the rest. */
   guidance: string;
-  /** 0-2 openers, to be REWORDED, never pasted verbatim into the essay. */
-  starters: readonly string[];
+  /**
+   * The paragraph as 1-4 sentence frames, to be filled in the learner's own
+   * words, never pasted verbatim into the essay. Slots are square-bracketed,
+   * lowercase descriptive text, e.g. `[your first reason]`; a frame never
+   * nests brackets.
+   */
+  frames: readonly string[];
 }
 
 /** A named paragraph-by-paragraph skeleton for one task, question type or tone. */

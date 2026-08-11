@@ -53,26 +53,56 @@ describe('the bank', () => {
     }
   })
 
-  it('every starter is a non-empty, trimmed string, at most two per paragraph', () => {
-    for (const t of WRITING_TEMPLATES) {
-      for (const p of t.paragraphs) {
-        expect(p.starters.length).toBeLessThanOrEqual(2)
-        for (const s of p.starters) {
-          expect(s.trim()).toBe(s)
-          expect(s.length).toBeGreaterThan(0)
-        }
-      }
-    }
+  // Every section is a fill-in-the-blank paragraph, plan 034: 1-4 sentence
+  // frames, slots written `[like this]`. The old 033 field (0-2 openers to
+  // reword) is gone — every paragraph is now scripted sentence by sentence,
+  // so the coverage check tightens from "somewhere in the template" to
+  // "every section", naming the template and section on failure via
+  // `it.each`.
+  const ALL_SECTIONS = WRITING_TEMPLATES.flatMap((t) =>
+    t.paragraphs.map((p) => ({ templateId: t.id, title: p.title, frames: p.frames })),
+  )
+
+  it.each(ALL_SECTIONS)('$templateId → "$title" has between 1 and 4 frames', ({ frames }) => {
+    expect(frames.length).toBeGreaterThanOrEqual(1)
+    expect(frames.length).toBeLessThanOrEqual(4)
   })
 
-  // The bank's own maintenance note: formal letters script only the purpose
-  // opener, informal letters script nothing at all (canned informal phrasing
-  // would contradict `tpl-lt-informal`'s "not an excuse" note). Every OTHER
-  // template carries at least one starter somewhere across its paragraphs.
-  it('every task2 and chart template carries at least one starter', () => {
-    for (const t of WRITING_TEMPLATES.filter((t) => t.kind !== 'letter')) {
-      const total = t.paragraphs.reduce((sum, p) => sum + p.starters.length, 0)
-      expect(total).toBeGreaterThan(0)
+  const ALL_FRAMES = WRITING_TEMPLATES.flatMap((t) =>
+    t.paragraphs.flatMap((p) => p.frames.map((frame) => ({ templateId: t.id, title: p.title, frame }))),
+  )
+
+  it.each(ALL_FRAMES)('the frame in $templateId → "$title" is a non-empty, trimmed string', ({ frame }) => {
+    expect(frame.trim()).toBe(frame)
+    expect(frame.length).toBeGreaterThan(0)
+  })
+
+  // Brackets balance: stripping every well-formed `[slot]` (one or more
+  // non-bracket characters) must leave no bracket behind. That catches
+  // nesting (`[outer [inner]]`), an unmatched bracket, and an empty slot
+  // (`[]`, which the strip regex cannot match) all in the same assertion.
+  it.each(ALL_FRAMES)('the slots in $templateId → "$title" are balanced, unnested and non-empty', ({ frame }) => {
+    const stripped = frame.replace(/\[[^[\]]+\]/g, '')
+    expect(stripped).not.toContain('[')
+    expect(stripped).not.toContain(']')
+  })
+
+  // Structural agreement with the engine (SPEC.md): every Task 2 BODY
+  // paragraph — every section but the introduction and the conclusion —
+  // must prompt an example, matching `rules/structure.ts`'s EXAMPLE_MARKERS
+  // check. Decidable per section because every body frame set carries one
+  // example-type slot by construction.
+  it('every task2 body section carries at least one frame with an example-type slot', () => {
+    for (const t of WRITING_TEMPLATES.filter((t) => t.kind === 'task2')) {
+      const bodySections = t.paragraphs.slice(1, -1)
+      expect(bodySections.length).toBeGreaterThan(0)
+      for (const p of bodySections) {
+        const hasExampleSlot = p.frames.some((frame) => {
+          const slots = frame.match(/\[[^[\]]+\]/g) ?? []
+          return slots.some((slot) => /example/i.test(slot))
+        })
+        expect(hasExampleSlot, `${t.id} → "${p.title}" has no example-type slot`).toBe(true)
+      }
     }
   })
 
