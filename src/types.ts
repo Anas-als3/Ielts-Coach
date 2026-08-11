@@ -882,20 +882,30 @@ export interface ModelLibraryProps {
 
 /**
  * One paragraph's job inside a `WritingTemplate`: what it must accomplish, and
- * the paragraph itself as fill-in-the-blank sentence frames, slots written
- * `[like this]`.
+ * the paragraph itself as one flowing skeleton with a worked example beneath
+ * it.
  */
 export interface TemplateSection {
   title: string;
-  /** One line: what this paragraph must do — the frames below say the rest. */
+  /** One line: what this paragraph must do — the frame below says the rest. */
   guidance: string;
   /**
-   * The paragraph as 1-4 sentence frames, to be filled in the learner's own
-   * words, never pasted verbatim into the essay. Slots are square-bracketed,
-   * lowercase descriptive text, e.g. `[your first reason]`; a frame never
-   * nests brackets.
+   * The paragraph as ONE continuous flowing skeleton: fixed prose surrounds
+   * every `[slot]` (text before AND after it), so the learner reads the whole
+   * context a sentence lives in, not fragments. Slots are square-bracketed
+   * descriptive text; a frame never nests brackets. Letter frames carry real
+   * newlines (the greeting and sign-off sit on their own lines, as the
+   * engine's salutation matcher expects).
    */
-  frames: readonly string[];
+  frame: string;
+  /**
+   * The SAME paragraph with every slot filled — a complete worked answer to
+   * the template's `exampleTopic`. Contains no brackets, and the fixed prose
+   * of `frame` appears verbatim inside it (tests/templates.test.ts proves
+   * both). Original prose; facts and figures are invented and the panel
+   * labels them as examples.
+   */
+  example: string;
 }
 
 /** A named paragraph-by-paragraph skeleton for one task, question type or tone. */
@@ -908,6 +918,12 @@ export interface WritingTemplate {
   questionTypes?: readonly QuestionType[];
   /** Letter templates only. */
   tones?: readonly LetterTone[];
+  /**
+   * The one running prompt every section's `example` answers, shown at the
+   * top of the panel ("Worked example answers: …"). Invented and original,
+   * like the examples themselves.
+   */
+  exampleTopic: string;
   paragraphs: readonly TemplateSection[];
   /** When to prefer this template over its sibling for the same type/tone. */
   note?: string;
