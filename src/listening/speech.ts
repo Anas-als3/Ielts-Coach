@@ -24,6 +24,32 @@
  *    the transcript cue by cue at a fixed speaking pace rather than silently
  *    doing nothing — plan 011's STOP condition, discharged.
  *
+ * ## Plan 032: picking a GOOD synthetic voice, and shipping better ones
+ *
+ * Plan 011 chose option B and stopped there — `pickVoice` took the first
+ * platform voice that matched a language, which is reliably the platform's
+ * WORST voice (compact/legacy voices are listed first; "Natural"/"Neural"
+ * ones come later). Plan 032 fixes that in place, still inside option B's
+ * budget of zero bundled bytes:
+ *
+ *  - `pickVoice`/`rankVoices` score every candidate instead of taking the
+ *    first match, so a high-quality installed voice actually gets used.
+ *  - `assignSectionVoices` gives a section's different speakers different
+ *    voices where the platform offers more than one usable match, and a
+ *    pitch offset where it does not — a two-speaker conversation stops being
+ *    one voice talking to itself.
+ *  - A learner can override the automatic choice from the Listening picker;
+ *    the choice is `preferredVoiceURI` in `src/profile/prefs.ts`, read here at
+ *    driver construction (see `createSpeechDriver`), never on every play.
+ *
+ * Plan 032 Prong B adds `AudioFileDriver`, a THIRD option — audio generated
+ * once by a maintainer from a real TTS API and shipped as static files under
+ * `public/audio/` — that `createSpeechDriver` prefers over synthesis when a
+ * test has a manifest, and that falls back to synthesis (then the paced
+ * transcript) when it does not. See `AudioFileDriver`'s own doc comment and
+ * `scripts/generate-audio.mjs`. Nothing about the audio DECISION above
+ * changes: this app still calls no TTS API at runtime, for the same reasons.
+ *
  * ## Why there is an interface at all
  *
  * `SpeechDriver` exists so the runner can be tested **without a speech engine**.
@@ -37,6 +63,7 @@
  * that run in the Node environment.
  */
 import type { ListeningSection, ListeningVoiceHint } from './types'
+import { loadPrefs } from '../profile/prefs'
 
 /* ---------------------------------- notices --------------------------------- */
 
@@ -59,6 +86,22 @@ export const TRANSCRIPT_FALLBACK_NOTICE =
   'Your browser has no speech voice available, so the transcript is being ' +
   'revealed line by line at speaking pace instead. This is a reading exercise ' +
   'with a clock on it, not a listening one — be aware of the difference.'
+
+/**
+ * Shown when `AudioFileDriver` is playing generated files instead of live
+ * browser synthesis (plan 032 Prong B). The honesty rule `SYNTHETIC_VOICE_
+ * NOTICE` states EXTENDS here, never retracts: a maintainer-generated
+ * recording usually sounds closer to a real voice than the browser's own
+ * synthesiser, but it is still not the exam's studio-recorded actors, and the
+ * UI must keep saying so.
+ */
+export const AUDIO_FILE_NOTICE =
+  'This audio was generated once, ahead of time, from this test’s transcript ' +
+  'using a text-to-speech service — it is not the real IELTS Listening recording. ' +
+  'It usually sounds closer to a real voice than your browser’s own speech ' +
+  'engine, but it is still not the exam’s British, Australian, North American ' +
+  'and New Zealand actors. Treat this as practice for the question types and ' +
+  'note-taking, not for accents.'
 
 /* ----------------------------------- cues ----------------------------------- */
 
@@ -101,7 +144,7 @@ export function sectionCues(section: ListeningSection): SpeechCue[] {
 
 /* --------------------------------- the driver -------------------------------- */
 
-export type SpeechDriverKind = 'speech-synthesis' | 'transcript-pace' | 'fake'
+export type SpeechDriverKind = 'speech-synthesis' | 'transcript-pace' | 'fake' | 'audio-file'
 
 /**
  * How a playback ended.
@@ -212,28 +255,207 @@ export function browserSpeechEngine(): SpeechEngine | null {
   return { synthesis, createUtterance: (text) => new Utterance(text) }
 }
 
+/* ------------------------------- voice ranking ------------------------------- */
+
+/**
+ * Voice-NAME substrings that tend to mark a modern, natural-sounding voice —
+ * "Microsoft Sonia Online (Natural)", "Google UK English Female", a Siri
+ * voice, an Edge "… Neural" voice, and so on.
+ *
+ * This is a HEURISTIC, not a lookup table, and platforms rename and reshuffle
+ * their voice lists across OS and browser versions — it WILL rot. That is why
+ * "Automatic" must always be a safe, working default even on the day every
+ * marker below is stale: the ranking only ever changes WHICH installed voice
+ * gets picked, never whether picking one can fail.
+ */
+export const QUALITY_VOICE_MARKERS = [
+  'natural',
+  'neural',
+  'premium',
+  'enhanced',
+  'siri',
+  'google',
+  'aria',
+  'sonia',
+  'libby',
+  'ryan',
+] as const
+
+/**
+ * Voice-NAME substrings that tend to mark a legacy, compact or robotic voice —
+ * the ones platforms keep shipping for compatibility but stopped putting
+ * first. Same heuristic caveat as `QUALITY_VOICE_MARKERS`: it will rot, and
+ * nothing here is allowed to make voice selection able to fail.
+ */
+export const LEGACY_VOICE_MARKERS = [
+  'compact',
+  'espeak',
+  'eloquence',
+  'albert',
+  'zarvox',
+  'fred',
+  'whisper',
+  'bells',
+] as const
+
+/**
+ * The name-based half of a voice's score: +4 for a quality marker, −4 for a
+ * legacy one, both checked case-insensitively as substrings. A name can only
+ * match one list in practice (the marker lists do not overlap), but nothing
+ * here assumes that — a name matching both would net to 0, which is exactly
+ * "no opinion", the correct answer for a heuristic that contradicts itself.
+ */
+export function voiceQualityScore(voice: SpeechSynthesisVoice): number {
+  const name = voice.name.toLowerCase()
+  let score = 0
+  if (QUALITY_VOICE_MARKERS.some((marker) => name.includes(marker))) score += 4
+  if (LEGACY_VOICE_MARKERS.some((marker) => name.includes(marker))) score -= 4
+  return score
+}
+
+/**
+ * Every voice usable for a hint, best first.
+ *
+ * "Usable" means the same PRIMARY language as the hint (`'en'` for `'en-GB'`)
+ * — anything else is a voice that would read the transcript in the wrong
+ * language, which is worse than no voice at all. Among usable voices: +3 for
+ * an exact BCP-47 match (`'en-gb'` for an `'en-GB'` hint) over +1 for a
+ * same-primary-language voice in a different territory, plus
+ * `voiceQualityScore`. Ties keep the platform's own list order — the one
+ * thing that is stable across a browser session.
+ *
+ * `preferredVoiceURI`, when it names a voice present in the result, is moved
+ * to the front — chosen BY the ranking rather than instead of it, so a
+ * learner's explicit pick still leaves the rest of the list in quality order
+ * for `assignSectionVoices` to hand to the section's other speakers. A URI
+ * that matches nothing (the platform no longer has that voice) changes
+ * nothing — the automatic ranking stands, silently. That silence is the
+ * fallback plan 032 asks for: a vanished preference is never an error.
+ */
+export function rankVoices(
+  voices: readonly SpeechSynthesisVoice[],
+  hint: ListeningVoiceHint,
+  preferredVoiceURI?: string,
+): SpeechSynthesisVoice[] {
+  const wanted = hint.accent.toLowerCase().replace('_', '-')
+  const primary = wanted.split('-')[0]
+
+  const ranked = voices
+    .map((voice, index) => ({ voice, index }))
+    .filter(({ voice }) => voice.lang.toLowerCase().replace('_', '-').startsWith(primary))
+    .map(({ voice, index }) => ({
+      voice,
+      index,
+      score: (voice.lang.toLowerCase().replace('_', '-') === wanted ? 3 : 1) + voiceQualityScore(voice),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.voice)
+
+  if (preferredVoiceURI === undefined) return ranked
+  const preferredAt = ranked.findIndex((voice) => voice.voiceURI === preferredVoiceURI)
+  if (preferredAt <= 0) return ranked // not found, or already first — nothing to move.
+
+  const preferred = ranked[preferredAt]
+  return [preferred, ...ranked.slice(0, preferredAt), ...ranked.slice(preferredAt + 1)]
+}
+
 /**
  * Pick a voice for a cue.
  *
- * Best effort and nothing more. Platforms disagree about voice names, about how
- * many they expose and about when `getVoices()` starts returning any, so this
- * prefers an exact language match, falls back to the same primary language, and
- * otherwise lets the platform default speak. It never fails.
+ * Best effort and nothing more: the top of `rankVoices`, or `null` where the
+ * platform has nothing usable at all. It never fails. This is the SINGLE-cue
+ * decision; `assignSectionVoices` is what gives a section's several speakers
+ * distinct voices instead of all reaching this same top pick.
  */
 export function pickVoice(
   voices: readonly SpeechSynthesisVoice[],
   hint: ListeningVoiceHint | undefined,
 ): SpeechSynthesisVoice | null {
-  if (hint === undefined || voices.length === 0) return null
+  if (hint === undefined) return null
+  return rankVoices(voices, hint)[0] ?? null
+}
 
-  const wanted = hint.accent.toLowerCase()
-  const primary = wanted.split('-')[0]
+/** Pitch nudge applied when a section's speakers cannot be told apart by
+ *  VOICE (the platform offers fewer usable matches than speakers) — the
+ *  fallback differentiator, alternating by speaker so adjacent turns are not
+ *  literally the same voice. `ListeningVoiceHint.pitch` (`types.ts`) is
+ *  "relative to the driver's default, 1 leaves it alone", so this is added to
+ *  whatever the hint or the default already specifies, never replaces it. */
+const PITCH_DIFFERENTIATION = 0.15
 
-  const exact = voices.find((voice) => voice.lang.toLowerCase().replace('_', '-') === wanted)
-  if (exact !== undefined) return exact
+/** What a section's playback actually uses for one speaker. */
+interface ResolvedVoice {
+  voice: SpeechSynthesisVoice | null
+  pitchOffset: number
+}
 
-  const sameLanguage = voices.find((voice) => voice.lang.toLowerCase().startsWith(primary))
-  return sameLanguage ?? null
+/**
+ * Assign each of a section's speakers a voice, distinct from the others where
+ * the platform allows it.
+ *
+ * `sectionCues` already carries each cue's speaker hint, but calling
+ * `pickVoice` independently per cue has no memory across cues — two speakers
+ * who share a hint (the common case: two `en-GB` characters in a phone call)
+ * got the SAME top-ranked voice, because nothing recorded that a voice had
+ * already been "spent" on someone else. This groups a section's speakers by
+ * hint accent, ranks each group once (`rankVoices`, so "distinct" never means
+ * "worse"), and round-robins the ranked candidates across the speakers who
+ * share that accent, in the order they are first passed in (`speakers`
+ * preserves `Map` insertion order, and callers build it in first-appearance
+ * order — see `SpeechSynthesisDriver.play`).
+ *
+ * When an accent group has fewer than two usable voices, there is no second
+ * voice to hand out — the fallback is `PITCH_DIFFERENTIATION`, alternating by
+ * speaker, so a phone call between two people does not sound like one person
+ * quoting themselves. A section with only one speaker gets no pitch nudge at
+ * all: there is nobody for them to be told apart FROM.
+ *
+ * Voice GENDER is never inferred from a voice's NAME to break a tie here —
+ * name lists are locale-dependent (a "female-sounding" English name on one
+ * platform's voice list is a man's voice on another) and wrong often enough
+ * to be worse than the pitch nudge. `ListeningVoiceHint.gender` exists for
+ * the UI and for a future driver with real per-gender voices, not for this
+ * one to pattern-match on.
+ */
+export function assignSectionVoices(
+  voices: readonly SpeechSynthesisVoice[],
+  speakers: ReadonlyMap<string, ListeningVoiceHint>,
+  preferredVoiceURI?: string,
+): Map<string, ResolvedVoice> {
+  const resolved = new Map<string, ResolvedVoice>()
+  const singleSpeaker = speakers.size <= 1
+  const groups = new Map<string, { ranked: SpeechSynthesisVoice[]; nextIndex: number }>()
+
+  for (const [speakerKey, hint] of speakers) {
+    const accentKey = hint.accent.toLowerCase()
+    let group = groups.get(accentKey)
+    if (group === undefined) {
+      group = { ranked: rankVoices(voices, hint, preferredVoiceURI), nextIndex: 0 }
+      groups.set(accentKey, group)
+    }
+
+    const useIndex = group.nextIndex
+    group.nextIndex += 1
+
+    if (group.ranked.length >= 2) {
+      resolved.set(speakerKey, { voice: group.ranked[useIndex % group.ranked.length], pitchOffset: 0 })
+      continue
+    }
+
+    resolved.set(speakerKey, {
+      voice: group.ranked[0] ?? null,
+      pitchOffset: singleSpeaker ? 0 : useIndex % 2 === 0 ? PITCH_DIFFERENTIATION : -PITCH_DIFFERENTIATION,
+    })
+  }
+
+  return resolved
+}
+
+/** Keep an utterance pitch inside the range `SpeechSynthesisUtterance.pitch`
+ *  actually accepts. Pitch offsets are additive (see `PITCH_DIFFERENTIATION`),
+ *  so a value near either end of the range must not walk off it. */
+function clampPitch(pitch: number): number {
+  return Math.min(2, Math.max(0, pitch))
 }
 
 /**
@@ -244,6 +466,11 @@ export function pickVoice(
  * is being spoken and makes cancellation ragged. An utterance that errors is
  * treated as finished rather than fatal: one mangled line is better than a
  * section that stops halfway with no explanation.
+ *
+ * `preferredVoiceURI` is read ONCE, at construction (`createSpeechDriver`
+ * reads it from `src/profile/prefs.ts` and passes it in here) — never
+ * re-read mid-play, so a section's voices cannot change out from under a
+ * learner who is halfway through listening to it.
  */
 export class SpeechSynthesisDriver implements SpeechDriver {
   readonly kind: SpeechDriverKind = 'speech-synthesis'
@@ -251,7 +478,10 @@ export class SpeechSynthesisDriver implements SpeechDriver {
   private engine: SpeechEngine | null
   private cancelled = false
 
-  constructor(engine: SpeechEngine | null = browserSpeechEngine()) {
+  constructor(
+    engine: SpeechEngine | null = browserSpeechEngine(),
+    private readonly preferredVoiceURI?: string,
+  ) {
     this.engine = engine
   }
 
@@ -273,6 +503,21 @@ export class SpeechSynthesisDriver implements SpeechDriver {
 
     this.cancelled = false
 
+    // Each of THIS section's speakers gets a voice assigned once, up front,
+    // so a speaker with several cues keeps the same voice throughout instead
+    // of re-rolling it cue by cue — see `assignSectionVoices`.
+    const speakerHints = new Map<string, ListeningVoiceHint>()
+    for (const cue of cues) {
+      if (cue.voice !== undefined && !speakerHints.has(cue.speaker)) {
+        speakerHints.set(cue.speaker, cue.voice)
+      }
+    }
+    const assigned = assignSectionVoices(
+      engine.synthesis.getVoices(),
+      speakerHints,
+      this.preferredVoiceURI,
+    )
+
     return new Promise<SpeechOutcome>((resolve) => {
       const finish = (outcome: SpeechOutcome): void => {
         events.onOutcome?.(outcome)
@@ -285,10 +530,13 @@ export class SpeechSynthesisDriver implements SpeechDriver {
 
         const cue = cues[index]
         const utterance = engine.createUtterance(cue.text)
-        const voice = pickVoice(engine.synthesis.getVoices(), cue.voice)
-        if (voice !== null) utterance.voice = voice
+        const resolved = cue.voice === undefined ? undefined : assigned.get(cue.speaker)
+        if (resolved?.voice != null) utterance.voice = resolved.voice
         if (cue.voice?.rate !== undefined) utterance.rate = cue.voice.rate
-        if (cue.voice?.pitch !== undefined) utterance.pitch = cue.voice.pitch
+        const pitchOffset = resolved?.pitchOffset ?? 0
+        if (cue.voice?.pitch !== undefined || pitchOffset !== 0) {
+          utterance.pitch = clampPitch((cue.voice?.pitch ?? 1) + pitchOffset)
+        }
 
         let advanced = false
         const advance = (): void => {
@@ -374,6 +622,267 @@ export class TranscriptPaceDriver implements SpeechDriver {
       }
 
       revealFrom(0)
+    })
+  }
+}
+
+/* --------------------------------- audio files -------------------------------- */
+
+/** One cue's entry in a generated-audio manifest. */
+export interface AudioManifestCue {
+  /**
+   * `ListeningCue.id` / `SpeechCue.id`. Matching by id, rather than by
+   * `index` below, is what lets `AudioFileDriver.play` — called once per
+   * SECTION, with that section's own zero-based cue array — find the right
+   * file for a cue without knowing its position in the whole TEST, which is
+   * what the manifest is written against (99 cues across 4 sections, not 4
+   * separately-indexed queues).
+   */
+  id: string
+  /** Position within the whole test. Not consulted for matching — it exists
+   *  so the generated file names (`scripts/generate-audio.mjs` writes
+   *  `String(index).padStart(3, '0') + '.mp3'`) are walkable in a directory
+   *  listing and stay stable across regeneration as long as the transcript's
+   *  cue order does not change. */
+  index: number
+  /** Path relative to the manifest's own URL, e.g. `'000.mp3'`. */
+  file: string
+  speakerId: string
+}
+
+/** The contract `scripts/generate-audio.mjs` writes and `AudioFileDriver`
+ *  reads — plan 032 Prong B's manifest, `public/audio/<testId>/manifest.json`. */
+export interface AudioManifest {
+  generatedAtISO: string
+  /** Which TTS provider/model produced the audio, e.g. `'openai:tts-1'`. */
+  provider: string
+  /** speakerId -> the API voice name used for it — the reviewable record of
+   *  who sounds like what, checked in beside the generated files themselves. */
+  voiceMap: Record<string, string>
+  cues: AudioManifestCue[]
+}
+
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseManifestCue(value: unknown): AudioManifestCue | null {
+  if (!isRecordObject(value)) return null
+  const { id, index, file, speakerId } = value
+  if (typeof id !== 'string' || id.length === 0) return null
+  if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) return null
+  if (typeof file !== 'string' || file.length === 0) return null
+  if (typeof speakerId !== 'string' || speakerId.length === 0) return null
+  return { id, index, file, speakerId }
+}
+
+function parseVoiceMap(value: unknown): Record<string, string> | null {
+  if (!isRecordObject(value)) return null
+  const map: Record<string, string> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== 'string') return null
+    map[key] = entry
+  }
+  return map
+}
+
+/**
+ * Parse a fetched manifest defensively.
+ *
+ * A malformed or hostile file must not throw, only fail to load — the same
+ * discipline `sanitizePrefs` (`src/profile/prefs.ts`) applies to hostile
+ * localStorage: `null` means "could not use this", and the caller's honest
+ * response to `null` is to fall back, never to crash the section.
+ */
+export function parseAudioManifest(value: unknown): AudioManifest | null {
+  if (!isRecordObject(value)) return null
+  if (typeof value.generatedAtISO !== 'string') return null
+  if (typeof value.provider !== 'string') return null
+  const voiceMap = parseVoiceMap(value.voiceMap)
+  if (voiceMap === null) return null
+  if (!Array.isArray(value.cues)) return null
+
+  const cues: AudioManifestCue[] = []
+  for (const raw of value.cues) {
+    const cue = parseManifestCue(raw)
+    if (cue === null) return null
+    cues.push(cue)
+  }
+
+  return { generatedAtISO: value.generatedAtISO, provider: value.provider, voiceMap, cues }
+}
+
+/** The slice of `fetch` this module needs to load a manifest, injectable so
+ *  no test hits a real network — same discipline as `SpeechEngine`. */
+export type ManifestFetcher = (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>
+
+function defaultManifestFetcher(url: string): Promise<{ ok: boolean; json(): Promise<unknown> }> {
+  const scope = globalThis as { fetch?: typeof fetch }
+  if (scope.fetch === undefined) {
+    return Promise.resolve({ ok: false, json: () => Promise.resolve(null) })
+  }
+  return scope.fetch(url)
+}
+
+/** The slice of `HTMLAudioElement` a driver needs to play one file. */
+export interface AudioElementLike {
+  src: string
+  play(): Promise<void> | void
+  pause(): void
+  onended: (() => void) | null
+  onerror: (() => void) | null
+}
+
+export type AudioElementFactory = (url: string) => AudioElementLike
+
+function defaultAudioFactory(url: string): AudioElementLike {
+  const scope = globalThis as { Audio?: new (src?: string) => AudioElementLike }
+  const Ctor = scope.Audio
+  if (Ctor !== undefined) return new Ctor(url)
+
+  // No <audio> element in this environment at all. Fail the cue on the next
+  // tick rather than hang forever waiting for an event that will never come
+  // — `onerror` drives the same skip-to-next-cue path a real failed load
+  // would. This app always runs in a browser, so the branch above is the one
+  // that actually executes; this exists so "never fails" stays true even off
+  // one.
+  const inert: AudioElementLike = {
+    src: url,
+    play: () => Promise.resolve(),
+    pause: () => {},
+    onended: null,
+    onerror: null,
+  }
+  queueMicrotask(() => inert.onerror?.())
+  return inert
+}
+
+/** A file's URL, relative to the manifest that named it. */
+function resolveAudioFileUrl(manifestUrl: string, file: string): string {
+  const dir = manifestUrl.slice(0, manifestUrl.lastIndexOf('/') + 1)
+  return dir + file
+}
+
+/**
+ * Plays a test's generated audio files instead of live browser synthesis —
+ * plan 032 Prong B. Implements the same `SpeechDriver` interface every other
+ * driver does, so the runner cannot tell the difference, which is the whole
+ * point of the seam.
+ *
+ * The manifest is fetched once, lazily, on the first `play()` call (there is
+ * nothing to play before then) and cached for the life of the driver.
+ *
+ * **A missing or malformed manifest is not an error — it is Prong A.** `kind`
+ * reports `'audio-file'` only once a manifest has actually loaded; until then
+ * (or if it never does, because this test has no generated audio yet) `kind`
+ * reports whatever `fallback`'s kind is, and `play()` delegates to `fallback`
+ * outright. Optimistically claiming `'audio-file'` — and the honesty text
+ * that goes with it — for a test that has no generated recording would be
+ * exactly the kind of overclaiming this whole plan exists to remove. This is
+ * how `createSpeechDriver`'s "audio files → synthesis → transcript pace"
+ * preference order is really implemented: not as three mutually exclusive
+ * choices, but as this wrapper trying the best one and falling through.
+ *
+ * A single cue's audio failing to load or play (one bad file, one track that
+ * 404s) does NOT fall back to `fallback` — it skips to the next cue, the same
+ * "one mangled line is better than a dead section" doctrine
+ * `SpeechSynthesisDriver` already applies to a synthesis error.
+ */
+export class AudioFileDriver implements SpeechDriver {
+  private manifest: AudioManifest | null = null
+  private loadPromise: Promise<void> | null = null
+  private cancelled = false
+  private currentAudio: AudioElementLike | null = null
+
+  constructor(
+    private readonly manifestUrl: string,
+    private readonly fallback: SpeechDriver,
+    private readonly fetchImpl: ManifestFetcher = defaultManifestFetcher,
+    private readonly audioFactory: AudioElementFactory = defaultAudioFactory,
+  ) {}
+
+  get kind(): SpeechDriverKind {
+    return this.manifest !== null ? 'audio-file' : this.fallback.kind
+  }
+
+  /** Manifest fetched and parsed. Does NOT reflect `fallback`'s own
+   *  availability — `play()` is what actually falls back, regardless of what
+   *  this reports, matching every other driver's "nothing here is consulted
+   *  to decide whether to try" contract. */
+  available(): boolean {
+    return this.manifest !== null
+  }
+
+  cancel(): void {
+    this.cancelled = true
+    this.currentAudio?.pause()
+    this.fallback.cancel()
+  }
+
+  private async ensureManifestLoaded(): Promise<void> {
+    if (this.loadPromise !== null) return this.loadPromise
+    this.loadPromise = (async () => {
+      try {
+        const response = await this.fetchImpl(this.manifestUrl)
+        if (!response.ok) return
+        this.manifest = parseAudioManifest(await response.json())
+      } catch {
+        // Network failure, CORS, malformed JSON — all the same outcome: no
+        // manifest, fall back. Never throws.
+      }
+    })()
+    return this.loadPromise
+  }
+
+  async play(cues: readonly SpeechCue[], events: SpeechEvents = {}): Promise<SpeechOutcome> {
+    this.cancelled = false
+    await this.ensureManifestLoaded()
+
+    if (this.manifest === null) return this.fallback.play(cues, events)
+    const manifest = this.manifest
+
+    const byId = new Map(manifest.cues.map((entry) => [entry.id, entry]))
+
+    return new Promise<SpeechOutcome>((resolve) => {
+      const finish = (outcome: SpeechOutcome): void => {
+        this.currentAudio = null
+        events.onOutcome?.(outcome)
+        resolve(outcome)
+      }
+
+      const playFrom = (index: number): void => {
+        if (this.cancelled) return finish('cancelled')
+        if (index >= cues.length) return finish('completed')
+
+        const cue = cues[index]
+        const entry = byId.get(cue.id)
+
+        let advanced = false
+        const advance = (): void => {
+          if (advanced) return
+          advanced = true
+          this.currentAudio = null
+          events.onCueEnd?.(cue, index)
+          playFrom(index + 1)
+        }
+
+        events.onCueStart?.(cue, index)
+
+        if (entry === undefined) {
+          // No file for this cue in the manifest — the "one mangled line"
+          // doctrine: skip it rather than stop the section.
+          advance()
+          return
+        }
+
+        const audio = this.audioFactory(resolveAudioFileUrl(this.manifestUrl, entry.file))
+        this.currentAudio = audio
+        audio.onended = advance
+        audio.onerror = advance
+        void audio.play()
+      }
+
+      playFrom(0)
     })
   }
 }
@@ -475,27 +984,67 @@ export interface CreateSpeechDriverOptions {
   engine?: SpeechEngine | null
   scheduler?: SpeechScheduler
   wordsPerMinute?: number
+  /**
+   * URL of a generated-audio manifest for the test about to be played, or
+   * `undefined` when none applies (no test selected yet, or this test has no
+   * generated audio). Plan 032 Prong B: when given, playback PREFERS the
+   * manifest's files and falls back to synthesis/transcript-pace on its own
+   * if the manifest cannot be loaded — see `AudioFileDriver`.
+   */
+  manifestUrl?: string
+  /** Injectable fetch for the manifest loader, so no test hits a real
+   *  network — same discipline as `engine`. */
+  fetchImpl?: ManifestFetcher
+  /** Injectable per-cue audio element factory, same discipline. */
+  audioFactory?: AudioElementFactory
 }
 
 /**
- * The driver this platform can actually use: the browser's synthesiser where
- * there is one, the paced transcript where there is not.
+ * The driver this platform can actually use, in preference order: generated
+ * audio files for this test (plan 032 Prong B, when `manifestUrl` is given
+ * and actually loads), then the browser's synthesiser where there is one,
+ * then the paced transcript where there is not.
  *
- * The choice is made once, at construction, and the caller can see which it got
- * from `driver.kind` — which is how the UI knows whether to show
- * `SYNTHETIC_VOICE_NOTICE` or `TRANSCRIPT_FALLBACK_NOTICE`.
+ * The choice of FALLBACK is made once, at construction, and the caller can
+ * see which it got from `driver.kind` — which is how the UI knows which of
+ * `SYNTHETIC_VOICE_NOTICE` / `TRANSCRIPT_FALLBACK_NOTICE` / `AUDIO_FILE_
+ * NOTICE` to show. When `manifestUrl` is given, `kind` starts as the
+ * fallback's and becomes `'audio-file'` once the manifest has actually
+ * loaded — see `AudioFileDriver`'s own doc comment for why that is not
+ * decided optimistically.
+ *
+ * `preferredVoiceURI` (plan 032 Prong A) is read from `src/profile/prefs.ts`
+ * HERE, once, and threaded into `SpeechSynthesisDriver` — the driver itself
+ * never imports `prefs.ts`, keeping it constructor-testable like every other
+ * driver in this file.
  */
 export function createSpeechDriver(options: CreateSpeechDriverOptions = {}): SpeechDriver {
   const engine = options.engine !== undefined ? options.engine : browserSpeechEngine()
-  if (engine !== null) return new SpeechSynthesisDriver(engine)
+  const preferredVoiceURI = loadPrefs().preferredVoiceURI
 
-  return new TranscriptPaceDriver(
-    options.scheduler ?? realScheduler,
-    options.wordsPerMinute ?? TRANSCRIPT_PACE_WPM,
-  )
+  const fallback: SpeechDriver =
+    engine !== null
+      ? new SpeechSynthesisDriver(engine, preferredVoiceURI)
+      : new TranscriptPaceDriver(
+          options.scheduler ?? realScheduler,
+          options.wordsPerMinute ?? TRANSCRIPT_PACE_WPM,
+        )
+
+  if (options.manifestUrl === undefined) return fallback
+  return new AudioFileDriver(options.manifestUrl, fallback, options.fetchImpl, options.audioFactory)
 }
 
 /** The notice a driver's kind obliges the UI to show. */
 export function noticeFor(kind: SpeechDriverKind): string {
-  return kind === 'transcript-pace' ? TRANSCRIPT_FALLBACK_NOTICE : SYNTHETIC_VOICE_NOTICE
+  switch (kind) {
+    case 'transcript-pace':
+      return TRANSCRIPT_FALLBACK_NOTICE
+    case 'audio-file':
+      return AUDIO_FILE_NOTICE
+    // 'fake' (tests only) reads as synthetic too — there is no fifth notice
+    // for a driver that exists only to be deterministic in a test.
+    case 'speech-synthesis':
+    case 'fake':
+      return SYNTHETIC_VOICE_NOTICE
+  }
 }

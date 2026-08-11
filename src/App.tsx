@@ -274,11 +274,23 @@ export default function App({
     () => (listeningTestId === null ? null : listeningTestById(listeningTestId)),
     [listeningTestId],
   )
-  // Constructed once per mount: the browser's synthesiser where there is one,
-  // the paced transcript where there is not. Tests inject a `FakeSpeechDriver`
-  // through props, because jsdom has no `speechSynthesis` and no test may
-  // depend on a real one.
-  const speechDriver = useMemo(() => listeningDriver ?? createSpeechDriver(), [listeningDriver])
+  // The browser's synthesiser where there is one, the paced transcript where
+  // there is not, and generated audio files ahead of either when the
+  // SELECTED test has a manifest (plan 032 Prong B) — `createSpeechDriver`
+  // decides the preference order and reads the learner's preferred-voice URI
+  // itself. Re-derived when `listeningTestId` changes so a manifest URL for
+  // the newly picked test reaches it; `listeningDriver` short-circuits this
+  // entirely, so tests injecting `FakeSpeechDriver` through props never touch
+  // any of it, because jsdom has no `speechSynthesis` and no test may depend
+  // on a real one.
+  const speechDriver = useMemo(
+    () =>
+      listeningDriver ??
+      createSpeechDriver({
+        manifestUrl: listeningTestId === null ? undefined : `/audio/${listeningTestId}/manifest.json`,
+      }),
+    [listeningDriver, listeningTestId],
+  )
   // Not filtered by module either, for the same reason, and the absence of a
   // `.filter(s => s.module === module)` line here — which the Reading history
   // above does have — is the whole difference between the two sections.

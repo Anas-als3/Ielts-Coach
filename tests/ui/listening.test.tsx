@@ -21,14 +21,16 @@
  * prompt draw and the speech driver. No test here touches `speechSynthesis`:
  * jsdom has none, and `FakeSpeechDriver` is deterministic and timer-free.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
+import { resolveSelectedVoiceURI } from '../../src/components/ListeningPicker'
 import { LISTENING_TEST_01, LISTENING_TESTS } from '../../src/listening/tests'
 import { FakeSpeechDriver, TranscriptPaceDriver } from '../../src/listening/speech'
 import type { ListeningQuestion } from '../../src/listening/types'
 import { LISTENING_FORMAT_META } from '../../src/meta'
+import { PREFS_KEY } from '../../src/profile/prefs'
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -49,6 +51,60 @@ function transcriptDriver(): TranscriptPaceDriver {
       return () => {}
     },
   })
+}
+
+function voice(name: string, lang: string, voiceURI: string = name): SpeechSynthesisVoice {
+  return { default: false, lang, localService: true, name, voiceURI }
+}
+
+/** The utterance shape `ListeningPicker`'s Preview button actually builds and
+ *  speaks — narrower than the real `SpeechSynthesisUtterance`, which jsdom
+ *  cannot construct or fire events on, matching the engine suite's fakes. */
+interface FakeUtterance {
+  text: string
+  voice: SpeechSynthesisVoice | null
+}
+
+class FakeSpeechSynthesisUtterance implements FakeUtterance {
+  voice: SpeechSynthesisVoice | null = null
+  constructor(public text: string) {}
+}
+
+/**
+ * Stubs `window.speechSynthesis` / `window.SpeechSynthesisUtterance` — the
+ * SAME seam `browserSpeechEngine()` (`speech.ts`) reads — so the voice picker
+ * has something to list and Preview has something to speak through. Global
+ * stubs, not a prop: plan 032's picker reads the engine directly, the same
+ * way `speech.ts` itself does, and this is how a test reaches that.
+ *
+ * `Object.defineProperty` rather than a bare assignment: `window.
+ * speechSynthesis`'s real declared type is the full browser `SpeechSynthesis`
+ * interface, far bigger than what any driver or component here actually
+ * touches, and `defineProperty`'s `value` is not checked against it — the
+ * same discipline `tests/ui/setup.ts` already uses for `window.matchMedia`.
+ */
+function installSpeechSynthesis(voices: SpeechSynthesisVoice[]): { spoken: FakeUtterance[] } {
+  const spoken: FakeUtterance[] = []
+  const listeners: Array<() => void> = []
+  const synthesis = {
+    getVoices: () => voices,
+    speak: (utterance: FakeUtterance) => spoken.push(utterance),
+    cancel: () => {},
+    addEventListener: (type: string, listener: () => void) => {
+      if (type === 'voiceschanged') listeners.push(listener)
+    },
+    removeEventListener: (type: string, listener: () => void) => {
+      if (type !== 'voiceschanged') return
+      const at = listeners.indexOf(listener)
+      if (at >= 0) listeners.splice(at, 1)
+    },
+  }
+  Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: synthesis })
+  Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+    configurable: true,
+    value: FakeSpeechSynthesisUtterance,
+  })
+  return { spoken }
 }
 
 function navLink(name: string): HTMLElement {
@@ -205,6 +261,126 @@ describe('the Listening section front door', () => {
     expect(screen.getByText(/The two ways to sit it/i)).toBeInTheDocument()
     expect(screen.getByText(/never again/i)).toBeInTheDocument()
     expect(screen.getByText(/not the band you would get on the day/i)).toBeInTheDocument()
+  })
+})
+
+/* ------------------------------- the voice picker ---------------------------- */
+
+/**
+ * Plan 032 Prong A: quality-ranked automatic selection needs no UI at all
+ * (it lives inside `pickVoice`/`rankVoices`, covered in `tests/speech.test.ts`)
+ * — what belongs here is the PICKER: does it appear only where there is
+ * something to choose between, does it list what the platform actually
+ * offers, does a choice persist, and does a vanished choice fail safe.
+ */
+describe('the Listening voice picker', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'speechSynthesis')
+    Reflect.deleteProperty(window, 'SpeechSynthesisUtterance')
+  })
+
+  it('resolveSelectedVoiceURI: a vanished URI resolves to Automatic, a live one passes through', () => {
+    const daniel = voice('Daniel', 'en-GB')
+    expect(resolveSelectedVoiceURI([daniel], daniel.voiceURI)).toBe(daniel.voiceURI)
+    expect(resolveSelectedVoiceURI([daniel], 'vanished-uri')).toBe('')
+    expect(resolveSelectedVoiceURI([daniel], '')).toBe('')
+    expect(resolveSelectedVoiceURI([], 'anything')).toBe('')
+  })
+
+  it('is not shown at all when the browser has no speech engine — jsdom, by default', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(navLink('Listening'))
+
+    expect(screen.queryByRole('combobox', { name: 'Voice' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Automatic (recommended)')).not.toBeInTheDocument()
+  })
+
+  it('lists the platform’s English voices, defaulting to Automatic', async () => {
+    installSpeechSynthesis([voice('Daniel', 'en-GB'), voice('Sonia (Natural)', 'en-GB')])
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(navLink('Listening'))
+
+    const select = screen.getByRole('combobox', { name: 'Voice' }) as HTMLSelectElement
+    expect(select.value).toBe('')
+    expect(within(select).getByText('Automatic (recommended)')).toBeInTheDocument()
+    expect(within(select).getByText('Daniel (en-GB)')).toBeInTheDocument()
+    expect(within(select).getByText('Sonia (Natural) (en-GB)')).toBeInTheDocument()
+  })
+
+  it('ranks a quality-marked voice into "Recommended", ahead of a plain one', async () => {
+    installSpeechSynthesis([voice('Daniel', 'en-GB'), voice('Sonia (Natural)', 'en-GB')])
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(navLink('Listening'))
+
+    const select = screen.getByRole('combobox', { name: 'Voice' }) as HTMLSelectElement
+    const recommended = within(select).getByRole('group', { name: 'Recommended' })
+    expect(within(recommended).getByText('Sonia (Natural) (en-GB)')).toBeInTheDocument()
+    expect(within(recommended).queryByText('Daniel (en-GB)')).not.toBeInTheDocument()
+  })
+
+  it('a chosen voice is saved, and the picker shows it again after a fresh mount', async () => {
+    const sonia = voice('Sonia (Natural)', 'en-GB')
+    installSpeechSynthesis([voice('Daniel', 'en-GB'), sonia])
+    const user = userEvent.setup()
+    const first = renderApp()
+    await user.click(navLink('Listening'))
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Voice' }), sonia.voiceURI)
+
+    const saved = JSON.parse(window.localStorage.getItem(PREFS_KEY) ?? '{}') as {
+      preferredVoiceURI?: string
+    }
+    expect(saved.preferredVoiceURI).toBe(sonia.voiceURI)
+
+    // A fresh mount — the picker's initial state, not React state carried
+    // over — reads the SAME persisted value back.
+    first.unmount()
+    renderApp()
+    await user.click(navLink('Listening'))
+    expect((screen.getByRole('combobox', { name: 'Voice' }) as HTMLSelectElement).value).toBe(
+      sonia.voiceURI,
+    )
+  })
+
+  it('a persisted voice this platform no longer has falls back to Automatic, not an error', async () => {
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify({ preferredVoiceURI: 'vanished-uri' }))
+    installSpeechSynthesis([voice('Daniel', 'en-GB')])
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(navLink('Listening'))
+
+    const select = screen.getByRole('combobox', { name: 'Voice' }) as HTMLSelectElement
+    expect(select.value).toBe('')
+  })
+
+  it('Preview speaks a fixed sentence through the chosen voice', async () => {
+    const sonia = voice('Sonia (Natural)', 'en-GB')
+    const { spoken } = installSpeechSynthesis([voice('Daniel', 'en-GB'), sonia])
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(navLink('Listening'))
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Voice' }), sonia.voiceURI)
+    await user.click(screen.getByRole('button', { name: 'Preview voice' }))
+
+    expect(spoken).toHaveLength(1)
+    expect(spoken[0].voice).toBe(sonia)
+    expect(spoken[0].text.length).toBeGreaterThan(0)
+  })
+
+  it('Preview under Automatic leaves the voice unset — the driver’s own ranking decides', async () => {
+    const { spoken } = installSpeechSynthesis([voice('Daniel', 'en-GB')])
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(navLink('Listening'))
+
+    await user.click(screen.getByRole('button', { name: 'Preview voice' }))
+
+    expect(spoken).toHaveLength(1)
+    expect(spoken[0].voice).toBeNull()
   })
 })
 

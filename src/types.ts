@@ -417,6 +417,16 @@ export interface Prefs {
   targetBySection?: Partial<Record<SessionSection, number>>;
   /** The exam the learner is preparing for; restored on next visit. */
   module?: Module;
+  /**
+   * Owned by plan 032: a `SpeechSynthesisVoice.voiceURI` the learner picked
+   * from the Listening picker's voice select, overriding the automatic
+   * quality-ranked choice (`src/listening/speech.ts`'s `pickVoice`/
+   * `rankVoices`). Undefined means "Automatic (recommended)". A URI that no
+   * longer names an installed voice (voices come and go with OS updates)
+   * falls back to Automatic silently — never an error — the same rule every
+   * other field here follows for a value this build can no longer use.
+   */
+  preferredVoiceURI?: string;
 }
 
 /**

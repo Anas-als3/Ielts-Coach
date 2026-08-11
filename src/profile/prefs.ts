@@ -4,7 +4,7 @@
  * `ielts-coach.v1`'s schemaVersion + migration ladder stay about session data
  * only.
  *
- * Contract (plan 026 defines it, plan 027 extends it): one flat JSON object;
+ * Contract (plan 026 defines it, plans 027 and 032 extend it): one flat JSON object;
  * fields are ADDITIVE and optional; nothing is renamed or repurposed. Reads
  * validate field-by-field against hostile data — a malformed blob or a
  * wrong-typed field is discarded, never crashed on, because losing a
@@ -44,6 +44,17 @@ function readRaw(): Record<string, unknown> {
 /** True for 4.0–9.0 in half steps — the only bands IELTS awards. */
 function isHalfBand(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n >= 4 && n <= 9 && Number.isInteger(n * 2)
+}
+
+/**
+ * True for a plausible `SpeechSynthesisVoice.voiceURI`: a non-empty string,
+ * capped well above anything a real platform emits, so a hostile blob cannot
+ * wedge an arbitrarily large string into storage through this field. There is
+ * no further shape to check — voiceURI values are platform-defined free text
+ * (a name, a URN, anything), so "non-empty and bounded" is the whole contract.
+ */
+function isVoiceURI(s: unknown): s is string {
+  return typeof s === 'string' && s.length > 0 && s.length <= 300
 }
 
 /** True for a real calendar date written 'YYYY-MM-DD'. Reject rollover
@@ -91,6 +102,9 @@ export function sanitizePrefs(value: unknown): Prefs {
   }
   if (value.module === 'academic' || value.module === 'general') {
     prefs.module = value.module
+  }
+  if (isVoiceURI(value.preferredVoiceURI)) {
+    prefs.preferredVoiceURI = value.preferredVoiceURI
   }
 
   return prefs

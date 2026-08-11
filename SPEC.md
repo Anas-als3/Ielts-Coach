@@ -436,18 +436,18 @@ biodiversity science, political participation, globalisation), and BOTH when in 
 `src/profile/prefs.ts` holds device-local learner preferences under localStorage key
 `ielts-coach.prefs.v1` — the `Prefs` interface (`src/types.ts`, near `Module`):
 `{ introDismissedAtISO?: string; examDateISO?: string; targetOverall?: number;
-targetBySection?: Partial<Record<SessionSection, number>>; module?: Module }`. This key is
-deliberately OUTSIDE the session store's world: no `schemaVersion`, no migration rung — the record is a
-handful of independent optional scalars, so "migration" is field-by-field validation on read rather than
-a version ladder, and there is no ordering between fields for a ladder to preserve. A field this build
-cannot validate is dropped ALONE, never taking a good field down with it (a hostile `targetOverall`
-never costs the learner their `examDateISO`).
+targetBySection?: Partial<Record<SessionSection, number>>; module?: Module; preferredVoiceURI?: string }`.
+This key is deliberately OUTSIDE the session store's world: no `schemaVersion`, no migration rung — the
+record is a handful of independent optional scalars, so "migration" is field-by-field validation on read
+rather than a version ladder, and there is no ordering between fields for a ladder to preserve. A field
+this build cannot validate is dropped ALONE, never taking a good field down with it (a hostile
+`targetOverall` never costs the learner their `examDateISO`).
 
-**Contract (plan 026 defines `introDismissedAtISO`, plan 027 extends it additively with the rest): one
-flat JSON object; fields are ADDITIVE and optional; nothing is renamed or repurposed. Reads validate
-field-by-field against hostile data — a malformed blob or a wrong-typed field is discarded, never
-crashed on, because losing one preference costs one extra card or one re-typed date while throwing on
-mount costs the app. Writes MERGE over the raw stored object, so a field this build does not know about
+**Contract (plan 026 defines `introDismissedAtISO`, plans 027 and 032 extend it additively with the
+rest): one flat JSON object; fields are ADDITIVE and optional; nothing is renamed or repurposed. Reads
+validate field-by-field against hostile data — a malformed blob or a wrong-typed field is discarded,
+never crashed on, because losing one preference costs one extra card or one re-typed date while throwing
+on mount costs the app. Writes MERGE over the raw stored object, so a field this build does not know about
 (e.g. one written by a newer build) survives a round-trip, and a key explicitly patched to `undefined`
 clears just that field.** `loadPrefs()` reads (via `sanitizePrefs`), `savePrefs(patch)` writes; neither
 ever throws.
@@ -461,6 +461,15 @@ ever throws.
   per section, sometimes "no section below X", but never per criterion, so a "TR target" would be an
   invention with no real-world referent — the per-criterion tiles on the Report stay untouched.
 - `module` — the exam the learner is preparing for, restored on the next visit (below).
+- `preferredVoiceURI` (plan 032) — a `SpeechSynthesisVoice.voiceURI` the learner chose from the Listening
+  picker's voice select, overriding `src/listening/speech.ts`'s automatic quality-ranked pick. Validated
+  as a non-empty string capped at 300 characters (`isVoiceURI`) — voiceURI values are platform-defined
+  free text with no further shape to check. Undefined means "Automatic (recommended)", which is the SAFE
+  default, not a lesser one, now that the automatic ranking picks well on its own (see "The audio
+  decision" under "Listening"). A value that no longer names an installed voice (OS updates add and
+  remove voices) is never an error: `rankVoices` silently ignores a preference it cannot find, and the
+  picker's own select shows Automatic rather than a broken-looking selection
+  (`resolveSelectedVoiceURI`).
 
 **Module persistence.** `App.tsx`'s `module` state now initializes from `loadPrefs().module ??
 'academic'` instead of a bare `'academic'` default, and `switchModule` calls `savePrefs({ module: next
@@ -1385,22 +1394,115 @@ exam. The real test uses actors recorded in a studio with British, Australian, N
 Zealand accents, and accents are part of what it examines. This practice trains the question types and
 note-taking; it does not train accents.
 
-Two exported constants carry that honesty so it cannot quietly go missing:
+Three exported constants carry that honesty so it cannot quietly go missing (the third, plan 032 Prong
+B, below):
 
 | Constant | Shown when | Says |
 |---|---|---|
 | `SYNTHETIC_VOICE_NOTICE` | a voice exists (`SpeechSynthesisDriver`) | the voice is the browser's, not a recording, and names the four real accents |
 | `TRANSCRIPT_FALLBACK_NOTICE` | no voice exists (`TranscriptPaceDriver`) | the transcript is being revealed at speaking pace and this is a reading exercise |
+| `AUDIO_FILE_NOTICE` | generated audio has loaded (`AudioFileDriver`) | the audio is generated once ahead of time by a TTS service, closer to a real voice than the browser's own but still not the exam's studio-recorded actors |
 
-`noticeFor(driver.kind)` picks between them. One of the two is on screen the whole time a Listening
-paper is open, and again on the picker before the learner commits 40 minutes. The runner shows the
-transcript text **only** under the fallback driver: printing the script while a voice speaks would be
+`noticeFor(driver.kind)` picks between them (a three-way switch since plan 032 Prong B). One of the
+three is on screen the whole time a Listening paper is open, and again on the picker before the learner
+commits 40 minutes. The runner shows the transcript text **only** under the fallback driver: printing
+the script while a voice speaks would be
 subtitling, and a subtitled listening test is a reading test. The rule ends when the paper does — the
 report prints the full tapescript after submission, which is what the practice books do.
 
 `SpeechDriver` is an interface so the runner can be tested without a speech engine. `FakeSpeechDriver`
 uses no timers, no globals and no randomness. **No test may depend on a real `speechSynthesis`** —
 jsdom has none, and where one exists it is famously inconsistent across platforms.
+
+### Voice quality and selection — CANONICAL (plan 032)
+
+Plan 011 chose option B and stopped there: `pickVoice` took the FIRST platform voice matching a
+language, which is reliably the platform's WORST voice — compact/legacy voices are listed first by most
+platforms, high-quality ones ("Natural"/"Neural"/Siri voices) later. Plan 032 fixes voice SELECTION in
+place, inside option B's existing zero-bundled-bytes budget; the audio DECISION above is unchanged.
+
+- **Quality-ranked selection.** `rankVoices` (`src/listening/speech.ts`) scores every usable voice
+  instead of taking the first: +3 for an exact BCP-47 accent match over +1 for the same primary language
+  only, ±4 for a name matching `QUALITY_VOICE_MARKERS` / `LEGACY_VOICE_MARKERS` (both exported consts with
+  a doc comment stating they are heuristics that WILL rot as platforms rename voices — "Automatic" must
+  stay a safe default regardless). Ties keep the platform's own list order. `pickVoice`'s signature is
+  unchanged; it is `rankVoices(...)[0] ?? null`.
+- **Distinct voices per speaker.** `assignSectionVoices` groups a section's speakers by accent, ranks
+  each group once, and round-robins the ranked voices across the speakers who share an accent — so a
+  two-speaker phone call gets two voices where the platform offers two, instead of one voice playing both
+  parts. Where fewer than two usable voices exist for a group, the fallback is a ±0.15 pitch nudge
+  (`ListeningVoiceHint.pitch` is additive, "1 leaves it alone"), alternating by speaker; a single-speaker
+  section gets no nudge at all. Voice GENDER is never inferred from a voice's NAME to differentiate —
+  name lists are locale-dependent and wrong often enough to be worse than the pitch nudge.
+- **A learner override.** The Listening picker (`ListeningVoicePicker` inside `ListeningPicker.tsx`)
+  lists the platform's English voices, grouped "Recommended" first by the same ranking, with "Automatic
+  (recommended)" as the default and a Preview button that speaks a fixed sentence through the chosen
+  voice. The choice is `preferredVoiceURI` (`src/profile/prefs.ts`, "Preferences" above) — the picker
+  reads and writes it directly, with no `App.tsx` wiring, because `createSpeechDriver` reads the same key
+  itself at driver construction and promotes a matching voice to the front of `rankVoices`'s result rather
+  than replacing the ranking outright, so a learner's pick still leaves the rest of a section's speakers
+  differentiated. The choice applies the next time a Listening driver is built (construction-time only,
+  not live mid-session) and a vanished URI falls back to Automatic silently, both in the driver
+  (`rankVoices` simply does not find it) and in the picker's own select (`resolveSelectedVoiceURI`).
+
+### Generated audio files — CANONICAL (plan 032 Prong B)
+
+A third option alongside browser synthesis and the paced transcript: audio generated ONCE by a
+maintainer from a real TTS API and shipped as ordinary static files under `public/audio/<testId>/`. The
+audio DECISION above still holds — **this app calls no TTS API at runtime**, for the reasons stated
+there (a public key, per-play cost and network dependency, non-determinism). Generating once and
+committing the result sidesteps all three: the key lives only in the maintainer's shell (`TTS_API_KEY`,
+read once, written nowhere), learners pay nothing per play, and the same file plays the same way on
+every sitting.
+
+- **The script.** `scripts/generate-audio.mjs` (dev-only, never imported by `src/`, excluded from the
+  Vite bundle by living outside it and outside `npm run build`) reads a test from
+  `src/listening/tests/index.ts`, flattens its transcript into cues, looks each speaker up in
+  `scripts/voice-map.json` (one entry per test id, one per `speakerId`, checked in beside the script as
+  the reviewable record of who sounds like what — the run refuses if a speaker is missing, rather than
+  defaulting silently), calls OpenAI's `gpt-4o-mini-tts`, and writes
+  `public/audio/<testId>/<###>.mp3` plus `public/audio/<testId>/manifest.json`. `--dry-run` prints the
+  cue count and voice map, calls no API and needs no key — that IS this plan's automated test
+  (`tests/generate-audio.test.ts` spawns the real script). Without `TTS_API_KEY` and without `--dry-run`
+  the script exits non-zero with a one-line explanation. Extensionless imports from `src/` (this
+  project's own convention, resolved by Vite/tsc at build time) are resolved for
+  `node --experimental-strip-types` by a small loader hook, `scripts/ts-resolve-loader.mjs` — Node's own
+  `node:module` extension point, not a new dependency. Full maintainer checklist: `scripts/README.md`.
+- **The manifest contract.** `{generatedAtISO, provider, voiceMap, cues: [{id, index, file, speakerId}]}`
+  (`AudioManifest`/`AudioManifestCue`, `src/listening/speech.ts`), parsed defensively
+  (`parseAudioManifest`) with the same field-by-field discipline `sanitizePrefs` uses: malformed JSON
+  never throws, only fails to load. `id` is what a driver matches a cue to a file by — NOT `index`, which
+  exists only so file names (`String(index).padStart(3,'0') + '.mp3'`) are stable and walkable in a
+  listing — because the manifest is written once per TEST (every section's cues together) while
+  `AudioFileDriver.play()` is called once per SECTION, so a cue's position within its own section's
+  queue is not its position in the manifest.
+- **`AudioFileDriver`.** Implements the same `SpeechDriver` interface every other driver does. Fetches
+  its manifest once, lazily, on the first `play()`; a missing or malformed manifest is not an error — it
+  is Prong A: `kind` reports whatever the wrapped FALLBACK driver's kind is until a manifest has actually
+  loaded, and never optimistically claims `'audio-file'` (and `AUDIO_FILE_NOTICE`) for a test that has no
+  generated recording yet — the honesty rule this whole plan is about would be broken by claiming
+  otherwise. One cue's file failing to load or play (a bad file, one track that 404s) skips to the next
+  cue rather than ending the section — the same "one mangled line is better than a dead section"
+  doctrine `SpeechSynthesisDriver` already applies to a synthesis error; a fully unreachable manifest
+  delegates the whole section to the fallback driver instead.
+- **The preference order.** `createSpeechDriver` gains an optional `{manifestUrl?}` — App.tsx's ONE
+  driver-construction call site (`App.tsx`, `listeningDriver ?? createSpeechDriver({...})`) passes
+  `/audio/<testId>/manifest.json` once a test is selected (`undefined` on the picker screen, before any
+  test is chosen) and nothing else; `createSpeechDriver` still reads `preferredVoiceURI` itself. Audio
+  files are preferred over synthesis, which is preferred over the paced transcript — realised as
+  `AudioFileDriver` wrapping whichever of the other two `createSpeechDriver` would have built anyway, not
+  as three independent branches. Until a maintainer runs the script for a given test, this resolves to
+  exactly today's behaviour (Prong A's improved synthesis, or the paced transcript) with no visible
+  change.
+- **Static assets, not a runtime network call.** A same-origin fetch of `/audio/<testId>/manifest.json`
+  is how `index.html` itself already arrives — it is not the runtime TTS API call the audio decision
+  forbids. Stated plainly because shipping ANY new asset changes the offline story: **offline behaviour
+  for a test's audio now depends on the browser having cached those files** (the same as any other static
+  asset this app serves), unlike the rest of the app's guaranteed-offline localStorage-only behaviour.
+  `public/audio/_fixtures/` is NOT real Listening content — three ~104-byte generated-silence MP3
+  fixtures (a few bytes of valid MPEG frame header, never a recording) plus a matching manifest, used only
+  by `tests/speech.test.ts` to prove the on-disk contract round-trips; no registered test id ever resolves
+  to it.
 
 ### The conversion table — CANONICAL DATA
 

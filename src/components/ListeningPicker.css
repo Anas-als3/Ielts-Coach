@@ -61,6 +61,51 @@
   color: var(--ink-soft);
 }
 
+/* ----------------------------------------------------------------- voice */
+.lsp-voice {
+  padding: 16px 20px;
+}
+
+.lsp-voice-lead {
+  margin-top: 8px;
+  max-width: 72ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.lsp-voice-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.lsp-voice-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.lsp-voice-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.lsp-voice-field select {
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .lsp-voice-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* ---------------------------------------------------------------- tests */
 .lsp-tests {
   list-style: none;
