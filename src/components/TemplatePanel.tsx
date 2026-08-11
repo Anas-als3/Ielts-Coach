@@ -1,14 +1,18 @@
 /**
  * TemplatePanel — the coach panel's "Template" tab. Plan 033 shipped section
  * descriptions with a couple of reworded openers; plan 034 rebuilt every
- * section as complete sentence frames, slots written `[like this]`.
+ * section as complete sentence frames, slots written `[like this]`; plan 035
+ * rebuilt every section again as ONE flowing paragraph skeleton with a worked
+ * version shown beneath it, muted, and a panel-level toggle to hide those
+ * worked versions.
  *
  * A learner staring at a blank sheet knows WHAT the question asks but not what
  * shape the answer should take. This panel offers a concrete, paragraph-by-
- * paragraph skeleton to follow WHILE writing — sentence frames with slots to
- * fill in the learner's own words — picked from `templatesFor` for the exact
- * desk on screen (task, letter tone or Task 2 question type), and tracks
- * which paragraph the learner is on against the live typed-paragraph count.
+ * paragraph skeleton to follow WHILE writing — fixed prose around every slot,
+ * plus a worked version showing what a filled slot actually looks like —
+ * picked from `templatesFor` for the exact desk on screen (task, letter tone
+ * or Task 2 question type), and tracks which paragraph the learner is on
+ * against the live typed-paragraph count.
  *
  * Coach mode only, same as the cheat sheet and model answer — `App` gates the
  * whole panel-zone on `mode === 'coach'`. The template is a reference pane,
@@ -69,6 +73,7 @@ export default function TemplatePanel({
   const templates = templatesFor(task, isLetter, questionType ?? undefined, tone ?? undefined)
   const [selectedId, setSelectedId] = useState<string>(templates[0]?.id ?? '')
   const active: WritingTemplate | undefined = templates.find((t) => t.id === selectedId) ?? templates[0]
+  const [hideExamples, setHideExamples] = useState(false)
 
   if (!active) {
     return (
@@ -107,6 +112,20 @@ export default function TemplatePanel({
         Sections you have written are marked done; the one you are on now is highlighted.
       </p>
 
+      {!hideExamples && (
+        <p className="tp-example-topic">
+          Worked example answers: <em>“{active.exampleTopic}”</em>
+        </p>
+      )}
+      <label className="tp-example-toggle">
+        <input
+          type="checkbox"
+          checked={hideExamples}
+          onChange={(e) => setHideExamples(e.target.checked)}
+        />
+        Hide worked examples
+      </label>
+
       <ol className="tp-sections">
         {active.paragraphs.map((sectionSpec, i) => {
           const cls = sectionClass(i, paragraphCount, active.paragraphs.length)
@@ -117,14 +136,12 @@ export default function TemplatePanel({
                 {sectionSpec.title}
               </p>
               <p className="tp-section-guidance">{sectionSpec.guidance}</p>
-              {sectionSpec.frames.length > 0 && (
-                <div className="tp-frames">
-                  {sectionSpec.frames.map((frame, frameIndex) => (
-                    <p key={frameIndex} className="tp-frame">
-                      {renderFrame(frame)}
-                    </p>
-                  ))}
-                </div>
+              <p className="tp-frame">{renderFrame(sectionSpec.frame)}</p>
+              {!hideExamples && (
+                <p className="tp-example">
+                  <span className="tp-example-label">Example: </span>
+                  {sectionSpec.example}
+                </p>
               )}
             </li>
           )
@@ -134,7 +151,9 @@ export default function TemplatePanel({
       <p className="tp-warning">
         Frames are scaffolding. Fill every slot in your own words, and swap the connectors for
         ones you'd naturally use — examiners discount sentences they have read a thousand times,
-        and every candidate using a template unchanged writes the same essay.
+        and every candidate using a template unchanged writes the same essay. The worked examples
+        show how a slot gets filled, never words to reuse — copying an example into your essay is
+        the same trap as copying the frame.
       </p>
     </div>
   )
