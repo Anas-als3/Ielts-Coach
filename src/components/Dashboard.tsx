@@ -672,6 +672,13 @@ export default function Dashboard({
                     </span>
                     <Sparkline series={series} />
                   </div>
+                  <button
+                    className="btn db-focus-drill"
+                    onClick={() => onStartPractice(category)}
+                    aria-label={`Practise ${meta?.label ?? category}`}
+                  >
+                    Practise this
+                  </button>
                 </article>
               )
             })}

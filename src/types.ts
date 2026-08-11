@@ -789,7 +789,16 @@ export interface DashboardProps {
   profile: ErrorProfile;
   trends: CategoryTrend[];
   onOpenSession: (id: string) => void;
-  /** Start a new essay; if focus is set, the app pre-selects amplified coaching for it. */
+  /**
+   * Start a new essay. `null` behaves exactly like the header's plain "Start
+   * practice": a fresh essay on whatever desk is already open. A category
+   * retargets the desk to a task/prompt suited to drilling it where the bank
+   * supports that (a chart, a General Training letter, or Task 2, per
+   * `meta.ts`'s task-scoped category sets) and shows a dismissible "Drilling:
+   * <category>" banner naming it and its hint; a category with no such
+   * distinction (most GRA/LR faults, which fire on either task) leaves the
+   * desk untouched and shows the same banner.
+   */
   onStartPractice: (focus: IssueCategory | null) => void;
   onDeleteSession: (id: string) => void;
   onExport: () => void;
