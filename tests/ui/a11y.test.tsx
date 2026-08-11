@@ -178,11 +178,18 @@ describe('a tab strip is one tab stop the arrow keys move within', () => {
     feedback.focus()
     expect(feedback).toHaveFocus()
 
+    // Order is Feedback, Template, Cheat sheet, Model answer (plan 033 inserts
+    // Template second) — one ArrowRight from Feedback lands on Template.
+    await user.keyboard('{ArrowRight}')
+    const template = screen.getByRole('tab', { name: 'Template' })
+    expect(template).toHaveAttribute('aria-selected', 'true')
+    // Focus follows the selection, or the next arrow press would be read by a
+    // tab that is no longer the live one.
+    expect(template).toHaveFocus()
+
     await user.keyboard('{ArrowRight}')
     const cheatSheet = screen.getByRole('tab', { name: 'Cheat sheet' })
     expect(cheatSheet).toHaveAttribute('aria-selected', 'true')
-    // Focus follows the selection, or the next arrow press would be read by a
-    // tab that is no longer the live one.
     expect(cheatSheet).toHaveFocus()
 
     await user.keyboard('{End}')
