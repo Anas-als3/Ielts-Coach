@@ -18,7 +18,11 @@ is DONE. Plan 033 (writing templates — user-requested, planned and executed
 filtered to the desk's question type, with live paragraph progress. Plan 034
 (same day) upgraded every template to fill-in-the-blank sentence frames with
 styled slots — engine-verified wording (purpose and overview markers match
-the rules), variation built in across each type's two templates. Final state at `edf34ca`: **1,453 tests / 51 files**, typecheck covers
+the rules), variation built in across each type's two templates. Plan 035
+(same day, on user feedback) made every frame a full flowing paragraph with
+context around each slot, plus a complete worked example per section on one
+running topic per template, with a show/hide toggle — all 120 content strings
+machine-verified against the engine before writing. Final state at `edf34ca`: **1,453 tests / 51 files**, typecheck covers
 `src` + `tests`, CI green, entry chunk **462.00 kB raw / 147.50 kB gzip** with
 7 lazy chunks (was one 712.52 kB chunk pre-split). Two original papers per
 Reading module and two Listening papers shipped alongside the plans.
