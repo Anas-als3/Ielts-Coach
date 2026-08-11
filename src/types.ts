@@ -762,6 +762,18 @@ export interface ReportProps {
   targetOverall?: number;
 }
 
+/** How an import should reconcile the file against what is already stored. */
+export type ImportMode = 'merge' | 'replace';
+
+/** What an import did — the Dashboard shows this to the learner. */
+export interface ImportSummary {
+  mode: ImportMode;
+  /** Live sessions in the store after the write. */
+  sessionCount: number;
+  /** Sessions dropped by the per-section cap DURING this import (0 almost always). */
+  evictedCount: number;
+}
+
 export interface DashboardProps {
   sessions: WritingSessionRecord[];
   /**
@@ -769,7 +781,7 @@ export interface DashboardProps {
    *
    * The page is a writing view and `sessions` stays writing-only — but two of
    * its controls act on the WHOLE store: `onExport` writes every section to the
-   * file, and `onImport` replaces every section. Counting those from the
+   * file, and `onImport` acts on every section. Counting those from the
    * filtered list told a learner with a complete Reading history that importing
    * would replace "0 essays", immediately before it destroyed all of it.
    */
@@ -781,7 +793,7 @@ export interface DashboardProps {
   onStartPractice: (focus: IssueCategory | null) => void;
   onDeleteSession: (id: string) => void;
   onExport: () => void;
-  onImport: (json: string) => void;
+  onImport: (json: string, mode: ImportMode) => ImportSummary;
   /** Learner prefs, passed down rather than read from storage in the
    *  component: App owns the single copy of state (same rule as sessions),
    *  and a test can assert the card re-renders when they change. */

@@ -13,6 +13,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { deleteSession, importData, loadSessions, saveSession } from '../src/profile/store'
+import { loadPrefs, savePrefs } from '../src/profile/prefs'
 import { rawToBand } from '../src/reading/bandTable'
 import type { ReadingModule } from '../src/reading/types'
 import { isWritingSession } from '../src/types'
@@ -1417,5 +1418,193 @@ describe('031: saveSession clears a stale tombstone for the id it writes', () =>
     const after = rawStore()
     expect(after.deletedIds).toEqual(['y'])
     expect((after.sessions as Array<{ id: string }>).map((s) => s.id)).toEqual(['x'])
+  })
+})
+
+/* -------------------- 031: merge-import -------------------- */
+
+describe('031: merge-import', () => {
+  it('unions two disjoint histories — every id from both survives', () => {
+    saveSession(newRecord('mine', '2026-01-01T10:00:00.000Z'))
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [
+        makeSession('theirs', '2026-01-02T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      ],
+      deletedIds: [],
+    })
+    const summary = importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['mine', 'theirs'])
+    expect(summary).toEqual({ mode: 'merge', sessionCount: 2, evictedCount: 0 })
+  })
+
+  it('an id collision in merge keeps ONE record — the incoming file wins', () => {
+    saveSession(
+      makeSession('dup', '2026-01-01T10:00:00.000Z', {
+        task: 'task2',
+        section: 'writing',
+        essayText: 'mine',
+      }) as SessionRecord,
+    )
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [
+        makeSession('dup', '2026-01-01T10:00:00.000Z', {
+          task: 'task2',
+          section: 'writing',
+          essayText: 'theirs',
+        }),
+      ],
+    })
+    const summary = importData(json, 'merge')
+
+    const sessions = loadSessions()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].section === 'writing' && sessions[0].essayText).toBe('theirs')
+    expect(summary.sessionCount).toBe(1)
+  })
+
+  it('RESURRECT PREVENTION: a session this device deleted stays deleted after merging a file that still carries it', () => {
+    // The core case tombstones exist for: without the subtract step, a merge
+    // would bring back exactly the essay the learner deliberately removed.
+    saveSession(newRecord('x', '2026-01-01T10:00:00.000Z'))
+    deleteSession('x')
+    expect(loadSessions()).toEqual([])
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [
+        makeSession('x', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      ],
+    })
+    importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).not.toContain('x')
+    expect(rawStore().deletedIds).toContain('x')
+  })
+
+  it('a tombstone carried BY THE FILE removes a session this device still has', () => {
+    saveSession(newRecord('x', '2026-01-01T10:00:00.000Z'))
+
+    const json = JSON.stringify({ schemaVersion: 6, sessions: [], deletedIds: ['x'] })
+    importData(json, 'merge')
+
+    expect(loadSessions().map((s) => s.id)).not.toContain('x')
+    expect(rawStore().deletedIds).toContain('x')
+  })
+
+  it('ORDER PIN: subtract runs before cap, so a tombstoned record does not cost the cap an extra survivor', () => {
+    const current = Array.from({ length: 200 }, (_, i) =>
+      makeSession(`essay-${i}`, day(i), { task: 'task2', section: 'writing' }),
+    )
+    seed(6, current)
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: [makeSession('fresh', day(300), { task: 'task2', section: 'writing' })],
+      // The FILE's own author deleted essay-100 on their end; this device
+      // still has a copy.
+      deletedIds: ['essay-100'],
+    })
+
+    const summary = importData(json, 'merge')
+
+    const ids = loadSessions().map((s) => s.id)
+    expect(ids).toHaveLength(200)
+    expect(ids).not.toContain('essay-100')
+    // Proves subtraction ran BEFORE the cap: removing essay-100 first leaves
+    // a union of exactly 200, so nothing else needs to be evicted and
+    // essay-0 — the true oldest — survives. Cap-then-subtract would have
+    // evicted essay-0 to bring 201 down to 200, THEN subtracted essay-100
+    // too, losing two records instead of one.
+    expect(ids).toContain('essay-0')
+    expect(ids).toContain('fresh')
+    expect(summary.evictedCount).toBe(0)
+  })
+
+  it('merge caps a near-cap section and reports the eviction', () => {
+    const current = Array.from({ length: 200 }, (_, i) =>
+      makeSession(`local-${i}`, day(i), { task: 'task2', section: 'writing' }),
+    )
+    seed(6, current)
+
+    const json = JSON.stringify({
+      schemaVersion: 6,
+      sessions: Array.from({ length: 5 }, (_, i) =>
+        makeSession(`remote-${i}`, day(300 + i), { task: 'task2', section: 'writing' }),
+      ),
+    })
+
+    const summary = importData(json, 'merge')
+
+    expect(summary).toEqual({ mode: 'merge', sessionCount: 200, evictedCount: 5 })
+    const ids = loadSessions().map((s) => s.id)
+    expect(ids).toHaveLength(200)
+    // The newest 200 survive: the 5 oldest locals are gone.
+    expect(ids).not.toContain('local-0')
+    expect(ids).not.toContain('local-4')
+    expect(ids).toContain('local-5')
+    expect(ids).toContain('remote-0')
+  })
+
+  it('replace via the default parameter behaves exactly as the old replace-only importData did', () => {
+    seed(5, [makeSession('mine', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    const json = JSON.stringify({
+      schemaVersion: 5,
+      sessions: [
+        makeSession('theirs', '2026-02-01T10:00:00.000Z', { task: 'task2', section: 'writing' }),
+      ],
+    })
+    const summary = importData(json) // no mode argument at all — defaults to 'replace'
+
+    expect(loadSessions().map((s) => s.id)).toEqual(['theirs'])
+    expect(summary).toEqual({ mode: 'replace', sessionCount: 1, evictedCount: 0 })
+  })
+
+  it('merge backs up the pre-import store, same as replace', () => {
+    seed(6, [makeSession('mine', '2026-01-01T10:00:00.000Z', { task: 'task2', section: 'writing' })])
+
+    importData(JSON.stringify({ schemaVersion: 6, sessions: [] }), 'merge')
+
+    const keys = backupKeys()
+    expect(keys).toHaveLength(1)
+    const rescued = JSON.parse(store.get(keys[0]) as string) as { sessions: Array<{ id: string }> }
+    expect(rescued.sessions.map((s) => s.id)).toEqual(['mine'])
+  })
+
+  it('refuses a v7 file in merge mode too', () => {
+    expect(() =>
+      importData(JSON.stringify({ schemaVersion: 7, sessions: [] }), 'merge'),
+    ).toThrow(/newer version/i)
+  })
+})
+
+describe('031: prefs are device-local, so merge and replace treat them differently', () => {
+  it('replace mode restores the file’s prefs — unchanged from the old replace-only behaviour', () => {
+    savePrefs({ targetOverall: 5 })
+    seed(6, [])
+
+    importData(
+      JSON.stringify({ schemaVersion: 6, sessions: [], prefs: { targetOverall: 9 } }),
+      'replace',
+    )
+
+    expect(loadPrefs()).toEqual({ targetOverall: 9 })
+  })
+
+  it('merge mode keeps THIS device’s prefs — prefs are taste, not history, so a merge never overwrites them', () => {
+    savePrefs({ targetOverall: 5 })
+    seed(6, [])
+
+    importData(
+      JSON.stringify({ schemaVersion: 6, sessions: [], prefs: { targetOverall: 9 } }),
+      'merge',
+    )
+
+    expect(loadPrefs()).toEqual({ targetOverall: 5 })
   })
 })

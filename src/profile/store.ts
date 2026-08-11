@@ -32,7 +32,14 @@
  * never crashes the app — we warn on the console and keep going.
  */
 
-import type { Criterion, SaveResult, SessionRecord, SessionSection } from '../types'
+import type {
+  Criterion,
+  ImportMode,
+  ImportSummary,
+  SaveResult,
+  SessionRecord,
+  SessionSection,
+} from '../types'
 import { isWritingSession } from '../types'
 import { byDateAscending } from './chronology'
 import { loadPrefs, sanitizePrefs, savePrefs } from './prefs'
@@ -260,10 +267,17 @@ function looksLikeSession(value: unknown): value is SessionRecord {
  * Otherwise a future sync would turn a local retention policy into global
  * history loss: this device evicting record 201 must not tell every other
  * device, via a merge-import, to destroy its own copy of that same record.
+ * This function taking no `deletedIds` parameter and returning none is that
+ * rule enforced by the type signature, not only by the comment.
+ *
+ * Reports `evictedCount` alongside the survivors: `saveSession`'s eviction is
+ * the documented per-section retention policy and ignores it, but merging two
+ * devices each already near the cap can silently evict on import, and the
+ * learner must be told (see `ImportSummary`).
  */
-function capSessions(sessions: SessionRecord[]): SessionRecord[] {
+function capSessions(sessions: SessionRecord[]): { kept: SessionRecord[]; evictedCount: number } {
   // Nothing can be over a per-section cap while the whole list is under it.
-  if (sessions.length <= MAX_SESSIONS_PER_SECTION) return sessions
+  if (sessions.length <= MAX_SESSIONS_PER_SECTION) return { kept: sessions, evictedCount: 0 }
 
   const keptPerSection = new Map<SessionSection, number>()
   const kept: SessionRecord[] = []
@@ -275,7 +289,7 @@ function capSessions(sessions: SessionRecord[]): SessionRecord[] {
     if (n <= MAX_SESSIONS_PER_SECTION) kept.push(session)
   }
   kept.reverse()
-  return kept
+  return { kept, evictedCount: sessions.length - kept.length }
 }
 
 /**
@@ -730,7 +744,11 @@ export function saveSession(s: SessionRecord): SaveResult {
   // again would leave a tombstone that a later merge could use to delete it
   // right back out.
   const deletedIds = store.deletedIds.filter((d) => d !== s.id)
-  return writeStore(capSessions(sessions), deletedIds)
+  // The eviction count is ignored here: a single session's cap eviction is
+  // the documented per-section retention policy, not news to the caller —
+  // `importData`'s merge/replace surfaces its own count instead.
+  const { kept } = capSessions(sessions)
+  return writeStore(kept, deletedIds)
 }
 
 /** Remove one session by id. Unknown ids are a no-op. */
@@ -781,27 +799,31 @@ export function exportData(): void {
 }
 
 /**
- * Validate an exported JSON string and REPLACE the store with it.
+ * Validate an exported JSON string and reconcile it against the store,
+ * either MERGING it in (`mode: 'merge'`, the UI's default) or REPLACING the
+ * store with it outright (`mode: 'replace'`, the default here so every
+ * pre-existing call site and test keeps its exact old behaviour).
  * Throws an Error with a learner-facing message when the input is not valid
  * IELTS Coach data — callers should catch and show the message.
  *
- * The existing store is copied to a backup key first. This is the only
- * destructive action in the app a learner reaches through a file picker: one
- * wrong file — last month's export, a sibling's — and a whole history of essays
- * is gone, with no undo anywhere in the UI. Every other path in this file backs
- * up before it clobbers; the one that clobbers on purpose has the least excuse
- * not to.
+ * The existing store is copied to a backup key first, AFTER validation (a
+ * file that is going to be rejected never mints a backup of data nothing was
+ * going to touch) and BEFORE the write. `replace` is the only destructive
+ * action in the app a learner reaches through a file picker with no undo in
+ * the UI; `merge` is not destructive by design (see the resurrect-prevention
+ * comment below) but backs up too, since a merge still rewrites the live key.
  *
- * The backup is taken AFTER validation, so a file that is going to be rejected
- * never mints a backup of data nothing was going to touch.
+ * Returns an `ImportSummary` so the caller can tell the learner what
+ * happened, including an eviction count — merging two devices each already
+ * near the per-section cap can silently evict on import.
  */
-export function importData(json: string): void {
+export function importData(json: string, mode: ImportMode = 'replace'): ImportSummary {
   let parsed: unknown
   try {
     parsed = JSON.parse(json)
   } catch {
     throw new Error(
-      'That file is not valid JSON. Choose the ielts-coach-data.json file you exported from this app.',
+      'That file is not valid JSON. Choose an ielts-coach-data file you exported from this app.',
     )
   }
   if (!isRecordObject(parsed)) {
@@ -837,27 +859,83 @@ export function importData(json: string): void {
     }
   }
 
-  // Deduplicate by id, last occurrence winning — the same rule `saveSession`
-  // applies when it filters the id it is about to push. Two records sharing an
-  // id are not two sessions: they collide as React keys in the history list,
-  // and `deleteSession(id)` removes BOTH, so deleting an essay can silently
-  // take a Reading paper with it. A file can carry them (it may have been
-  // hand-merged from two exports); the store must not.
-  const deduplicated = new Map<string, SessionRecord>()
-  for (const session of incoming as SessionRecord[]) deduplicated.set(session.id, session)
+  // The file's own tombstones, parsed exactly as hostile as `readStore`
+  // parses the live key's: missing or malformed -> []. A pre-v6 file simply
+  // has none.
+  const rawFileDeletedIds: unknown = parsed.deletedIds
+  const fileDeletedIds = Array.isArray(rawFileDeletedIds)
+    ? rawFileDeletedIds.filter((d): d is string => typeof d === 'string')
+    : []
 
-  const sessions = migrateSessions(Array.from(deduplicated.values()), version).sort(byDateAscending)
-  backupCurrentStore('your saved sessions were replaced by an imported file.')
-  // A pre-v6 file (checked above: `version <= SCHEMA_VERSION`) has no
-  // `deletedIds` of its own — this whole-store REPLACE is rewritten with
-  // merge/replace-mode-aware tombstone handling next (see importData below,
-  // added when merge-import ships), so a bare replace here starts the
-  // tombstone list empty rather than inventing one.
-  writeStore(capSessions(sessions), [])
+  // Migrate BEFORE deduplicating: order does not matter for the dedupe (it
+  // keys on `id`, which no rung ever touches) but matters for merge's union
+  // below, which needs every incoming record already carrying its stamps.
+  const migratedIncoming = migrateSessions(incoming as SessionRecord[], version)
+  // Deduplicate the FILE's own records by id, last occurrence winning — the
+  // same rule `saveSession` applies when it filters the id it is about to
+  // push. Two records sharing an id are not two sessions: they collide as
+  // React keys in the history list, and `deleteSession(id)` removes BOTH, so
+  // deleting an essay can silently take a Reading paper with it. A file can
+  // carry them (it may have been hand-merged from two exports); the store
+  // must not.
+  const fileDeduped = new Map<string, SessionRecord>()
+  for (const s of migratedIncoming) fileDeduped.set(s.id, s)
+  const fileSessions = Array.from(fileDeduped.values())
 
-  // Prefs ride the export additively (see buildExportJson). Restore them the
-  // same way they are read from disk: sanitized field-by-field, so a
-  // hand-edited file with one hostile number still restores its good fields —
-  // and a file from before prefs existed leaves the current prefs untouched.
-  if (isRecordObject(parsed.prefs)) savePrefs(sanitizePrefs(parsed.prefs))
+  let sessions: SessionRecord[]
+  let deletedIds: string[]
+
+  if (mode === 'merge') {
+    const current = loadStore()
+    // Union by id — current first, incoming last, so an incoming record wins
+    // an id collision (same last-wins rule as the file-only dedupe above;
+    // records are immutable after creation, so this is a tie-break between
+    // two copies of the same fact, not a data choice).
+    const unioned = new Map<string, SessionRecord>()
+    for (const s of current.sessions) unioned.set(s.id, s)
+    for (const s of fileSessions) unioned.set(s.id, s)
+
+    deletedIds = capDeletedIds([...current.deletedIds, ...fileDeletedIds])
+    const deletedSet = new Set(deletedIds)
+    // THE RESURRECT-PREVENTION LINE. Without it, a session this device
+    // deleted — or a session the FILE's own author deleted, on their end —
+    // would come right back the moment either side merged a copy the other
+    // still held. This is tombstones' entire reason to exist.
+    const surviving = Array.from(unioned.values()).filter((s) => !deletedSet.has(s.id))
+    // ORDER IS LOAD-BEARING: subtract (above) THEN cap (via capSessions,
+    // below) — never the reverse. Capping first could evict a record to
+    // protect one that the tombstone subtraction was about to remove anyway,
+    // silently costing the learner a survivor for no reason.
+    sessions = surviving.sort(byDateAscending)
+  } else {
+    // replace: the file's sessions and the file's tombstones wholesale — but
+    // still subtract the file's OWN tombstones from the file's OWN sessions,
+    // so the no-id-appears-in-both invariant holds even for a hand-edited
+    // file that violated it on disk.
+    deletedIds = capDeletedIds(fileDeletedIds)
+    const deletedSet = new Set(deletedIds)
+    sessions = fileSessions.filter((s) => !deletedSet.has(s.id)).sort(byDateAscending)
+  }
+
+  backupCurrentStore(
+    mode === 'merge'
+      ? 'your saved sessions were changed by a merged file.'
+      : 'your saved sessions were replaced by an imported file.',
+  )
+  const { kept, evictedCount } = capSessions(sessions)
+  writeStore(kept, deletedIds)
+
+  // Prefs are device-local taste, not history, so the two modes treat them
+  // differently: REPLACE takes the file's (unchanged from the old
+  // behaviour — restored only after the sessions have fully validated and
+  // been written, sanitized field-by-field so one hostile value cannot
+  // poison the good fields beside it); MERGE keeps THIS device's, because
+  // combining two devices' session histories is not the same request as
+  // overwriting this device's font-size-adjacent preferences with a
+  // laptop's.
+  if (mode === 'replace' && isRecordObject(parsed.prefs)) {
+    savePrefs(sanitizePrefs(parsed.prefs))
+  }
+
+  return { mode, sessionCount: kept.length, evictedCount }
 }

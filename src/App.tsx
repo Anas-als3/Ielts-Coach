@@ -5,6 +5,8 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import './App.css'
 import type {
   AppProps,
+  ImportMode,
+  ImportSummary,
   Issue,
   IssueCategory,
   LetterPromptSpec,
@@ -905,9 +907,12 @@ export default function App({
     setPrefs(loadPrefs())
   }
 
-  function handleImport(json: string) {
-    importData(json)
+  function handleImport(json: string, mode: ImportMode): ImportSummary {
+    const summary = importData(json, mode)
     setSessions(loadSessions())
+    // A no-op read+set when merge left prefs untouched (importData only
+    // restores them in replace mode) — harmless, and the same
+    // storage-is-source-of-truth rule every other mutation here follows.
     const restored = loadPrefs()
     setPrefs(restored)
     // Through switchModule, not setModule: away from the desk it keeps a
@@ -915,6 +920,7 @@ export default function App({
     // (see switchModule above); a bare setModule would strand a
     // General-only prompt on an Academic desk.
     if (restored.module && restored.module !== module) switchModule(restored.module)
+    return summary
   }
 
   function handleDelete(id: string) {
