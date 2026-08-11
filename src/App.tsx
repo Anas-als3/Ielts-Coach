@@ -1265,6 +1265,14 @@ export default function App({
               <button
                 className={view === 'reading' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'reading' ? 'page' : undefined}
+                // Reaching for the link is the earliest honest signal of
+                // intent, and it buys the whole round trip: by the time the
+                // click lands the chunk is usually already in the module
+                // registry, so the Suspense fallback never paints. `onFocus`
+                // as well as `onMouseEnter` so keyboard users get the same
+                // head start.
+                onMouseEnter={importReadingSection}
+                onFocus={importReadingSection}
                 onClick={openReading}
               >
                 Reading
@@ -1272,6 +1280,8 @@ export default function App({
               <button
                 className={view === 'listening' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'listening' ? 'page' : undefined}
+                onMouseEnter={importListeningSection}
+                onFocus={importListeningSection}
                 onClick={openListening}
               >
                 Listening
@@ -1279,6 +1289,8 @@ export default function App({
               <button
                 className={view === 'mock' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'mock' ? 'page' : undefined}
+                onMouseEnter={importMockSection}
+                onFocus={importMockSection}
                 onClick={openMock}
               >
                 Mock test
@@ -1286,6 +1298,8 @@ export default function App({
               <button
                 className={view === 'library' ? 'nav-link active' : 'nav-link'}
                 aria-current={view === 'library' ? 'page' : undefined}
+                onMouseEnter={importModelLibrary}
+                onFocus={importModelLibrary}
                 onClick={() => setView('library')}
               >
                 Models
