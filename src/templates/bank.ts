@@ -1,45 +1,39 @@
 /**
  * Writing templates: fifteen paragraph-by-paragraph skeletons the learner can
  * follow WHILE writing — two per Task 2 question type, two chart-kind-agnostic
- * Academic Task 1 shapes, one per General Training letter tone. Implements
- * plan 033.
+ * Academic Task 1 shapes, one per General Training letter tone. Originally
+ * plan 033 (section descriptions with a couple of reworded openers per
+ * paragraph); plan 034 rebuilt every section as complete sentence frames with
+ * `[bracketed]` slots, followed sentence by sentence while writing.
  *
  * ## Copyright and provenance
  *
  * **Nothing in this file is reproduced from any IELTS publisher or prep
- * site.** Every guidance sentence and every starter phrase is original prose
- * written for this project. The FORMAT — paragraph-by-paragraph skeletons —
- * is not copyrightable and every serious IELTS course teaches by template;
- * the wording here is this project's own.
+ * site.** Every guidance sentence and every frame is original prose written
+ * for this project. The FORMAT — paragraph-by-paragraph sentence frames — is
+ * not copyrightable and every serious IELTS course teaches by template; the
+ * wording here is this project's own. Each question type's two templates use
+ * different connective sets and different frame phrasings on purpose: two
+ * learners drilling the same question type should not end up writing the same
+ * essay.
  *
  * ## What a template teaches, and what it does not
  *
- * Every Task 2 body paragraph instructs an example, because the engine's
- * `EXAMPLE_MARKERS` check (`analysis/rules/structure.ts`) rewards exactly
- * that. Every letter opens with a greeting, states its purpose early, gives
- * one paragraph per bullet, and closes with a sign-off that PAIRS with the
- * greeting — the same pairing `analysis/rules/letterAchievement.ts` marks.
- * Starters are openers to reword, never to paste: the memorisation warning
- * below matches `ModelAnswer.tsx`'s voice. A template never gets pasted into
- * the essay sheet (see plan 033's "out of scope" — inserted scaffolding would
- * be analysed as the learner's own words and flagged, and the exam bans it
- * anyway); it is a reference pane the learner reads, not a text generator.
- *
- * The two letters with no starters at all (`tpl-lt-formal`'s bullets and the
- * whole of `tpl-lt-informal`) are deliberate, not an oversight: a formal
- * purpose statement is already a fixed formula ("I am writing to…", given as
- * the template's one starter on its opening paragraph) with nothing further
- * to script, and prescribing canned informal phrasing would contradict
- * `tpl-lt-informal`'s own note — informal is a register, not an excuse to
- * sound scripted.
+ * Every Task 2 body paragraph's frames carry an example-type slot, because
+ * the engine's `EXAMPLE_MARKERS` check (`analysis/rules/structure.ts`)
+ * rewards exactly that. Every letter opens with a greeting, states its
+ * purpose in the first frame, gives one paragraph per bullet, and closes with
+ * a sign-off that PAIRS with the greeting — the same pairing
+ * `analysis/rules/letterAchievement.ts` marks. Frames are sentences to fill
+ * in the learner's own words and reword, never to paste: the memorisation
+ * warning below is sharper than plan 033's, precisely because a fill-in
+ * sentence is closer to something a learner could paste unchanged. A template
+ * never gets pasted into the essay sheet (see plan 033's "out of scope" —
+ * inserted scaffolding would be analysed as the learner's own words and
+ * flagged, and the exam bans it anyway); it is a reference pane the learner
+ * reads, not a text generator.
  */
-import type { LetterTone, QuestionType, TaskKind, TemplateSection, WritingTemplate } from '../types'
-
-/* --------------------------------- helpers ---------------------------------- */
-
-function section(title: string, guidance: string, starters: readonly string[] = []): TemplateSection {
-  return { title, guidance, starters }
-}
+import type { LetterTone, QuestionType, TaskKind, WritingTemplate } from '../types'
 
 /* ------------------------------------ bank ----------------------------------- */
 
@@ -54,21 +48,41 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     note:
       'Pick when your view is genuinely firm — a hedged essay written on a one-sided skeleton reads as contradiction.',
     paragraphs: [
-      section(
-        'Introduction',
-        'Paraphrase the statement in your own words, then state your position outright — for example, "I fully agree that…". This shape only works when you hold that position all the way through.',
-        ['It is often argued that…'],
-      ),
-      section(
-        'Strongest reason',
-        'Give your strongest reason for holding this position, then support it with a concrete example.',
-        ['The clearest reason is that…'],
-      ),
-      section(
-        'Second reason',
-        'Add a second reason and its own example, or use this paragraph to rebut the opposite view.',
-      ),
-      section('Conclusion', "Restate your position in fresh words — don't just repeat the introduction's sentence."),
+      {
+        title: 'Introduction',
+        guidance:
+          'Paraphrase the statement, then state your position outright. This shape only works when you hold that position all the way through.',
+        frames: [
+          'It is increasingly common to hear that [paraphrase the statement].',
+          'Although some would push back, I fully [agree/disagree]: [your position in one clause].',
+        ],
+      },
+      {
+        title: 'Strongest reason',
+        guidance: 'Give your strongest reason for holding this position, then support it with a concrete example.',
+        frames: [
+          'The strongest reason is that [your first reason].',
+          'Put simply, [explain it in different words].',
+          '[A concrete example — a country, a study, a workplace] shows this clearly: [what happened].',
+        ],
+      },
+      {
+        title: 'Second reason',
+        guidance: 'Add a second reason and its own example, or use this paragraph to rebut the opposite view.',
+        frames: [
+          'Beyond that, [your second reason].',
+          'This matters because [the consequence].',
+          'Consider [a second example]: [what it demonstrates].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: "Restate your position in fresh words — don't just repeat the introduction's sentence.",
+        frames: [
+          'For these reasons I remain convinced that [your position, reworded].',
+          'If anything, [a closing thought that extends, not repeats].',
+        ],
+      },
     ],
   },
   {
@@ -77,17 +91,40 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'task2',
     questionTypes: ['opinion'],
     paragraphs: [
-      section(
-        'Introduction',
-        'Paraphrase the statement, then say "I largely agree, with one reservation." That signals from paragraph one that the essay is balanced, not undecided.',
-        ['There is much truth in the claim that…'],
-      ),
-      section(
-        'The part you accept',
-        'Explain the part of the statement you accept, and support it with a concrete example.',
-      ),
-      section('Your reservation', 'Explain your reservation and give it its own example.', ['That said, …']),
-      section('Conclusion', 'Weigh the two paragraphs against each other and land clearly on your side.'),
+      {
+        title: 'Introduction',
+        guidance: 'Paraphrase the statement, then signal at once that the essay is balanced, not undecided.',
+        frames: [
+          '[Paraphrase the statement] — a claim with real force, though not the whole story.',
+          'I largely agree, with one reservation: [name it].',
+        ],
+      },
+      {
+        title: 'The part you accept',
+        guidance: 'Explain the part of the statement you accept, and support it with a concrete example.',
+        frames: [
+          'Where the claim convinces is [the part you accept].',
+          'In practice, [explanation].',
+          '[An example] makes the point: [what it shows].',
+        ],
+      },
+      {
+        title: 'Your reservation',
+        guidance: 'Explain your reservation and give it its own example.',
+        frames: [
+          'The reservation is [your caveat].',
+          'That is, [explain the limit].',
+          '[A counter-example] illustrates why: [what it shows].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Weigh the two paragraphs against each other and land clearly on your side.',
+        frames: [
+          'On balance, [restate: mostly agree, minus the caveat].',
+          'The claim holds — provided [the condition].',
+        ],
+      },
     ],
   },
   {
@@ -96,21 +133,39 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'task2',
     questionTypes: ['discussion'],
     paragraphs: [
-      section(
-        'Introduction',
-        'Paraphrase both views named in the question, then promise that your own opinion is coming.',
-      ),
-      section(
-        'First view',
-        'Present the first view fairly: explain why its holders believe it, grounded in a concrete example.',
-        ['Those who favour… point out that…'],
-      ),
-      section(
-        'Second view',
-        'Present the second view and its case, with an example of its own.',
-        ['Supporters of the second view respond that…'],
-      ),
-      section('Conclusion', 'Give your verdict and the reason it wins.'),
+      {
+        title: 'Introduction',
+        guidance: 'Paraphrase both views named in the question, then promise that your own opinion is coming.',
+        frames: [
+          'Whether [the issue, paraphrased] divides opinion sharply.',
+          'Some hold that [first view]; others counter that [second view].',
+          'Both deserve a hearing before I give my own verdict.',
+        ],
+      },
+      {
+        title: 'First view',
+        guidance:
+          'Present the first view fairly: explain why its holders believe it, grounded in a concrete example.',
+        frames: [
+          'Those who [favour the first view] point to [their main ground].',
+          'From their standpoint, [explanation].',
+          '[An example] supports them: [what it shows].',
+        ],
+      },
+      {
+        title: 'Second view',
+        guidance: 'Present the second view and its case, with an example of its own.',
+        frames: [
+          "The opposing camp answers that [second view's ground].",
+          'Their case rests on [explanation].',
+          '[A different example] backs this: [what it shows].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Give your verdict and the reason it wins.',
+        frames: ['Weighing the two, I side with [your view] because [the deciding reason].'],
+      },
     ],
   },
   {
@@ -120,17 +175,36 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     questionTypes: ['discussion'],
     note: 'Stronger position focus, harder to keep fair — the task still requires BOTH views discussed.',
     paragraphs: [
-      section(
-        'Introduction',
-        'Name both views, then declare your side at once.',
-        ['While some maintain that…, the stronger case is that…'],
-      ),
-      section("Your side's case", "Make your side's case and support it with a concrete example."),
-      section(
-        'The other view, acknowledged',
-        'Acknowledge the other view with an example of its own, then answer it.',
-      ),
-      section('Conclusion', 'Restate your position.'),
+      {
+        title: 'Introduction',
+        guidance: 'Name both views, then declare your side at once.',
+        frames: [
+          '[The issue, paraphrased] is often framed as a choice between [view A] and [view B].',
+          'From the outset, my position is that [your side], though the other view merits attention.',
+        ],
+      },
+      {
+        title: "Your side's case",
+        guidance: "Make your side's case and support it with a concrete example.",
+        frames: [
+          'The decisive consideration is [your main ground].',
+          'In other words, [explanation].',
+          '[An example]: [what it shows].',
+        ],
+      },
+      {
+        title: 'The other view, acknowledged',
+        guidance: 'Acknowledge the other view with an example of its own, then answer it.',
+        frames: [
+          'Admittedly, those who argue [the other view] have a point about [their strongest ground], as [their example] shows.',
+          'Yet this overlooks [the flaw], which is why the argument ultimately fails.',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Restate your position.',
+        frames: ['Both positions were worth weighing, but [your side] carries the day: [one-clause reason].'],
+      },
     ],
   },
   {
@@ -139,14 +213,38 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'task2',
     questionTypes: ['problem-solution'],
     paragraphs: [
-      section('Introduction', 'Restate the situation, then promise that both problems and remedies are coming.'),
-      section(
-        'First problem and solution',
-        'Give the first problem, then the solution that directly answers it, with a concrete example.',
-        ['The most pressing difficulty is…', 'The most direct answer is to…'],
-      ),
-      section('Second problem and solution', 'Give the second problem-and-solution pair the same way.'),
-      section('Conclusion', 'Say which remedy matters most.'),
+      {
+        title: 'Introduction',
+        guidance: 'Restate the situation, then promise that both problems and remedies are coming.',
+        frames: [
+          '[The situation, paraphrased] brings problems that are serious but not unanswerable.',
+          'Two stand out, and each has a workable remedy.',
+        ],
+      },
+      {
+        title: 'First problem and solution',
+        guidance:
+          'Give the first problem, then the solution that directly answers it, with a concrete example.',
+        frames: [
+          'The most pressing difficulty is [problem one].',
+          'Its effects show up as [consequence].',
+          'The direct answer is to [solution one], as [an example — a city, a policy, a company] has already shown by [what they did].',
+        ],
+      },
+      {
+        title: 'Second problem and solution',
+        guidance: 'Give the second problem-and-solution pair the same way.',
+        frames: [
+          'A second, related problem is [problem two].',
+          'Left alone, it leads to [consequence].',
+          'Here the remedy is [solution two]; [an example or figure] suggests it works because [why].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Say which remedy matters most.',
+        frames: ['Neither remedy is costless, but [the one that matters most] deserves priority because [reason].'],
+      },
     ],
   },
   {
@@ -156,18 +254,35 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     questionTypes: ['problem-solution'],
     note: 'Pick when problems share one root; the mapping-back sentence is what keeps cohesion.',
     paragraphs: [
-      section('Introduction', 'Restate the situation, then promise that both problems and remedies are coming.'),
-      section(
-        'The problems',
-        'Lay out the problems, connected to each other, each illustrated with an example or figure.',
-        ['Two related problems stand out…'],
-      ),
-      section(
-        'The solutions',
-        'Map each solution back to a named problem, with one worked instance.',
-        ['Each of these can be met…'],
-      ),
-      section('Conclusion', 'Close the essay.'),
+      {
+        title: 'Introduction',
+        guidance: 'Restate the situation, then promise that both problems and remedies are coming.',
+        frames: ['[The situation, paraphrased] raises connected problems that are best solved together.'],
+      },
+      {
+        title: 'The problems',
+        guidance:
+          'Lay out the problems, connected to each other, each illustrated with an example or figure.',
+        frames: [
+          'The first is [problem one], visible in [an example or figure].',
+          'Feeding into it is [problem two]: [one-sentence explanation].',
+          'Together they [the shared root or combined effect].',
+        ],
+      },
+      {
+        title: 'The solutions',
+        guidance: 'Map each solution back to a named problem, with one worked instance.',
+        frames: [
+          'Because the problems share [the root], the answers must too.',
+          '[Solution one] tackles [problem one] directly; [an example — a city, a policy, a company] shows how.',
+          '[Solution two] then addresses [problem two] by [mechanism].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Close the essay.',
+        frames: ['Solved separately these problems return; addressed at [the root], they need not.'],
+      },
     ],
   },
   {
@@ -176,18 +291,35 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'task2',
     questionTypes: ['advantages-disadvantages'],
     paragraphs: [
-      section('Introduction', 'Name the development, then state which side wins.'),
-      section(
-        'The winning side',
-        'Give the winning side two benefits or costs, plus a concrete example.',
-        ['The benefits are considerable…'],
-      ),
-      section(
-        'The other side, conceded',
-        'Concede the other side with a concrete example, then show why it is smaller.',
-        ['Admittedly…, yet…'],
-      ),
-      section('Conclusion', 'Restate the verdict.'),
+      {
+        title: 'Introduction',
+        guidance: 'Name the development, then state which side wins.',
+        frames: [
+          '[The development, paraphrased] has costs as well as benefits, but the balance is not close.',
+          'In my view the [advantages/disadvantages] clearly outweigh.',
+        ],
+      },
+      {
+        title: 'The winning side',
+        guidance: 'Give the winning side two benefits or costs, plus a concrete example.',
+        frames: [
+          'The first major [benefit/cost] is [point one]; [an example] bears this out: [what happened].',
+          'Just as weighty, [point two], because [explanation].',
+        ],
+      },
+      {
+        title: 'The other side, conceded',
+        guidance: 'Concede the other side with a concrete example, then show why it is smaller.',
+        frames: [
+          "Against this stand [the other side's strongest point], and [a concrete example] shows it is real.",
+          'Real — but limited: [why it weighs less].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Restate the verdict.',
+        frames: ['Set side by side, the [winning side] dominates, and [one-clause final reason].'],
+      },
     ],
   },
   {
@@ -196,10 +328,33 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'task2',
     questionTypes: ['advantages-disadvantages'],
     paragraphs: [
-      section('Introduction', 'Name the development, then promise that both sides are coming.'),
-      section('Advantages', 'Cover the advantages, with a concrete example.', ['On the positive side…']),
-      section('Disadvantages', 'Cover the disadvantages, with a concrete example.', ['Against this…']),
-      section('Conclusion', 'Say, on balance, which side wins and why — the task asks you to land somewhere.'),
+      {
+        title: 'Introduction',
+        guidance: 'Name the development, then promise that both sides are coming.',
+        frames: ['[The development, paraphrased] rewards a careful look at both columns of the ledger.'],
+      },
+      {
+        title: 'Advantages',
+        guidance: 'Cover the advantages, with a concrete example.',
+        frames: [
+          'On the positive side, [advantage one]; [an example]: [what it shows].',
+          'A further gain is [advantage two], since [explanation].',
+        ],
+      },
+      {
+        title: 'Disadvantages',
+        guidance: 'Cover the disadvantages, with a concrete example.',
+        frames: [
+          'The drawbacks are just as concrete.',
+          '[Disadvantage one] — as [an example] demonstrates — [its effect].',
+          'There is also [disadvantage two], which [explanation].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Say, on balance, which side wins and why — the task asks you to land somewhere.',
+        frames: ['On balance I judge the [side you land on] weightier, chiefly because [the deciding reason].'],
+      },
     ],
   },
   {
@@ -209,14 +364,37 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     questionTypes: ['double-question'],
     note: "The safest double-question shape — the rail's question-coverage check wants BOTH answered visibly.",
     paragraphs: [
-      section('Introduction', 'Paraphrase the topic, then promise that both questions will be answered.'),
-      section('First question', 'Answer the first question fully, with a concrete example.', ['The main cause is…']),
-      section(
-        'Second question',
-        'Answer the second question, with its own example.',
-        ['As for what should be done…'],
-      ),
-      section('Conclusion', 'Give both answers again, one sentence each.'),
+      {
+        title: 'Introduction',
+        guidance: 'Paraphrase the topic, then promise that both questions will be answered.',
+        frames: [
+          '[The topic, paraphrased] raises two questions: [question one, compressed] and [question two, compressed].',
+          'I take each in turn.',
+        ],
+      },
+      {
+        title: 'First question',
+        guidance: 'Answer the first question fully, with a concrete example.',
+        frames: [
+          'On the first, [your answer].',
+          'The main reason is [ground], which [explanation].',
+          '[An example]: [what it shows].',
+        ],
+      },
+      {
+        title: 'Second question',
+        guidance: 'Answer the second question, with its own example.',
+        frames: [
+          'As to the second, [your answer].',
+          'This follows because [ground].',
+          '[An example or consequence] makes it concrete: [what it shows].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Give both answers again, one sentence each.',
+        frames: ['In short: [answer one, one clause], and [answer two, one clause].'],
+      },
     ],
   },
   {
@@ -226,14 +404,34 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     questionTypes: ['double-question'],
     note: 'Only when the two questions genuinely share one answer; otherwise use the two-paragraph shape.',
     paragraphs: [
-      section(
-        'Introduction',
-        'Name both questions, then give one thesis that links them.',
-        ['These two questions share one answer…'],
-      ),
-      section('First strand', 'Develop the first strand of the thesis, touching both questions, with an example.'),
-      section('Second strand', 'Develop the second strand, with its own example.'),
-      section('Conclusion', 'Close the essay.'),
+      {
+        title: 'Introduction',
+        guidance: 'Name both questions, then give one thesis that links them.',
+        frames: [
+          'The two questions here — [question one] and [question two] — share one answer: [the linking thesis].',
+        ],
+      },
+      {
+        title: 'First strand',
+        guidance: 'Develop the first strand of the thesis, touching both questions, with an example.',
+        frames: [
+          '[First aspect of the thesis] speaks to both: [how it answers question one], and equally [how it bears on question two].',
+          '[An example] shows both at once: [what it shows].',
+        ],
+      },
+      {
+        title: 'Second strand',
+        guidance: 'Develop the second strand, with its own example.',
+        frames: [
+          '[Second aspect] completes the picture: [explanation touching both questions].',
+          'Here [a second example] is telling: [what it shows].',
+        ],
+      },
+      {
+        title: 'Conclusion',
+        guidance: 'Close the essay.',
+        frames: ['One thesis, two questions answered: [restate the link in fresh words].'],
+      },
     ],
   },
 
@@ -245,18 +443,31 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'chart',
     note: "The default shape; the overview paragraph is what the rail's overview check looks for.",
     paragraphs: [
-      section('Paraphrase', 'Rewrite the title sentence in your own words: what the chart shows, where, and when.'),
-      section(
-        'Overview',
-        'Give the two biggest movements or contrasts — no numbers here. This is the single largest mark in Task 1.',
-        ['Overall, the most striking feature is…'],
-      ),
-      section(
-        'First group (the risers)',
-        'Cover the first group — for example the risers — with selected figures.',
-        ['Turning to the detail…'],
-      ),
-      section('Second group (the fallers)', 'Cover the second group — the fallers or the outliers — with figures.'),
+      {
+        title: 'Paraphrase',
+        guidance: 'Rewrite the title sentence in your own words: what the chart shows, where, and when.',
+        frames: ['The [chart/graph/table] shows [what], in [where/units], between [period].'],
+      },
+      {
+        title: 'Overview',
+        guidance:
+          'Give the two biggest movements or contrasts — no numbers here. This is the single largest mark in Task 1.',
+        frames: ['Overall, the most striking feature is [the biggest movement or contrast], while [the second feature].'],
+      },
+      {
+        title: 'First group (the risers)',
+        guidance: 'Cover the first group — for example the risers — with selected figures.',
+        frames: [
+          'Looking first at [the risers / the larger categories], [category] [rose/led] from [figure] to [figure], and [second category] followed, [movement + figure].',
+        ],
+      },
+      {
+        title: 'Second group (the fallers)',
+        guidance: 'Cover the second group — the fallers or the outliers — with figures.',
+        frames: [
+          '[The fallers / the outliers] tell the opposite story: [category] [fell/lagged] to [figure], while [category] [movement + figure].',
+        ],
+      },
     ],
   },
   {
@@ -265,17 +476,31 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'chart',
     note: "Pick for static comparisons (tables, pies, grouped bars) where 'trend' language has nothing to move.",
     paragraphs: [
-      section('Paraphrase', "Paraphrase the chart's title sentence."),
-      section(
-        'Overview',
-        'Give the overview of the comparison: which category dominates, and where the categories converge.',
-      ),
-      section(
-        'The dominant category',
-        'Set the dominant category against the rest, with figures.',
-        ['By far the largest share belongs to…'],
-      ),
-      section('Exceptions and crossovers', 'Cover the exceptions and crossovers.', ['The gap narrows when…']),
+      {
+        title: 'Paraphrase',
+        guidance: "Paraphrase the chart's title sentence.",
+        frames: ['The [chart/table] compares [categories] by [measure] in [context/period].'],
+      },
+      {
+        title: 'Overview',
+        guidance:
+          'Give the overview of the comparison: which category dominates, and where the categories converge.',
+        frames: ['Overall, [the dominant category] leads throughout, and the gap [narrows/widens/holds] [where].'],
+      },
+      {
+        title: 'The dominant category',
+        guidance: 'Set the dominant category against the rest, with figures.',
+        frames: [
+          '[Dominant category] accounts for [figure], roughly [multiple/fraction] of [comparison], with [second category] at [figure].',
+        ],
+      },
+      {
+        title: 'Exceptions and crossovers',
+        guidance: 'Cover the exceptions and crossovers.',
+        frames: [
+          'The pattern breaks at [the exception]: [category] [what it does + figure], the only case where [what makes it exceptional].',
+        ],
+      },
     ],
   },
 
@@ -288,17 +513,39 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     tones: ['formal'],
     note: "The sign-off pairing is the engine's rule too — the template and the marker agree.",
     paragraphs: [
-      section(
-        'Greeting and purpose',
-        'Open with "Dear Mr/Ms ‹name›," when you know who you are writing to, or "Dear Sir or Madam," when you do not. State your purpose in the first sentence.',
-        ['I am writing to…'],
-      ),
-      section('Bullet 1', 'Develop the first bullet point fully, with a concrete detail. No contractions.'),
-      section('Bullet 2', 'Develop the second bullet point fully, with a concrete detail. No contractions.'),
-      section(
-        'Bullet 3',
-        'Develop the third bullet point, then request the action you want. Close with "Yours sincerely," if you named the reader, or "Yours faithfully," if you did not.',
-      ),
+      {
+        title: 'Greeting and purpose',
+        guidance:
+          'Open with the greeting that matches what you know about the reader, then state your purpose in the first sentence.',
+        frames: [
+          'Dear [Mr/Ms + surname, or Sir or Madam],',
+          'I am writing to [your purpose — complain about / request / inform you of] [the matter].',
+        ],
+      },
+      {
+        title: 'Bullet 1',
+        guidance: 'Develop the first bullet point fully, with a concrete detail. No contractions.',
+        frames: [
+          'To explain the background: [bullet one, developed].',
+          'Specifically, [a concrete detail — date, place, reference].',
+        ],
+      },
+      {
+        title: 'Bullet 2',
+        guidance: 'Develop the second bullet point fully, with a concrete detail. No contractions.',
+        frames: ['What concerns me most is [bullet two, developed].', 'As a result, [the consequence for you].'],
+      },
+      {
+        title: 'Bullet 3',
+        guidance:
+          'Develop the third bullet point, then request the action you want. Close with the sign-off that pairs with your greeting.',
+        frames: [
+          'I would therefore ask that [bullet three / the action you want].',
+          'I would appreciate a reply by [timeframe].',
+          'Yours sincerely, (if you named them) / Yours faithfully, (if you wrote Sir or Madam)',
+          '[your full name]',
+        ],
+      },
     ],
   },
   {
@@ -307,17 +554,36 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     kind: 'letter',
     tones: ['semi-formal'],
     paragraphs: [
-      section(
-        'Greeting and purpose',
-        'Open with "Dear Mr/Ms ‹surname›," then a friendly line before you state the purpose.',
-        ['I hope this finds you well.', 'I wanted to raise…'],
-      ),
-      section('Bullet 1', 'Develop the first bullet point, polite but warm, with a specific detail.'),
-      section('Bullet 2', 'Develop the second bullet point the same way.'),
-      section(
-        'Bullet 3',
-        'Develop the third bullet point, then close with appreciation and "Yours sincerely," or "Best regards,".',
-      ),
+      {
+        title: 'Greeting and purpose',
+        guidance: "Open with the reader's name, then a friendly line before you state the purpose.",
+        frames: [
+          'Dear [Mr/Ms + surname],',
+          'I hope this letter finds you well.',
+          'I wanted to write about [your purpose].',
+        ],
+      },
+      {
+        title: 'Bullet 1',
+        guidance: 'Develop the first bullet point, polite but warm, with a specific detail.',
+        frames: ['You may remember that [bullet one, with the shared context].'],
+      },
+      {
+        title: 'Bullet 2',
+        guidance: 'Develop the second bullet point the same way.',
+        frames: ['The difficulty now is [bullet two], which means [consequence].'],
+      },
+      {
+        title: 'Bullet 3',
+        guidance:
+          'Develop the third bullet point, then close with appreciation and the sign-off that pairs with your greeting.',
+        frames: [
+          'Would it be possible to [bullet three / the request]?',
+          'It would make a real difference because [reason].',
+          'Yours sincerely, / Best regards,',
+          '[Your name]',
+        ],
+      },
     ],
   },
   {
@@ -327,13 +593,30 @@ export const WRITING_TEMPLATES: readonly WritingTemplate[] = [
     tones: ['informal'],
     note: 'Informal is a register, not an excuse — the bullets still all get covered.',
     paragraphs: [
-      section(
-        'Greeting and purpose',
-        'Open with "Dear ‹first name›," then a warm opening before you say why you\'re writing. Contractions welcome.',
-      ),
-      section('Bullet 1', "Cover the first bullet point as you'd say it aloud, with a real detail."),
-      section('Bullet 2', 'Cover the second bullet point the same way.'),
-      section('Bullet 3', 'Cover the third bullet point, then close warmly with "Best wishes," or "Take care,".'),
+      {
+        title: 'Greeting and purpose',
+        guidance: "Open with a warm greeting, then say why you're writing — casually. Contractions welcome.",
+        frames: ['Dear [first name],', "It's been too long! I am writing because [your purpose, casually]."],
+      },
+      {
+        title: 'Bullet 1',
+        guidance: "Cover the first bullet point as you'd say it aloud, with a real detail.",
+        frames: ["You won't believe [bullet one, told as you'd say it]."],
+      },
+      {
+        title: 'Bullet 2',
+        guidance: 'Cover the second bullet point the same way.',
+        frames: ['The thing is, [bullet two] — [a real detail].'],
+      },
+      {
+        title: 'Bullet 3',
+        guidance: 'Cover the third bullet point, then close warmly with the sign-off that fits.',
+        frames: [
+          "So here's my idea: [bullet three / the plan]. What do you think?",
+          'Best wishes, / Take care,',
+          '[Your name]',
+        ],
+      },
     ],
   },
 ]

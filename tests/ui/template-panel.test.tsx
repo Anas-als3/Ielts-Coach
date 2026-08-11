@@ -109,6 +109,40 @@ describe('switching templates swaps the rendered sections', () => {
     expect(screen.queryByText('Strongest reason')).not.toBeInTheDocument()
     expect(screen.getByText('The part you accept')).toBeInTheDocument()
   })
+
+  it('replaces the first template\'s frames with the second\'s', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await openTemplateTab(user)
+
+    // tpl-op-onesided's "Strongest reason" frame vs tpl-op-balanced's "The
+    // part you accept" frame — scoped to `.tp-frame` so the match cannot
+    // land on an ancestor `<li>`/`<ol>` whose text also contains it.
+    expect(screen.getByText(/the strongest reason is that/i, { selector: '.tp-frame' })).toBeInTheDocument()
+    expect(
+      screen.queryByText(/where the claim convinces is/i, { selector: '.tp-frame' }),
+    ).not.toBeInTheDocument()
+
+    await user.selectOptions(templateSelect(), 'Balanced (partly agree)')
+
+    expect(
+      screen.queryByText(/the strongest reason is that/i, { selector: '.tp-frame' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/where the claim convinces is/i, { selector: '.tp-frame' })).toBeInTheDocument()
+  })
+})
+
+describe('frame slots render as styled spans', () => {
+  it('renders a known slot from the default template as a `tp-slot` span', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await openTemplateTab(user)
+
+    // op-01 (the seeded opinion prompt) defaults to tpl-op-onesided, whose
+    // introduction frame reads "...hear that [paraphrase the statement]."
+    const slot = screen.getByText('paraphrase the statement')
+    expect(slot).toHaveClass('tp-slot')
+  })
 })
 
 describe('progress tracks the live paragraph count', () => {
@@ -151,7 +185,7 @@ describe('the memorisation warning', () => {
     renderApp()
     await openTemplateTab(user)
 
-    expect(screen.getByText(/examiners recognise memorised phrasing/i)).toBeInTheDocument()
+    expect(screen.getByText(/examiners discount sentences they have read a thousand times/i)).toBeInTheDocument()
   })
 })
 
