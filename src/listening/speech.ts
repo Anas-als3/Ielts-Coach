@@ -24,6 +24,24 @@
  *    the transcript cue by cue at a fixed speaking pace rather than silently
  *    doing nothing — plan 011's STOP condition, discharged.
  *
+ * ## Plan 032: picking a GOOD synthetic voice
+ *
+ * Plan 011 chose option B and stopped there — `pickVoice` took the first
+ * platform voice that matched a language, which is reliably the platform's
+ * WORST voice (compact/legacy voices are listed first; "Natural"/"Neural"
+ * ones come later). Plan 032 fixes that in place, still inside option B's
+ * budget of zero bundled bytes:
+ *
+ *  - `pickVoice`/`rankVoices` score every candidate instead of taking the
+ *    first match, so a high-quality installed voice actually gets used.
+ *  - `assignSectionVoices` gives a section's different speakers different
+ *    voices where the platform offers more than one usable match, and a
+ *    pitch offset where it does not — a two-speaker conversation stops being
+ *    one voice talking to itself.
+ *  - A learner can override the automatic choice from the Listening picker;
+ *    the choice is `preferredVoiceURI` in `src/profile/prefs.ts`, read here at
+ *    driver construction (see `createSpeechDriver`), never on every play.
+ *
  * ## Why there is an interface at all
  *
  * `SpeechDriver` exists so the runner can be tested **without a speech engine**.
@@ -37,6 +55,7 @@
  * that run in the Node environment.
  */
 import type { ListeningSection, ListeningVoiceHint } from './types'
+import { loadPrefs } from '../profile/prefs'
 
 /* ---------------------------------- notices --------------------------------- */
 
@@ -212,28 +231,207 @@ export function browserSpeechEngine(): SpeechEngine | null {
   return { synthesis, createUtterance: (text) => new Utterance(text) }
 }
 
+/* ------------------------------- voice ranking ------------------------------- */
+
+/**
+ * Voice-NAME substrings that tend to mark a modern, natural-sounding voice —
+ * "Microsoft Sonia Online (Natural)", "Google UK English Female", a Siri
+ * voice, an Edge "… Neural" voice, and so on.
+ *
+ * This is a HEURISTIC, not a lookup table, and platforms rename and reshuffle
+ * their voice lists across OS and browser versions — it WILL rot. That is why
+ * "Automatic" must always be a safe, working default even on the day every
+ * marker below is stale: the ranking only ever changes WHICH installed voice
+ * gets picked, never whether picking one can fail.
+ */
+export const QUALITY_VOICE_MARKERS = [
+  'natural',
+  'neural',
+  'premium',
+  'enhanced',
+  'siri',
+  'google',
+  'aria',
+  'sonia',
+  'libby',
+  'ryan',
+] as const
+
+/**
+ * Voice-NAME substrings that tend to mark a legacy, compact or robotic voice —
+ * the ones platforms keep shipping for compatibility but stopped putting
+ * first. Same heuristic caveat as `QUALITY_VOICE_MARKERS`: it will rot, and
+ * nothing here is allowed to make voice selection able to fail.
+ */
+export const LEGACY_VOICE_MARKERS = [
+  'compact',
+  'espeak',
+  'eloquence',
+  'albert',
+  'zarvox',
+  'fred',
+  'whisper',
+  'bells',
+] as const
+
+/**
+ * The name-based half of a voice's score: +4 for a quality marker, −4 for a
+ * legacy one, both checked case-insensitively as substrings. A name can only
+ * match one list in practice (the marker lists do not overlap), but nothing
+ * here assumes that — a name matching both would net to 0, which is exactly
+ * "no opinion", the correct answer for a heuristic that contradicts itself.
+ */
+export function voiceQualityScore(voice: SpeechSynthesisVoice): number {
+  const name = voice.name.toLowerCase()
+  let score = 0
+  if (QUALITY_VOICE_MARKERS.some((marker) => name.includes(marker))) score += 4
+  if (LEGACY_VOICE_MARKERS.some((marker) => name.includes(marker))) score -= 4
+  return score
+}
+
+/**
+ * Every voice usable for a hint, best first.
+ *
+ * "Usable" means the same PRIMARY language as the hint (`'en'` for `'en-GB'`)
+ * — anything else is a voice that would read the transcript in the wrong
+ * language, which is worse than no voice at all. Among usable voices: +3 for
+ * an exact BCP-47 match (`'en-gb'` for an `'en-GB'` hint) over +1 for a
+ * same-primary-language voice in a different territory, plus
+ * `voiceQualityScore`. Ties keep the platform's own list order — the one
+ * thing that is stable across a browser session.
+ *
+ * `preferredVoiceURI`, when it names a voice present in the result, is moved
+ * to the front — chosen BY the ranking rather than instead of it, so a
+ * learner's explicit pick still leaves the rest of the list in quality order
+ * for `assignSectionVoices` to hand to the section's other speakers. A URI
+ * that matches nothing (the platform no longer has that voice) changes
+ * nothing — the automatic ranking stands, silently. That silence is the
+ * fallback plan 032 asks for: a vanished preference is never an error.
+ */
+export function rankVoices(
+  voices: readonly SpeechSynthesisVoice[],
+  hint: ListeningVoiceHint,
+  preferredVoiceURI?: string,
+): SpeechSynthesisVoice[] {
+  const wanted = hint.accent.toLowerCase().replace('_', '-')
+  const primary = wanted.split('-')[0]
+
+  const ranked = voices
+    .map((voice, index) => ({ voice, index }))
+    .filter(({ voice }) => voice.lang.toLowerCase().replace('_', '-').startsWith(primary))
+    .map(({ voice, index }) => ({
+      voice,
+      index,
+      score: (voice.lang.toLowerCase().replace('_', '-') === wanted ? 3 : 1) + voiceQualityScore(voice),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.voice)
+
+  if (preferredVoiceURI === undefined) return ranked
+  const preferredAt = ranked.findIndex((voice) => voice.voiceURI === preferredVoiceURI)
+  if (preferredAt <= 0) return ranked // not found, or already first — nothing to move.
+
+  const preferred = ranked[preferredAt]
+  return [preferred, ...ranked.slice(0, preferredAt), ...ranked.slice(preferredAt + 1)]
+}
+
 /**
  * Pick a voice for a cue.
  *
- * Best effort and nothing more. Platforms disagree about voice names, about how
- * many they expose and about when `getVoices()` starts returning any, so this
- * prefers an exact language match, falls back to the same primary language, and
- * otherwise lets the platform default speak. It never fails.
+ * Best effort and nothing more: the top of `rankVoices`, or `null` where the
+ * platform has nothing usable at all. It never fails. This is the SINGLE-cue
+ * decision; `assignSectionVoices` is what gives a section's several speakers
+ * distinct voices instead of all reaching this same top pick.
  */
 export function pickVoice(
   voices: readonly SpeechSynthesisVoice[],
   hint: ListeningVoiceHint | undefined,
 ): SpeechSynthesisVoice | null {
-  if (hint === undefined || voices.length === 0) return null
+  if (hint === undefined) return null
+  return rankVoices(voices, hint)[0] ?? null
+}
 
-  const wanted = hint.accent.toLowerCase()
-  const primary = wanted.split('-')[0]
+/** Pitch nudge applied when a section's speakers cannot be told apart by
+ *  VOICE (the platform offers fewer usable matches than speakers) — the
+ *  fallback differentiator, alternating by speaker so adjacent turns are not
+ *  literally the same voice. `ListeningVoiceHint.pitch` (`types.ts`) is
+ *  "relative to the driver's default, 1 leaves it alone", so this is added to
+ *  whatever the hint or the default already specifies, never replaces it. */
+const PITCH_DIFFERENTIATION = 0.15
 
-  const exact = voices.find((voice) => voice.lang.toLowerCase().replace('_', '-') === wanted)
-  if (exact !== undefined) return exact
+/** What a section's playback actually uses for one speaker. */
+interface ResolvedVoice {
+  voice: SpeechSynthesisVoice | null
+  pitchOffset: number
+}
 
-  const sameLanguage = voices.find((voice) => voice.lang.toLowerCase().startsWith(primary))
-  return sameLanguage ?? null
+/**
+ * Assign each of a section's speakers a voice, distinct from the others where
+ * the platform allows it.
+ *
+ * `sectionCues` already carries each cue's speaker hint, but calling
+ * `pickVoice` independently per cue has no memory across cues — two speakers
+ * who share a hint (the common case: two `en-GB` characters in a phone call)
+ * got the SAME top-ranked voice, because nothing recorded that a voice had
+ * already been "spent" on someone else. This groups a section's speakers by
+ * hint accent, ranks each group once (`rankVoices`, so "distinct" never means
+ * "worse"), and round-robins the ranked candidates across the speakers who
+ * share that accent, in the order they are first passed in (`speakers`
+ * preserves `Map` insertion order, and callers build it in first-appearance
+ * order — see `SpeechSynthesisDriver.play`).
+ *
+ * When an accent group has fewer than two usable voices, there is no second
+ * voice to hand out — the fallback is `PITCH_DIFFERENTIATION`, alternating by
+ * speaker, so a phone call between two people does not sound like one person
+ * quoting themselves. A section with only one speaker gets no pitch nudge at
+ * all: there is nobody for them to be told apart FROM.
+ *
+ * Voice GENDER is never inferred from a voice's NAME to break a tie here —
+ * name lists are locale-dependent (a "female-sounding" English name on one
+ * platform's voice list is a man's voice on another) and wrong often enough
+ * to be worse than the pitch nudge. `ListeningVoiceHint.gender` exists for
+ * the UI and for a future driver with real per-gender voices, not for this
+ * one to pattern-match on.
+ */
+export function assignSectionVoices(
+  voices: readonly SpeechSynthesisVoice[],
+  speakers: ReadonlyMap<string, ListeningVoiceHint>,
+  preferredVoiceURI?: string,
+): Map<string, ResolvedVoice> {
+  const resolved = new Map<string, ResolvedVoice>()
+  const singleSpeaker = speakers.size <= 1
+  const groups = new Map<string, { ranked: SpeechSynthesisVoice[]; nextIndex: number }>()
+
+  for (const [speakerKey, hint] of speakers) {
+    const accentKey = hint.accent.toLowerCase()
+    let group = groups.get(accentKey)
+    if (group === undefined) {
+      group = { ranked: rankVoices(voices, hint, preferredVoiceURI), nextIndex: 0 }
+      groups.set(accentKey, group)
+    }
+
+    const useIndex = group.nextIndex
+    group.nextIndex += 1
+
+    if (group.ranked.length >= 2) {
+      resolved.set(speakerKey, { voice: group.ranked[useIndex % group.ranked.length], pitchOffset: 0 })
+      continue
+    }
+
+    resolved.set(speakerKey, {
+      voice: group.ranked[0] ?? null,
+      pitchOffset: singleSpeaker ? 0 : useIndex % 2 === 0 ? PITCH_DIFFERENTIATION : -PITCH_DIFFERENTIATION,
+    })
+  }
+
+  return resolved
+}
+
+/** Keep an utterance pitch inside the range `SpeechSynthesisUtterance.pitch`
+ *  actually accepts. Pitch offsets are additive (see `PITCH_DIFFERENTIATION`),
+ *  so a value near either end of the range must not walk off it. */
+function clampPitch(pitch: number): number {
+  return Math.min(2, Math.max(0, pitch))
 }
 
 /**
@@ -244,6 +442,11 @@ export function pickVoice(
  * is being spoken and makes cancellation ragged. An utterance that errors is
  * treated as finished rather than fatal: one mangled line is better than a
  * section that stops halfway with no explanation.
+ *
+ * `preferredVoiceURI` is read ONCE, at construction (`createSpeechDriver`
+ * reads it from `src/profile/prefs.ts` and passes it in here) — never
+ * re-read mid-play, so a section's voices cannot change out from under a
+ * learner who is halfway through listening to it.
  */
 export class SpeechSynthesisDriver implements SpeechDriver {
   readonly kind: SpeechDriverKind = 'speech-synthesis'
@@ -251,7 +454,10 @@ export class SpeechSynthesisDriver implements SpeechDriver {
   private engine: SpeechEngine | null
   private cancelled = false
 
-  constructor(engine: SpeechEngine | null = browserSpeechEngine()) {
+  constructor(
+    engine: SpeechEngine | null = browserSpeechEngine(),
+    private readonly preferredVoiceURI?: string,
+  ) {
     this.engine = engine
   }
 
@@ -273,6 +479,21 @@ export class SpeechSynthesisDriver implements SpeechDriver {
 
     this.cancelled = false
 
+    // Each of THIS section's speakers gets a voice assigned once, up front,
+    // so a speaker with several cues keeps the same voice throughout instead
+    // of re-rolling it cue by cue — see `assignSectionVoices`.
+    const speakerHints = new Map<string, ListeningVoiceHint>()
+    for (const cue of cues) {
+      if (cue.voice !== undefined && !speakerHints.has(cue.speaker)) {
+        speakerHints.set(cue.speaker, cue.voice)
+      }
+    }
+    const assigned = assignSectionVoices(
+      engine.synthesis.getVoices(),
+      speakerHints,
+      this.preferredVoiceURI,
+    )
+
     return new Promise<SpeechOutcome>((resolve) => {
       const finish = (outcome: SpeechOutcome): void => {
         events.onOutcome?.(outcome)
@@ -285,10 +506,13 @@ export class SpeechSynthesisDriver implements SpeechDriver {
 
         const cue = cues[index]
         const utterance = engine.createUtterance(cue.text)
-        const voice = pickVoice(engine.synthesis.getVoices(), cue.voice)
-        if (voice !== null) utterance.voice = voice
+        const resolved = cue.voice === undefined ? undefined : assigned.get(cue.speaker)
+        if (resolved?.voice != null) utterance.voice = resolved.voice
         if (cue.voice?.rate !== undefined) utterance.rate = cue.voice.rate
-        if (cue.voice?.pitch !== undefined) utterance.pitch = cue.voice.pitch
+        const pitchOffset = resolved?.pitchOffset ?? 0
+        if (cue.voice?.pitch !== undefined || pitchOffset !== 0) {
+          utterance.pitch = clampPitch((cue.voice?.pitch ?? 1) + pitchOffset)
+        }
 
         let advanced = false
         const advance = (): void => {
@@ -484,10 +708,16 @@ export interface CreateSpeechDriverOptions {
  * The choice is made once, at construction, and the caller can see which it got
  * from `driver.kind` — which is how the UI knows whether to show
  * `SYNTHETIC_VOICE_NOTICE` or `TRANSCRIPT_FALLBACK_NOTICE`.
+ *
+ * `preferredVoiceURI` (plan 032) is read from `src/profile/prefs.ts` HERE,
+ * once, and threaded into `SpeechSynthesisDriver` — the driver itself never
+ * imports `prefs.ts`, keeping it constructor-testable like every other driver
+ * in this file.
  */
 export function createSpeechDriver(options: CreateSpeechDriverOptions = {}): SpeechDriver {
   const engine = options.engine !== undefined ? options.engine : browserSpeechEngine()
-  if (engine !== null) return new SpeechSynthesisDriver(engine)
+  const preferredVoiceURI = loadPrefs().preferredVoiceURI
+  if (engine !== null) return new SpeechSynthesisDriver(engine, preferredVoiceURI)
 
   return new TranscriptPaceDriver(
     options.scheduler ?? realScheduler,

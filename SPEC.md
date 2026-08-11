@@ -436,18 +436,18 @@ biodiversity science, political participation, globalisation), and BOTH when in 
 `src/profile/prefs.ts` holds device-local learner preferences under localStorage key
 `ielts-coach.prefs.v1` — the `Prefs` interface (`src/types.ts`, near `Module`):
 `{ introDismissedAtISO?: string; examDateISO?: string; targetOverall?: number;
-targetBySection?: Partial<Record<SessionSection, number>>; module?: Module }`. This key is
-deliberately OUTSIDE the session store's world: no `schemaVersion`, no migration rung — the record is a
-handful of independent optional scalars, so "migration" is field-by-field validation on read rather than
-a version ladder, and there is no ordering between fields for a ladder to preserve. A field this build
-cannot validate is dropped ALONE, never taking a good field down with it (a hostile `targetOverall`
-never costs the learner their `examDateISO`).
+targetBySection?: Partial<Record<SessionSection, number>>; module?: Module; preferredVoiceURI?: string }`.
+This key is deliberately OUTSIDE the session store's world: no `schemaVersion`, no migration rung — the
+record is a handful of independent optional scalars, so "migration" is field-by-field validation on read
+rather than a version ladder, and there is no ordering between fields for a ladder to preserve. A field
+this build cannot validate is dropped ALONE, never taking a good field down with it (a hostile
+`targetOverall` never costs the learner their `examDateISO`).
 
-**Contract (plan 026 defines `introDismissedAtISO`, plan 027 extends it additively with the rest): one
-flat JSON object; fields are ADDITIVE and optional; nothing is renamed or repurposed. Reads validate
-field-by-field against hostile data — a malformed blob or a wrong-typed field is discarded, never
-crashed on, because losing one preference costs one extra card or one re-typed date while throwing on
-mount costs the app. Writes MERGE over the raw stored object, so a field this build does not know about
+**Contract (plan 026 defines `introDismissedAtISO`, plans 027 and 032 extend it additively with the
+rest): one flat JSON object; fields are ADDITIVE and optional; nothing is renamed or repurposed. Reads
+validate field-by-field against hostile data — a malformed blob or a wrong-typed field is discarded,
+never crashed on, because losing one preference costs one extra card or one re-typed date while throwing
+on mount costs the app. Writes MERGE over the raw stored object, so a field this build does not know about
 (e.g. one written by a newer build) survives a round-trip, and a key explicitly patched to `undefined`
 clears just that field.** `loadPrefs()` reads (via `sanitizePrefs`), `savePrefs(patch)` writes; neither
 ever throws.
@@ -461,6 +461,15 @@ ever throws.
   per section, sometimes "no section below X", but never per criterion, so a "TR target" would be an
   invention with no real-world referent — the per-criterion tiles on the Report stay untouched.
 - `module` — the exam the learner is preparing for, restored on the next visit (below).
+- `preferredVoiceURI` (plan 032) — a `SpeechSynthesisVoice.voiceURI` the learner chose from the Listening
+  picker's voice select, overriding `src/listening/speech.ts`'s automatic quality-ranked pick. Validated
+  as a non-empty string capped at 300 characters (`isVoiceURI`) — voiceURI values are platform-defined
+  free text with no further shape to check. Undefined means "Automatic (recommended)", which is the SAFE
+  default, not a lesser one, now that the automatic ranking picks well on its own (see "The audio
+  decision" under "Listening"). A value that no longer names an installed voice (OS updates add and
+  remove voices) is never an error: `rankVoices` silently ignores a preference it cannot find, and the
+  picker's own select shows Automatic rather than a broken-looking selection
+  (`resolveSelectedVoiceURI`).
 
 **Module persistence.** `App.tsx`'s `module` state now initializes from `loadPrefs().module ??
 'academic'` instead of a bare `'academic'` default, and `switchModule` calls `savePrefs({ module: next
@@ -1401,6 +1410,37 @@ report prints the full tapescript after submission, which is what the practice b
 `SpeechDriver` is an interface so the runner can be tested without a speech engine. `FakeSpeechDriver`
 uses no timers, no globals and no randomness. **No test may depend on a real `speechSynthesis`** —
 jsdom has none, and where one exists it is famously inconsistent across platforms.
+
+### Voice quality and selection — CANONICAL (plan 032)
+
+Plan 011 chose option B and stopped there: `pickVoice` took the FIRST platform voice matching a
+language, which is reliably the platform's WORST voice — compact/legacy voices are listed first by most
+platforms, high-quality ones ("Natural"/"Neural"/Siri voices) later. Plan 032 fixes voice SELECTION in
+place, inside option B's existing zero-bundled-bytes budget; the audio DECISION above is unchanged.
+
+- **Quality-ranked selection.** `rankVoices` (`src/listening/speech.ts`) scores every usable voice
+  instead of taking the first: +3 for an exact BCP-47 accent match over +1 for the same primary language
+  only, ±4 for a name matching `QUALITY_VOICE_MARKERS` / `LEGACY_VOICE_MARKERS` (both exported consts with
+  a doc comment stating they are heuristics that WILL rot as platforms rename voices — "Automatic" must
+  stay a safe default regardless). Ties keep the platform's own list order. `pickVoice`'s signature is
+  unchanged; it is `rankVoices(...)[0] ?? null`.
+- **Distinct voices per speaker.** `assignSectionVoices` groups a section's speakers by accent, ranks
+  each group once, and round-robins the ranked voices across the speakers who share an accent — so a
+  two-speaker phone call gets two voices where the platform offers two, instead of one voice playing both
+  parts. Where fewer than two usable voices exist for a group, the fallback is a ±0.15 pitch nudge
+  (`ListeningVoiceHint.pitch` is additive, "1 leaves it alone"), alternating by speaker; a single-speaker
+  section gets no nudge at all. Voice GENDER is never inferred from a voice's NAME to differentiate —
+  name lists are locale-dependent and wrong often enough to be worse than the pitch nudge.
+- **A learner override.** The Listening picker (`ListeningVoicePicker` inside `ListeningPicker.tsx`)
+  lists the platform's English voices, grouped "Recommended" first by the same ranking, with "Automatic
+  (recommended)" as the default and a Preview button that speaks a fixed sentence through the chosen
+  voice. The choice is `preferredVoiceURI` (`src/profile/prefs.ts`, "Preferences" above) — the picker
+  reads and writes it directly, with no `App.tsx` wiring, because `createSpeechDriver` reads the same key
+  itself at driver construction and promotes a matching voice to the front of `rankVoices`'s result rather
+  than replacing the ranking outright, so a learner's pick still leaves the rest of a section's speakers
+  differentiated. The choice applies the next time a Listening driver is built (construction-time only,
+  not live mid-session) and a vanished URI falls back to Automatic silently, both in the driver
+  (`rankVoices` simply does not find it) and in the picker's own select (`resolveSelectedVoiceURI`).
 
 ### The conversion table — CANONICAL DATA
 

@@ -192,6 +192,47 @@ describe('sanitizePrefs filters targetBySection per section', () => {
   })
 })
 
+describe('sanitizePrefs validates preferredVoiceURI (plan 032)', () => {
+  it('keeps a plausible voiceURI', () => {
+    expect(sanitizePrefs({ preferredVoiceURI: 'Microsoft Sonia Online (Natural)' }).preferredVoiceURI).toBe(
+      'Microsoft Sonia Online (Natural)',
+    )
+  })
+
+  it('drops an empty string but keeps a neighbour field', () => {
+    const prefs = sanitizePrefs({ preferredVoiceURI: '', examDateISO: '2026-11-07' })
+    expect(prefs.preferredVoiceURI).toBeUndefined()
+    expect(prefs.examDateISO).toBe('2026-11-07')
+  })
+
+  it('drops a wrong-typed value, field by field', () => {
+    for (const bad of [7, null, {}, [], true]) {
+      expect(sanitizePrefs({ preferredVoiceURI: bad, targetOverall: 7 })).toEqual({ targetOverall: 7 })
+    }
+  })
+
+  it('drops a URI far longer than any real voiceURI, rather than storing it unbounded', () => {
+    const prefs = sanitizePrefs({ preferredVoiceURI: 'x'.repeat(301) })
+    expect(prefs.preferredVoiceURI).toBeUndefined()
+  })
+
+  it('keeps a URI right at the length boundary', () => {
+    const uri = 'x'.repeat(300)
+    expect(sanitizePrefs({ preferredVoiceURI: uri }).preferredVoiceURI).toBe(uri)
+  })
+
+  it('round-trips through savePrefs/loadPrefs', () => {
+    savePrefs({ preferredVoiceURI: 'Google UK English Female' })
+    expect(loadPrefs()).toEqual({ preferredVoiceURI: 'Google UK English Female' })
+  })
+
+  it('an explicit undefined clears it, leaving a neighbour field alone', () => {
+    savePrefs({ preferredVoiceURI: 'Some Voice', targetOverall: 7 })
+    savePrefs({ preferredVoiceURI: undefined })
+    expect(loadPrefs()).toEqual({ targetOverall: 7 })
+  })
+})
+
 describe('daysUntil', () => {
   it('the exam date itself is 0', () => {
     expect(daysUntil('2026-08-10', new Date(2026, 7, 10, 15, 30))).toBe(0)
