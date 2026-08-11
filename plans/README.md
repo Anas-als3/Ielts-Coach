@@ -12,8 +12,10 @@ Four rounds so far:
   retention, platform/accounts, competitive) at baseline `d4ddef8`, plus the
   user-reported Listening voice defect. All DONE and merged 2026-08-11.
 
-**Campaign complete (2026-08-11)**: every plan 001–032 except the deferred 012
-is DONE. Final state at `edf34ca`: **1,453 tests / 51 files**, typecheck covers
+**Campaign complete (2026-08-11)**: every plan 001–033 except the deferred 012
+is DONE. Plan 033 (writing templates — user-requested, planned and executed
+2026-08-11 at `1e4559b`) added the Template coach tab: 15 original skeletons
+filtered to the desk's question type, with live paragraph progress. Final state at `edf34ca`: **1,453 tests / 51 files**, typecheck covers
 `src` + `tests`, CI green, entry chunk **462.00 kB raw / 147.50 kB gzip** with
 7 lazy chunks (was one 712.52 kB chunk pre-split). Two original papers per
 Reading module and two Listening papers shipped alongside the plans.
