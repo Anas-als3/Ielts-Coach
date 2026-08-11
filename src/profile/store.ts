@@ -973,3 +973,31 @@ export function importData(json: string, mode: ImportMode = 'replace'): ImportSu
 
   return { mode, sessionCount: kept.length, evictedCount }
 }
+
+/**
+ * Notify `callback` when ANOTHER tab writes this store. Returns unsubscribe.
+ *
+ * The 'storage' event fires only in OTHER same-origin tabs — never in the tab
+ * that wrote — so this closes the read-staleness half of multi-tab use: tab B
+ * sees tab A's new essay without a reload. The write race stays open and
+ * accepted: every mutation here re-reads inside the call (`saveSession` starts
+ * from `loadStore()`), so a tab holding stale REACT state can render stale
+ * but can never clobber the store with it.
+ *
+ * `e.key === null` means `localStorage.clear()` — treat it as a change too.
+ *
+ * Filtered to `STORAGE_KEY` (and `null`) specifically so a backup write —
+ * `ielts-coach.backup.<iso>`, minted on every damaged read or replace/merge
+ * — can never fire this callback. `STORAGE_KEY` itself stays unexported (the
+ * whole point of this function existing instead) so no caller outside this
+ * module can be tempted to compare against a DIFFERENT key by hand and drift
+ * out of sync with the filter here.
+ */
+export function onExternalStoreChange(callback: () => void): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== STORAGE_KEY && e.key !== null) return
+    callback()
+  }
+  window.addEventListener('storage', onStorage)
+  return () => window.removeEventListener('storage', onStorage)
+}

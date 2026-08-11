@@ -28,7 +28,14 @@ import type { ReadingAnswers } from './reading/types'
 import type { ListeningAnswers } from './listening/types'
 import { MODULE_META, TASK_CONSTANTS, WRITING_MODE_META } from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
-import { deleteSession, exportData, importData, loadSessions, saveSession } from './profile/store'
+import {
+  deleteSession,
+  exportData,
+  importData,
+  loadSessions,
+  onExternalStoreChange,
+  saveSession,
+} from './profile/store'
 import { clearDraft, isExamDraftExpired, loadDraft, saveDraft } from './profile/draft'
 import type { WritingDraft } from './profile/draft'
 import { computeProfile, computeTrends } from './profile/profile'
@@ -429,6 +436,13 @@ export default function App({
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [view, readingStage, listeningStage])
+
+  // Another tab saved, deleted, or imported into the store — re-read so both
+  // tabs agree. `onExternalStoreChange` already excludes this tab's own
+  // writes (the 'storage' event never fires in the tab that wrote) and any
+  // backup-key write; this effect stays in App because it feeds the
+  // top-level `sessions` state above.
+  useEffect(() => onExternalStoreChange(() => setSessions(loadSessions())), [])
 
   /* --------------------------------- actions -------------------------------- */
   handleSubmitRef.current = () => handleSubmit()
