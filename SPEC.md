@@ -42,11 +42,13 @@ Consequences pinned here so no module re-derives them:
 - **`TASK_CONSTANTS` is NOT keyed by module.** General Training Task 1 allows the same 20 minutes and
   the same 150-word minimum as Academic Task 1; Task 2 is 40 minutes and 250 words in both. Only the
   task differs, never the clock.
-- **Storage is schemaVersion 5.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
+- **Storage is schemaVersion 6.** The v2 → v3 rung stamps `module: 'academic'` on every pre-v3 record,
   because Academic was the only exam the app supported; the v3 → v4 rung stamps `section: 'writing'`,
   because Reading did not exist before it; the v4 → v5 rung changes **no data at all** — it only adds
-  `'listening'` to the `section` union, and no v4 record could have been a Listening paper. See
-  "Persistence" below.
+  `'listening'` to the `section` union, and no v4 record could have been a Listening paper; the v5 → v6
+  rung likewise changes no session data — it adds `StoreShape.deletedIds`, the delete tombstones a
+  merge-import needs so a session removed on one device can never be resurrected by another device's
+  copy. See "Persistence" below.
 - **The error profile is scoped by TASK and MODULE.** `categoryAppliesTo(category, task, module)` —
   `module` is optional and defaults to `'academic'`. It had to grow that dimension because Academic
   Task 1 (a chart description) and General Training Task 1 (a letter) share the id `'task1'` and share
@@ -228,35 +230,53 @@ criterion (`info` is advisory per the severity model and never blocks a reward).
 
 ### `profile/` (store.ts + profile.ts)
 localStorage key `ielts-coach.v1` (opaque; the version lives in the payload) →
-`{ schemaVersion: 5, sessions: SessionRecord[] }`. Versions are MIGRATED FORWARD on read, never
-discarded: v1 → v2 stamps `task: 'task2'` on every record, v2 → v3 stamps `module: 'academic'`,
-v3 → v4 stamps `section: 'writing'`, v4 → v5 **changes no data**. The rungs are cumulative and apply
-in sequence, so a v1 store gains all three fields in one read; never reorder or collapse them.
+`{ schemaVersion: 6, sessions: SessionRecord[], deletedIds: string[] }`. Versions are MIGRATED
+FORWARD on read, never discarded: v1 → v2 stamps `task: 'task2'` on every record, v2 → v3 stamps
+`module: 'academic'`, v3 → v4 stamps `section: 'writing'`, v4 → v5 **changes no data**, v5 → v6
+**also changes no session data** — it adds `deletedIds`, a STORE-level field rather than a record
+field, so there is nothing to stamp onto any individual session. The rungs are cumulative and apply
+in sequence, so a v1 store gains all three record-level fields in one read; never reorder or
+collapse them.
 
 Each rung tests `version < N`, **never `version === N − 1`**. The stored version is validated as a
 RANGE, so a fractional or otherwise unexpected value (`2.5`, from a half-written or hand-edited
 payload) has to climb every rung above it. On `===` it matched none of them, ran zero steps, and was
-then stamped 5 for good — leaving `task`, `module` and `section` undefined on every record it held.
+then stamped 6 for good — leaving `task`, `module` and `section` undefined on every record it held.
 The stamps are already conditional on the field being absent, so a rung a record does not need is a
 no-op rather than an overwrite.
 
-The v4 → v5 rung being a no-op is the correct call, not a gap, and it is written out rather than
-folded away so the ladder still reads one line per version. A rung exists to repair records that
-predate a field; no v4 record can be a Listening session, because Listening did not exist, so every
-stored record is already valid v5 data as it stands and any rung would have to be a no-op or a lie.
-What the bump buys is the VALIDATOR — `looksLikeSession` now admits section `'listening'`, and
-`importData` now knows a v5 export is readable while still refusing a v6 one — and both of those key
-off `SCHEMA_VERSION`, not off a rung.
+The v4 → v5 and v5 → v6 rungs both being no-ops is the correct call, not a gap, and each is written
+out rather than folded away so the ladder still reads one line per version. A rung exists to repair
+records that predate a field; no v4 record can be a Listening session, because Listening did not
+exist, so every stored record was already valid v5 data as it stood; no session record carries
+`deletedIds` at all, so v5 → v6 has nothing to stamp either. What each bump buys instead is the
+VALIDATOR or the STORE SHAPE — `looksLikeSession` now admits section `'listening'`, `readStore`
+now supplies `deletedIds: []` for any payload that predates it, and `importData` now knows a v6
+export is readable while still refusing a v7 one — all keyed off `SCHEMA_VERSION`, not off a rung.
+
+**Delete tombstones (`deletedIds`, added at v6) are the store's first distributed-consistency
+structure.** `deleteSession(id)` appends `id` to `deletedIds` — but ONLY when a session by that id
+actually existed and was removed; an unknown id is a no-op with no tombstone, because a tombstone
+must testify to a real deletion or a later merge would subtract a record this device never even saw.
+`saveSession` removes its own id from `deletedIds` before writing, so a deliberate re-save always
+wins over a stale tombstone and the invariant "no id ever appears in both lists" holds after every
+write. **`MAX_DELETED_IDS = 500`, newest kept** (same dedupe-then-cap shape as backups): a tombstone
+is tiny, but "per delete, forever" is still unbounded growth inside the quota that holds the essays.
+500 is far beyond the store's own live ceiling (3 sections × `MAX_SESSIONS_PER_SECTION` = 600 live
+records) — wanting more than 500 tombstones means having deleted more sessions one by one than the
+store can even hold, and the oldest tombstones are the ones least likely to still matter to any other
+device. Cap eviction is NOT a delete — `capSessions` must never write tombstones; only the learner's
+explicit delete does. Otherwise a future sync turns a local cache policy into global history loss.
 
 **Nothing leaves without a copy.** Data is copied to `ielts-coach.backup.<ISO timestamp>` on all four
 paths that lose sight of it, not just the loud ones: (1) the payload will not parse or names a
-version this build cannot migrate — including v6, the version a newer build of this same app would
+version this build cannot migrate — including v7, the version a newer build of this same app would
 write; (2) SOME records fail validation and are filtered out on read, which is the LIKELIER
 corruption by far (one record truncated by an interrupted write) and used to be dropped in silence,
-with the next save persisting the loss; (3) `importData` replaces the store; (4) never twice — a
-byte-identical copy already on disk is the backup, and one per read would fill the quota holding the
-essays. A schemaVersion bump must never destroy a learner's history, and neither must a single bad
-record.
+with the next save persisting the loss; (3) `importData` replaces or merges the store; (4) never
+twice — a byte-identical copy already on disk is the backup, and one per read would fill the quota
+holding the essays. A schemaVersion bump must never destroy a learner's history, and neither must a
+single bad record.
 
 **The backup key is `<ISO timestamp>` plus a COUNTER suffix, never a random salt.** `toISOString()`
 has millisecond resolution and `setItem` overwrites, so two DIFFERENT payloads backed up inside the
@@ -317,13 +337,46 @@ least-squares slope over last 6 sessions (improving < −0.05, worsening > 0.05)
 EWMA × severity weight (error 3, warning 2, info 1), only when ≥ 2 sessions. Those five constants are
 canonical and `tests/profile-scoping.test.ts` pins each one by behaviour: every one of them survived
 being mutated with the suite green, and the focus list is the app's main coaching signal.
-`computeTrends`: per-session counts + per100Words for every category that ever fired. Export = JSON
-download of the whole store; import validates schemaVersion, backs the existing store up, then
-replaces (confirm() before overwrite). Import also deduplicates by `id` exactly as `saveSession`
-does: two records sharing an id collide as React keys and `deleteSession(id)` removes BOTH, so
-deleting an essay could silently take a Reading paper with it.
+`computeTrends`: per-session counts + per100Words for every category that ever fired.
 
-**`SessionRecord` is a discriminated union on `section`** (three members at schemaVersion 5):
+**Export is a dated, self-describing file.** `buildExport()` returns `{ json, filename }`: the
+payload is `{ schemaVersion, exportedAtISO, sessions, deletedIds, prefs? }` pretty-printed, and the
+filename is `ielts-coach-data-<exportedAtISO's date>.json`. Both the payload's timestamp and the
+filename's date are derived from the SAME `new Date()` call — a second clock read between building
+the payload and naming the file could straddle midnight and stamp a filename that contradicts the
+data inside it. `exportData()` does only the DOM part (Blob, anchor, click) around `buildExport()`.
+
+**Import is `merge` (the UI's default, recommended) or `replace`** (`importData(json, mode)`, mode
+defaulting to `'replace'` so every pre-`plan-031` call site keeps its exact old behaviour). Both
+modes validate the file identically first — schemaVersion in range, sessions array, every record
+passes `looksLikeSession` — and both back up the existing store BEFORE writing (AFTER validation, so
+a rejected file never mints a backup of data nothing was going to touch).
+
+- **merge**: unions sessions by id (current first, incoming last, so an incoming record wins a
+  collision — the same last-wins rule `saveSession` applies), unions BOTH sides' `deletedIds`, THEN
+  subtracts every unioned session whose id is now tombstoned, THEN caps. **This order — union →
+  subtract → cap — is load-bearing**: subtracting after capping could evict a survivor to protect a
+  record the tombstone was about to remove anyway, silently costing the learner a session for no
+  reason. The subtract step is the entire reason tombstones exist: without it, a session either
+  device had deleted would come right back the moment the two were merged.
+- **replace**: the file's sessions and the file's tombstones wholesale, still subtracting the file's
+  OWN tombstones from the file's OWN sessions first (so the no-id-in-both invariant holds even for a
+  hand-edited file), then capping.
+
+Both modes deduplicate the file's own records by id exactly as `saveSession` does: two records
+sharing an id collide as React keys and `deleteSession(id)` removes BOTH, so deleting an essay could
+silently take a Reading paper with it. Both return an `ImportSummary` (`{ mode, sessionCount,
+evictedCount }`) so the Dashboard can tell the learner what happened, including a disclosure when the
+per-section cap silently evicted something during the import — two devices each already near
+`MAX_SESSIONS_PER_SECTION` is the case that makes this possible.
+
+**Compatibility**: additive payload fields are ignored by an older build reading the SAME major
+version — `importData` has never enumerated keys — so `exportedAtISO` and `deletedIds` never break a
+build that predates them. But a v6 file into a pre-tombstone build still fails the version gate
+(`version > SCHEMA_VERSION` throws "exported by a newer version… update this app"), and that is
+correct, documented behaviour, not a bug: **update all devices to the same build before merging.**
+
+**`SessionRecord` is a discriminated union on `section`** (three members at schemaVersion 6):
 `WritingSessionRecord` carries the essay and its `Analysis`; `ReadingSessionRecord` carries `testId`,
 `testTitle`, the raw `answers`, a `ReadingResult` and its `module`; `ListeningSessionRecord` carries
 the same minus `module` (there is none) plus `practice`. A union rather than one record with every
@@ -373,6 +426,14 @@ real weakness out of the focus list. They are dropped from `totalSessions` too, 
 list — a learner is not two sessions into their writing practice because they sat two Reading papers.
 `tests/profile-scoping.test.ts` pins it for both, and for Listening asserts the entire profile object
 is byte-identical with and without the papers.
+
+**Cross-tab refresh (`onExternalStoreChange`, plan 031).** A `storage` event listener, filtered to
+this store's own key (plus `null`, `localStorage.clear()`'s signal) so a backup-key write can never
+storm every open tab. The browser fires `storage` only in OTHER same-origin tabs, never the tab that
+wrote, so `App.tsx` subscribes once and re-reads sessions into state whenever it fires — closing the
+read-staleness half of multi-tab use. The write race stays open and accepted: every mutation in this
+file re-reads inside its own call (`saveSession` starts from `loadStore()`), so a tab holding stale
+React state can render stale but can never clobber the store with it.
 
 #### `profile/draft.ts` — the scratch draft
 
@@ -477,15 +538,18 @@ ever throws.
 dialog persists nothing. `readingHistory` is filtered by the live module, so persisting it changes which
 Reading history a returning General candidate sees on load; that is the point.
 
-**The export rider.** `buildExportJson` (the payload-construction half of `exportData`, split out so the
-engine tests can pin it without a DOM) adds a `prefs` field carrying `loadPrefs()` when it is non-empty,
-and omits the field entirely when it is — so a prefs-less export stays byte-identical to a build that
-predates this. `importData` has never enumerated keys — it reads only `schemaVersion` and `sessions` —
+**The export rider.** `buildExportJson`/`buildExport` (the payload-construction half of `exportData`,
+split out so the engine tests can pin it without a DOM) add a `prefs` field carrying `loadPrefs()` when
+it is non-empty, and omit the field entirely when it is — so a prefs-less export stays as small as a
+build that predates this. `importData` has never enumerated keys — it reads only the fields it knows —
 so an older build importing a newer file with a `prefs` field keeps working, the field simply ignored.
 When a file DOES carry `prefs`, `importData` restores it AFTER the sessions have fully validated and
 been written (same sanitize-on-read discipline as `loadPrefs`), so a rejected file never half-applies
 and a hostile prefs value inside an otherwise-valid file restores only its good fields rather than
-poisoning the import.
+poisoning the import — but only in **replace** mode (plan 031). Prefs are device-local taste, not
+history: `replace` takes the file's, `merge` keeps this device's untouched, because "combine two
+devices' session histories" is not the same request as "overwrite this device's exam date and target
+band with a laptop's."
 
 **The honesty rule.** Every gap the app shows — the "Your exam" card's per-section lines, the Report's
 target chip — states DISTANCE (a latest band against a target) and carries the same form-only hedge the
@@ -530,14 +594,25 @@ trend sparklines for focusCategories; export/import buttons.
 **Progress is a writing view: the band trend, the error sparklines and the session table count essays
 only, deliberately** — a Reading or Listening result carries no `IssueCategory` for them to plot.
 **Export and Import act on the WHOLE store, not the writing-only list the page renders.** `exportData`
-serialises every saved session regardless of section; `importData` replaces all of them. Export is
-reachable from both the populated header and the empty state, so a learner with Reading or Listening
-history but no essays can still take a copy before importing anything over it. The import confirm counts
-every section from the whole store (`DashboardProps.allSessions`), not the writing-only `sessions` the
-page renders from — the count must match what `importData` is about to replace, or it understates what
-a wrong file destroys. The empty state's own line ("Write your first essay and your profile starts
-here.") stays unchanged because it is still accurate — this page is the writing record — and any
-Reading or Listening data is named separately, in its own line, rather than folded into that sentence.
+serialises every saved session regardless of section; `importData` merges or replaces all of them,
+per the learner's choice (see "profile/" above). Export is reachable from both the populated header
+and the empty state, so a learner with Reading or Listening history but no essays can still take a
+copy before importing anything over it.
+
+**Picking a file never imports on its own.** `window.confirm` is binary and cannot offer Merge /
+Replace / Cancel, so `handleFilePicked` only reads the file and holds it (`pendingImport`); a small
+inline choice card (`importChoiceCard`, plain `card`/`btn` classes, no new dependency) then names
+what each option does — Merge is recommended and marked as such — and counts every section from the
+whole store (`DashboardProps.allSessions`), not the writing-only `sessions` the page renders from, so
+the copy never understates what a Replace is about to throw away. The card renders in BOTH of
+`Dashboard`'s returns (empty state and populated view) so either entry point sees it. Choosing Merge
+or Replace calls `onImport(text, mode)` and shows the returned `ImportSummary` in a
+`role="status"` line — a completed import is a non-urgent notice, not the `role="alert"` a save
+FAILURE gets — including the eviction disclosure when `evictedCount > 0`. Cancel discards the pending
+file with no store write at all. The empty state's own line ("Write your first essay and your profile
+starts here.") stays unchanged because it is still accurate — this page is the writing record — and
+any Reading or Listening data is named separately, in its own line, rather than folded into that
+sentence.
 
 **"Your exam" card** (`ExamGoalCard`, `Dashboard.tsx`): exam date with a days-remaining readout
 (`daysUntil`); target overall band and per-section targets (Writing/Reading/Listening); the exam-type
