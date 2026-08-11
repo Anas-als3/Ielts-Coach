@@ -29,6 +29,7 @@ import type {
   WritingSessionRecord,
 } from './types'
 import { isListeningSession, isReadingSession, isWritingSession } from './types'
+import { makeId } from './ids'
 import {
   CATEGORY_META,
   LETTER_ONLY_CATEGORIES,
@@ -128,20 +129,6 @@ const COACH_PANEL_ID = 'coach-panel'
 
 function panelTabId(tab: PanelTab): string {
   return `panel-tab-${tab}`
-}
-
-/**
- * Mints a session record id. Hoisted to module scope (plan 023) — it closes
- * over nothing, and `ReadingSection`/`ListeningSection` need it to build a
- * `ReadingSessionRecord`/`ListeningSessionRecord` themselves now that they
- * own the marking step. Exported rather than duplicated, so there is exactly
- * one id-minting strategy in the app.
- */
-export function makeId(): string {
-  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
-    b.toString(16).padStart(2, '0'),
-  ).join('')
 }
 
 function useDebounced<T>(value: T, delayMs: number): T {
