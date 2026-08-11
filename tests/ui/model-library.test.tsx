@@ -29,8 +29,15 @@ function sheet(): HTMLTextAreaElement {
   return screen.getByRole('textbox') as HTMLTextAreaElement
 }
 
+/**
+ * `ModelLibrary` is lazily loaded (plan 023), so every test that opens it
+ * through here awaits the section's own heading before returning — the
+ * single barrier that keeps every downstream `getBy*` in this file
+ * synchronous, rather than converting each test's own first query.
+ */
 async function openLibrary(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   await user.click(screen.getByRole('button', { name: 'Models' }))
+  await screen.findByRole('heading', { name: 'Every worked answer, in one place' })
 }
 
 /**

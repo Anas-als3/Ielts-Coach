@@ -78,8 +78,10 @@ async function sitPaper(user: User, module: 'Academic' | 'General', title: strin
     }),
   )
   // Each module now lists more than one paper: find the start button through
-  // the named paper's own card.
-  const card = screen.getByText(title).closest('.rdp-test') as HTMLElement
+  // the named paper's own card. The picker is rendered by the lazily-loaded
+  // `ReadingSection` (plan 023), so this is the first query against section
+  // content and must await the chunk.
+  const card = (await screen.findByText(title)).closest('.rdp-test') as HTMLElement
   await user.click(within(card).getByRole('button', { name: 'Start this paper' }))
   const tabs = screen.getAllByRole('tab')
 

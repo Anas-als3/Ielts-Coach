@@ -34,10 +34,16 @@ const GENERAL_PAPER = 'General Training Reading Test 1'
 const ACADEMIC_PAPER_2 = 'Academic Reading Test 2'
 const GENERAL_PAPER_2 = 'General Training Reading Test 2'
 
-/** The "Start this paper" button on one paper's card. Each module now lists
- * more than one paper, so the button has to be found through its own card. */
-function startButtonFor(title: string): HTMLElement {
-  const card = screen.getByText(title).closest('.rdp-test') as HTMLElement
+/**
+ * The "Start this paper" button on one paper's card. Each module now lists
+ * more than one paper, so the button has to be found through its own card.
+ *
+ * Async: the picker is rendered by the lazily-loaded `ReadingSection` (plan
+ * 023), so the title lookup that locates the card is the first query against
+ * section content and must wait for the chunk to resolve.
+ */
+async function startButtonFor(title: string): Promise<HTMLElement> {
+  const card = (await screen.findByText(title)).closest('.rdp-test') as HTMLElement
   return within(card).getByRole('button', { name: 'Start this paper' })
 }
 
@@ -87,7 +93,7 @@ async function answerCorrectly(user: User, question: ReadingQuestion): Promise<v
 /** Open the Reading section and start the first Academic paper. */
 async function startAcademicPaper(user: User): Promise<void> {
   await user.click(navLink('Reading'))
-  await user.click(startButtonFor(ACADEMIC_PAPER))
+  await user.click(await startButtonFor(ACADEMIC_PAPER))
   await screen.findByRole('tab', { name: /Reading Passage 1/ })
 }
 
@@ -104,7 +110,7 @@ describe('the Reading section offers only the active exam', () => {
 
     await user.click(navLink('Reading'))
 
-    expect(screen.getByText(ACADEMIC_PAPER)).toBeInTheDocument()
+    expect(await screen.findByText(ACADEMIC_PAPER)).toBeInTheDocument()
     expect(screen.getByText(ACADEMIC_PAPER_2)).toBeInTheDocument()
     expect(screen.queryByText(GENERAL_PAPER)).not.toBeInTheDocument()
     expect(screen.queryByText(GENERAL_PAPER_2)).not.toBeInTheDocument()
@@ -117,7 +123,7 @@ describe('the Reading section offers only the active exam', () => {
 
     await user.click(moduleButton('General'))
 
-    expect(screen.getByText(GENERAL_PAPER)).toBeInTheDocument()
+    expect(await screen.findByText(GENERAL_PAPER)).toBeInTheDocument()
     expect(screen.getByText(GENERAL_PAPER_2)).toBeInTheDocument()
     // The Academic papers are structured differently and convert through a
     // different table; offering one here would report the wrong band.

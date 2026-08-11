@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 // Aliased: the plain name is the DOM's `KeyboardEvent`, which the
 // Cmd/Ctrl+Enter window listener below still uses.
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
@@ -67,14 +67,40 @@ import CheatSheet from './components/CheatSheet'
 import ChartSheet from './components/ChartSheet'
 import LetterSheet from './components/LetterSheet'
 import ModelAnswer from './components/ModelAnswer'
-import ModelLibrary from './components/ModelLibrary'
-import ReadingSection from './components/ReadingSection'
-import ListeningSection from './components/ListeningSection'
-// Aliased on import: `MockSection` the TYPE (imported above, from `./types`)
-// names which of the mock's three legs is up next; `MockSectionView` is the
+import SectionFallback from './components/SectionFallback'
+
+/*
+ * Reading, Listening, the Mock test view and the model-answer library all
+ * load on demand — plan 023, extended beyond its original two-section scope
+ * to also cover plan 013's mock test mode and plan 029's model library, both
+ * of which landed after 023 was authored.
+ *
+ * The app boots to the writing desk (`useState<View>('write')` below), and a
+ * learner who came to write an essay was downloading four complete authored
+ * Reading/Listening papers, the mock setup screen's own copy of both
+ * registries, and the model library's UI to get there. Nothing here is about
+ * evaluation cost — a paper's object literal evaluates in under a
+ * millisecond — it is about not transferring and parsing what was never
+ * asked for.
+ *
+ * The thunks are hoisted so the same promise backs both `lazy()` and the
+ * prefetch on nav hover (added in the next commit): the module registry
+ * caches by specifier, so reaching for the link starts the fetch and clicking
+ * it usually finds the chunk already there.
+ */
+const importReadingSection = () => import('./components/ReadingSection')
+const importListeningSection = () => import('./components/ListeningSection')
+const importMockSection = () => import('./components/MockSection')
+const importModelLibrary = () => import('./components/ModelLibrary')
+
+const ReadingSection = lazy(importReadingSection)
+const ListeningSection = lazy(importListeningSection)
+// Aliased: `MockSection` the TYPE (imported above, from `./types`) names
+// which of the mock's three legs is up next; `MockSectionView` is the
 // component that renders the mock test screen itself. Same word, two
 // unrelated meanings that happen to collide only in this file.
-import MockSectionView from './components/MockSection'
+const MockSectionView = lazy(importMockSection)
+const ModelLibrary = lazy(importModelLibrary)
 
 type View = 'write' | 'report' | 'dashboard' | 'reading' | 'listening' | 'library' | 'mock'
 type ExamState = 'idle' | 'running'
@@ -1748,45 +1774,49 @@ export default function App({
       )}
 
       {view === 'reading' && (
-        <ReadingSection
-          module={module}
-          stage={readingStage}
-          onStageChange={setReadingStage}
-          onExit={() => {
-            setReadingStage('picker')
-            // The runner already asked its own "leave this test?" question
-            // before ever calling this — see `abandonMockIfActive`'s doc
-            // comment for why a mock in progress ends here too, without a
-            // second confirm.
-            abandonMockIfActive()
-          }}
-          testId={readingTestId}
-          onStart={startReadingTest}
-          history={readingHistory}
-          session={readingSession}
-          onOpenSession={openReadingSession}
-          onSubmit={handleReadingRecord}
-        />
+        <Suspense fallback={<SectionFallback label="Reading" />}>
+          <ReadingSection
+            module={module}
+            stage={readingStage}
+            onStageChange={setReadingStage}
+            onExit={() => {
+              setReadingStage('picker')
+              // The runner already asked its own "leave this test?" question
+              // before ever calling this — see `abandonMockIfActive`'s doc
+              // comment for why a mock in progress ends here too, without a
+              // second confirm.
+              abandonMockIfActive()
+            }}
+            testId={readingTestId}
+            onStart={startReadingTest}
+            history={readingHistory}
+            session={readingSession}
+            onOpenSession={openReadingSession}
+            onSubmit={handleReadingRecord}
+          />
+        </Suspense>
       )}
 
       {view === 'listening' && (
-        <ListeningSection
-          stage={listeningStage}
-          onStageChange={setListeningStage}
-          onExit={() => {
-            setListeningStage('picker')
-            // See the identical comment on ReadingSection's onExit above.
-            abandonMockIfActive()
-          }}
-          testId={listeningTestId}
-          onStart={startListeningTest}
-          practice={listeningPractice}
-          history={listeningHistory}
-          session={listeningSession}
-          onOpenSession={openListeningSession}
-          onSubmit={handleListeningRecord}
-          driver={listeningDriver}
-        />
+        <Suspense fallback={<SectionFallback label="Listening" />}>
+          <ListeningSection
+            stage={listeningStage}
+            onStageChange={setListeningStage}
+            onExit={() => {
+              setListeningStage('picker')
+              // See the identical comment on ReadingSection's onExit above.
+              abandonMockIfActive()
+            }}
+            testId={listeningTestId}
+            onStart={startListeningTest}
+            practice={listeningPractice}
+            history={listeningHistory}
+            session={listeningSession}
+            onOpenSession={openListeningSession}
+            onSubmit={handleListeningRecord}
+            driver={listeningDriver}
+          />
+        </Suspense>
       )}
 
       {/* A running leg never reaches here: while Listening, Reading or Writing
@@ -1795,17 +1825,19 @@ export default function App({
           screen — MockTest only ever draws the setup, the pause between legs,
           and the final summary. */}
       {view === 'mock' && (
-        <MockSectionView
-          stage={mockStage}
-          module={module}
-          attempt={mockAttempt}
-          nextSection={mockNextSection}
-          onStart={startMock}
-          onContinue={continueMock}
-          onExit={exitMock}
-          onRestart={openMock}
-          onViewDashboard={() => setView('dashboard')}
-        />
+        <Suspense fallback={<SectionFallback label="Mock test" />}>
+          <MockSectionView
+            stage={mockStage}
+            module={module}
+            attempt={mockAttempt}
+            nextSection={mockNextSection}
+            onStart={startMock}
+            onContinue={continueMock}
+            onExit={exitMock}
+            onRestart={openMock}
+            onViewDashboard={() => setView('dashboard')}
+          />
+        </Suspense>
       )}
 
       {view === 'dashboard' && (
@@ -1833,9 +1865,11 @@ export default function App({
       )}
 
       {view === 'library' && (
-        <main className="page">
-          <ModelLibrary onPractise={handlePractiseFromLibrary} />
-        </main>
+        <Suspense fallback={<SectionFallback label="Models" />}>
+          <main className="page">
+            <ModelLibrary onPractise={handlePractiseFromLibrary} />
+          </main>
+        </Suspense>
       )}
     </div>
   )
