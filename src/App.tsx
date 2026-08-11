@@ -26,7 +26,15 @@ import type {
 import { isListeningSession, isReadingSession, isWritingSession } from './types'
 import type { ReadingAnswers } from './reading/types'
 import type { ListeningAnswers } from './listening/types'
-import { MODULE_META, TASK_CONSTANTS, WRITING_MODE_META } from './meta'
+import {
+  CATEGORY_META,
+  LETTER_ONLY_CATEGORIES,
+  MODULE_META,
+  TASK1_ONLY_CATEGORIES,
+  TASK2_ONLY_CATEGORIES,
+  TASK_CONSTANTS,
+  WRITING_MODE_META,
+} from './meta'
 import { analyzeEssay, analyzeLetter, analyzeTask1 } from './analysis/engine'
 import {
   deleteSession,
@@ -115,6 +123,23 @@ function countWords(text: string): number {
   return m ? m.length : 0
 }
 
+/**
+ * The desk selection that gives a focus category its best chance to fire
+ * again, using only the task/module distinctions the bank already encodes —
+ * `meta.ts`'s `LETTER_ONLY_CATEGORIES`, `TASK1_ONLY_CATEGORIES` and
+ * `TASK2_ONLY_CATEGORIES`. `null` for everything else: those categories are
+ * emitted by rule modules both pipelines run (`categoryAppliesTo`'s
+ * fallthrough `return true`), so the bank has no task or topic signal that
+ * makes one prompt more suited than another — the desk the learner already
+ * has open is exactly as good a place to drill it as any other.
+ */
+function selectionForFocus(category: IssueCategory, forModule: Module): LibrarySelection | null {
+  if (LETTER_ONLY_CATEGORIES.has(category)) return { kind: 'letter', prompt: randomLetterPrompt() }
+  if (TASK1_ONLY_CATEGORIES.has(category)) return { kind: 'chart', prompt: randomTask1Prompt() }
+  if (TASK2_ONLY_CATEGORIES.has(category)) return { kind: 'task2', prompt: randomPrompt(forModule) }
+  return null
+}
+
 export default function App({
   initialPrompt,
   initialTask1Prompt,
@@ -159,6 +184,16 @@ export default function App({
    */
   const [clockNotice, setClockNotice] = useState<string | null>(null)
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null)
+  /**
+   * The category `handleStartPractice` is currently targeting, shown as a
+   * dismissible banner on the desk. Cleared by every path that puts a BLANK,
+   * non-targeted essay on the desk (`startNewEssay`, `handleRedraft`,
+   * `restoreDraft`, `switchTask`, `switchModule`, and library-driven
+   * `handlePractiseFromLibrary`) so it can never survive onto an essay it does
+   * not describe; `handleStartPractice` re-asserts it right after, when a
+   * focus was actually requested.
+   */
+  const [drillFocus, setDrillFocus] = useState<IssueCategory | null>(null)
   const [examState, setExamState] = useState<ExamState>('idle')
   const [examSecondsLeft, setExamSecondsLeft] = useState(TASK_CONSTANTS.task2.examDurationSec)
   const [panelTab, setPanelTab] = useState<PanelTab>('feedback')
@@ -524,6 +559,11 @@ export default function App({
   function startNewEssay(nextPrompt?: PromptSpec | null) {
     submittingRef.current = false
     examDeadlineRef.current = null
+    // A blank, non-targeted essay: any drill banner left over from an earlier
+    // one would now be naming a category this essay was never set up for.
+    // `handleStartPractice` calls this and then re-asserts it when a focus
+    // was actually requested.
+    setDrillFocus(null)
     if (isLetter) setLetterPrompt(randomLetterPrompt())
     else if (task === 'task1') setTask1Prompt(randomTask1Prompt())
     // Draw from the active exam's pool: a General Training learner asked to
@@ -540,6 +580,7 @@ export default function App({
   function handleRedraft(session: WritingSessionRecord) {
     submittingRef.current = false
     examDeadlineRef.current = null
+    setDrillFocus(null)
     setTask(session.task)
     // Redrafting must reopen the exam the essay was written for, or the picker
     // would not list the very prompt being redrafted.
@@ -560,29 +601,13 @@ export default function App({
   }
 
   /**
-   * Puts a prompt chosen in the library on the writing desk, blank. Not
-   * `startNewEssay(prompt)`: its `nextPrompt` only reaches the Task 2 slot —
-   * letters and charts there are re-randomised. Not `handleRedraft`: it
-   * restores a session's essay text, and practising starts blank.
-   *
-   * The library's nav link is hidden whenever `mode === 'exam' && view ===
-   * 'write'` (the same `deskCleared` gate that hides Progress), so this can
-   * only ever run from coach mode — but a coach-mode essay in progress is
-   * still real work, so discarding it asks the same consent
-   * `switchTask`/`switchModule` ask before clearing one, and clears the draft
-   * explicitly for the same reason those two do: left to the debounced
-   * persistence effect, a reload in the gap would re-offer the very essay the
-   * learner just agreed to drop.
+   * Puts a concrete selection on the writing desk, blank — the raw placement
+   * shared by the library's "practise this" and by `handleStartPractice`'s
+   * focused-drill routing. No confirmation and no `drillFocus` bookkeeping
+   * here: callers that can discard real work ask consent first, and only
+   * `handleStartPractice` has an opinion on whether this counts as a drill.
    */
-  function handlePractiseFromLibrary(sel: LibrarySelection) {
-    if (countWords(essayText) > 0) {
-      const leave = window.confirm(
-        'Practising this prompt clears the answer sheet and discards the essay in progress. Continue?',
-      )
-      if (!leave) return
-    }
-    submittingRef.current = false
-    examDeadlineRef.current = null
+  function placeSelectionOnDesk(sel: LibrarySelection) {
     if (sel.kind === 'letter') {
       // Letters exist only in General Training; the desk must show that exam.
       setTask('task1')
@@ -610,12 +635,43 @@ export default function App({
   }
 
   /**
+   * Puts a prompt chosen in the library on the writing desk, blank. Not
+   * `startNewEssay(prompt)`: its `nextPrompt` only reaches the Task 2 slot —
+   * letters and charts there are re-randomised. Not `handleRedraft`: it
+   * restores a session's essay text, and practising starts blank.
+   *
+   * The library's nav link is hidden whenever `mode === 'exam' && view ===
+   * 'write'` (the same `deskCleared` gate that hides Progress), so this can
+   * only ever run from coach mode — but a coach-mode essay in progress is
+   * still real work, so discarding it asks the same consent
+   * `switchTask`/`switchModule` ask before clearing one, and clears the draft
+   * explicitly for the same reason those two do: left to the debounced
+   * persistence effect, a reload in the gap would re-offer the very essay the
+   * learner just agreed to drop.
+   */
+  function handlePractiseFromLibrary(sel: LibrarySelection) {
+    if (countWords(essayText) > 0) {
+      const leave = window.confirm(
+        'Practising this prompt clears the answer sheet and discards the essay in progress. Continue?',
+      )
+      if (!leave) return
+    }
+    submittingRef.current = false
+    examDeadlineRef.current = null
+    // A prompt hand-picked from the library is a different question from
+    // whatever `handleStartPractice` last targeted.
+    setDrillFocus(null)
+    placeSelectionOnDesk(sel)
+  }
+
+  /**
    * Applies an offered draft — called only from the restore card, never on
    * mount. `pendingDraft` holds the offer until this or `discardDraft` runs,
    * so the learner always decides.
    */
   function restoreDraft(draft: WritingDraft): void {
     submittingRef.current = false
+    setDrillFocus(null)
     setTask(draft.task)
     setModule(draft.module)
     // Same three-branch lookup as `handleRedraft`: a `promptId` no bank
@@ -692,6 +748,9 @@ export default function App({
     submittingRef.current = false
     examDeadlineRef.current = null
     setTask(next)
+    // A manual task switch abandons whatever `handleStartPractice` set up —
+    // the fresh blank essay below is not the targeted one anymore.
+    setDrillFocus(null)
     // A Task 2 essay sitting in a Task 1 answer sheet would be scored against
     // the wrong rules and produce confidently wrong feedback.
     setEssayText('')
@@ -757,6 +816,9 @@ export default function App({
     if (view !== 'write') return
     submittingRef.current = false
     examDeadlineRef.current = null
+    // Same reasoning as `switchTask`: the desk below gets a fresh blank
+    // essay, so any drill it was targeting no longer applies.
+    setDrillFocus(null)
     setEssayText('')
     // Consent to clear IS the "explicit discard" the draft contract names;
     // keeping a draft the learner just agreed to abandon would re-offer it at
@@ -947,8 +1009,43 @@ export default function App({
     setSessions(loadSessions())
   }
 
-  function handleStartPractice(_focus: IssueCategory | null) {
-    startNewEssay()
+  /**
+   * The Dashboard's "Start practice" (no focus) and each focus card's
+   * "Practise this" (a named weakness) both land here.
+   *
+   * A plain `null` is exactly the old behaviour: a fresh essay on whatever
+   * desk is already open. A named category first asks `selectionForFocus`
+   * whether the bank can offer a more suited task/prompt for it — a chart for
+   * a Task 1 fault, a letter for a General Training one, Task 2 for anything
+   * that pipeline alone emits. When it can, retargeting the desk is the same
+   * disruption `handlePractiseFromLibrary` asks consent for (it can discard
+   * an essay in progress), so it asks the same question and reuses the same
+   * placement. When it cannot — most GRA/LR categories fire on either task,
+   * so the bank has nothing more specific to offer — the current desk is left
+   * exactly alone, same as a plain "Start practice". Either way `drillFocus`
+   * is set last, once the desk it describes actually exists.
+   */
+  function handleStartPractice(focus: IssueCategory | null) {
+    if (focus === null) {
+      startNewEssay()
+      return
+    }
+    const selection = selectionForFocus(focus, module)
+    if (selection === null) {
+      startNewEssay()
+      setDrillFocus(focus)
+      return
+    }
+    if (countWords(essayText) > 0) {
+      const leave = window.confirm(
+        'Practising this prompt clears the answer sheet and discards the essay in progress. Continue?',
+      )
+      if (!leave) return
+    }
+    submittingRef.current = false
+    examDeadlineRef.current = null
+    placeSelectionOnDesk(selection)
+    setDrillFocus(focus)
   }
 
   function handleSelectIssue(issue: Issue) {
@@ -1241,6 +1338,15 @@ export default function App({
                 </button>
                 <button className="btn" onClick={discardDraft}>
                   Discard draft
+                </button>
+              </div>
+            )}
+            {drillFocus !== null && (
+              <div className="card" role="status">
+                <p className="eyebrow">Drilling: {CATEGORY_META[drillFocus]?.label ?? drillFocus}</p>
+                <p>{CATEGORY_META[drillFocus]?.hint ?? ''}</p>
+                <button className="btn" onClick={() => setDrillFocus(null)}>
+                  Dismiss
                 </button>
               </div>
             )}

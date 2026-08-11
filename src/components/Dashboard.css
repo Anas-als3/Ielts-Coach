@@ -305,6 +305,10 @@
   font-size: 13px;
 }
 
+.db-focus-drill {
+  align-self: flex-start;
+}
+
 .db-spark {
   flex: none;
   overflow: visible;
