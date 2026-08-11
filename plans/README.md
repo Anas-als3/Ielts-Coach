@@ -7,11 +7,16 @@ Four rounds so far:
   adversarial refutation, 10 killed) plus a gap analysis against the full exam.
   All DONE except 012 (deferred), 013 and 014.
 - **015–024** — 2026-08-10, second `/improve` pass over the merged result.
-  All TODO. **Several are regressions in the round-two fixes themselves** — see
-  "What the second audit found".
+  All DONE and merged 2026-08-10/11.
 - **025–032** — 2026-08-10, UX/direction audit (four lenses: learner journey,
   retention, platform/accounts, competitive) at baseline `d4ddef8`, plus the
-  user-reported Listening voice defect. All TODO. See "What the UX audit found".
+  user-reported Listening voice defect. All DONE and merged 2026-08-11.
+
+**Campaign complete (2026-08-11)**: every plan 001–032 except the deferred 012
+is DONE. Final state at `edf34ca`: **1,453 tests / 51 files**, typecheck covers
+`src` + `tests`, CI green, entry chunk **462.00 kB raw / 147.50 kB gzip** with
+7 lazy chunks (was one 712.52 kB chunk pre-split). Two original papers per
+Reading module and two Listening papers shipped alongside the plans.
 
 **Repo**: https://github.com/Anas-als3/Ielts-Coach (private)
 **Baseline for 015–024**: commit `ae92bac` · 23,292 lines of source · 848 tests.
@@ -22,18 +27,18 @@ sessions on the same plan.
 
 ## Execution order & status
 
-### Round four — 025–032, all TODO (baseline `d4ddef8`)
+### Round four — 025–032, all DONE (baseline `d4ddef8`)
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| **025** | **Draft safety — no work in progress dies silently** | **P0** | M | — | TODO |
-| 026 | Small honest fixes — 100/150 gate, mode tooltips, intro card, title | P2 | S | — | TODO |
-| 027 | Goals & readiness — exam date, target band, persisted exam type | P1 | M | 026 (prefs key, soft) | TODO |
-| 031 | Portability pack — merge-import, tombstones (v6), dated exports | P1 | M | **016** | TODO |
-| 032 | Listening voice quality — ranked voices now, authoring-time audio next | P1 | M+L | — | TODO |
-| 028 | Listening tapescript in the report | P2 | S | — | TODO |
-| 029 | Model-answer library | P2 | M | — | TODO |
-| 030 | Teach the bands — descriptors, Task 1 sheets, question technique | P2 | L (3 phases) | — | TODO |
+| **025** | **Draft safety — no work in progress dies silently** | **P0** | M | — | DONE |
+| 026 | Small honest fixes — 100/150 gate, mode tooltips, intro card, title | P2 | S | — | DONE |
+| 027 | Goals & readiness — exam date, target band, persisted exam type | P1 | M | 026 (prefs key, soft) | DONE |
+| 031 | Portability pack — merge-import, tombstones (v6), dated exports | P1 | M | **016** | DONE |
+| 032 | Listening voice quality — ranked voices now, authoring-time audio next | P1 | M+L | — | DONE |
+| 028 | Listening tapescript in the report | P2 | S | — | DONE |
+| 029 | Model-answer library | P2 | M | — | DONE |
+| 030 | Teach the bands — descriptors, Task 1 sheets, question technique | P2 | L (3 phases) | — | DONE |
 
 **Concurrency rules for this round**: 025, 026, 027 and 029 all add UI to
 `App.tsx` — run them sequentially (rebase order in each plan), and none of them
@@ -44,22 +49,22 @@ create, and its Prong B wiring touches `App.tsx:221`. 031 touches the store and
 Dashboard — after 016, not beside 019 or 017's Dashboard work. 026 defines the
 `'ielts-coach.prefs.v1'` key that 027 and 032 extend additively.
 
-### Round three — 015–024, all TODO
+### Round three — 015–024, all DONE
 
 Ordered by leverage. **015 first**: it is the only one a learner can see.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| **015** | **Letter false accusations, round two — 3 confirmed regressions** | **P0** | M | — | TODO |
-| 016 | Store durability — quota, backup growth, silent data loss | P1 | M | — | TODO |
-| 020 | CI + typecheck gate + agent entrypoint | P1 | S | — | TODO |
-| 024 | Bring `tests/` under the typechecker (29 errors) | P1 | M | 020 | TODO |
-| 021 | Kill the vacuous tests — 11 mutations the suite does not catch | P1 | M | — | TODO |
-| 017 | Progress page for all three sections | P1 | M | — | TODO |
-| 022 | Answer-key linter for Reading + Listening content | P2 | M | — | TODO |
-| 019 | One date comparator, used everywhere | P2 | S | — | TODO |
-| 023 | Code-split the sections | P2 | M | — | TODO |
-| 018 | Bound the whitespace regex (quadratic on pathological input) | P3 | S | — | TODO |
+| **015** | **Letter false accusations, round two — 3 confirmed regressions** | **P0** | M | — | DONE |
+| 016 | Store durability — quota, backup growth, silent data loss | P1 | M | — | DONE |
+| 020 | CI + typecheck gate + agent entrypoint | P1 | S | — | DONE |
+| 024 | Bring `tests/` under the typechecker (29 errors) | P1 | M | 020 | DONE |
+| 021 | Kill the vacuous tests — 11 mutations the suite does not catch | P1 | M | — | DONE |
+| 017 | Progress page for all three sections | P1 | M | — | DONE |
+| 022 | Answer-key linter for Reading + Listening content | P2 | M | — | DONE |
+| 019 | One date comparator, used everywhere | P2 | S | — | DONE |
+| 023 | Code-split the sections | P2 | M | — | DONE |
+| 018 | Bound the whitespace regex (quadratic on pathological input) | P3 | S | — | DONE |
 
 ### Rounds one and two — 001–014
 
@@ -76,8 +81,8 @@ Ordered by leverage. **015 first**: it is the only one a learner can see.
 | 009 | General Training Task 1 — letters | P1 | L | 008 | DONE |
 | 010 | Reading — both modules, real question types, real band tables | P2 | L | 008 | DONE |
 | 011 | Listening — marking is easy, audio is the project | P3 | L | 010 | DONE |
-| 014 | Make the error profile do something — the drill loop | P1 | M | 006, 015 | TODO |
-| 013 | Full mock test mode | P2 | M | 010, 011 | TODO |
+| 014 | Make the error profile do something — the drill loop | P1 | M | 006, 015 | DONE |
+| 013 | Full mock test mode | P2 | M | 010, 011 | DONE |
 | 012 | Speaking — the honest deterministic slice | P3 | M | 008 | DEFERRED — user descoped 2026-08-10; Writing/Reading/Listening first |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED.
